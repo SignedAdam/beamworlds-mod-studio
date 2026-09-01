@@ -14,6 +14,7 @@ func init() {
 	application.RegisterEvent[ScanProgress]("library:scan")
 	application.RegisterEvent[LibraryItem]("library:item")
 	application.RegisterEvent[AgentActivity]("agent:event")
+	application.RegisterEvent[ProfileProgress]("profile:progress")
 }
 
 func main() {

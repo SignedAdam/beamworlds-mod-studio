@@ -108,26 +108,81 @@ func (service *AppService) OpenGameDirectory() error {
 	return command.Process.Release()
 }
 
+func (service *AppService) HasAppliedModProfile() bool {
+	return hasOriginalBeamNGModDatabase(service.config.ActiveModsDir)
+}
+
+func (service *AppService) RestoreNormalModSelection() error {
+	service.profileMu.Lock()
+	defer service.profileMu.Unlock()
+	if service.gameRunning != nil {
+		running, err := service.gameRunning()
+		if err != nil {
+			return fmt.Errorf("check BeamNG process: %w", err)
+		}
+		if running {
+			return errors.New("close BeamNG before restoring the normal mod selection")
+		}
+	}
+	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
+	temporary := filepath.Join(service.config.ActiveModsDir, ".beamworlds-managed-restore")
+	if err := os.RemoveAll(temporary); err != nil {
+		return fmt.Errorf("clean previous managed-mod restore: %w", err)
+	}
+	if _, err := os.Stat(managedRoot); err == nil {
+		if err := os.Rename(managedRoot, temporary); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := applyOriginalBeamNGModDatabase(service.config.ActiveModsDir); err != nil {
+		if _, previousErr := os.Stat(temporary); previousErr == nil {
+			_ = os.Rename(temporary, managedRoot)
+		}
+		return err
+	}
+	if err := os.RemoveAll(temporary); err != nil {
+		return fmt.Errorf("remove managed profile mods: %w", err)
+	}
+	if err := discardOriginalBeamNGModDatabase(service.config.ActiveModsDir); err != nil {
+		return fmt.Errorf("finish normal mod restoration: %w", err)
+	}
+	_ = service.store.AppendEvent(context.Background(), "", "profile_restored", map[string]any{"activeModsDir": service.config.ActiveModsDir})
+	return nil
+}
+
 func (service *AppService) activateProfile(ctx context.Context, profileID string) (activation ProfileActivation, resultErr error) {
+	if service.config.BeamNGRoot == "" || service.config.ActiveModsDir == "" {
+		return ProfileActivation{}, errors.New("BeamNG paths are not configured")
+	}
+	if service.gameRunning != nil {
+		running, err := service.gameRunning()
+		if err != nil {
+			return ProfileActivation{}, fmt.Errorf("check BeamNG process: %w", err)
+		}
+		if running {
+			return ProfileActivation{}, errors.New("close BeamNG before preparing a mod profile")
+		}
+	}
 	detail, err := service.store.ProfileDetail(ctx, profileID)
 	if err != nil {
 		return ProfileActivation{}, err
 	}
 	profileRoot := filepath.Join(service.config.ProfileDir, profileID)
-	userRoot := filepath.Join(profileRoot, "user")
-	modsRoot := filepath.Join(userRoot, "mods")
+	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 	cacheRoot := filepath.Join(service.config.ProfileDir, ".archive-cache")
 	activationID, err := modkit.NewID()
 	if err != nil {
 		return ProfileActivation{}, err
 	}
-	nextMods := filepath.Join(profileRoot, ".mods-next-"+activationID[:8])
-	if err := os.MkdirAll(nextMods, 0o755); err != nil {
+	nextManaged := filepath.Join(service.config.ActiveModsDir, ".beamworlds-managed-next-"+activationID[:8])
+	if err := os.MkdirAll(nextManaged, 0o755); err != nil {
 		return ProfileActivation{}, err
 	}
 	defer func() {
 		if resultErr != nil {
-			_ = os.RemoveAll(nextMods)
+			_ = os.RemoveAll(nextManaged)
 		}
 	}()
 	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
@@ -146,6 +201,7 @@ func (service *AppService) activateProfile(ctx context.Context, profileID string
 			service.emitProfileProgress(progress)
 		}
 	}()
+	selectedKeys := make([]string, 0, len(detail.Mods))
 	for index, mod := range detail.Mods {
 		if err := ctx.Err(); err != nil {
 			return ProfileActivation{}, err
@@ -153,12 +209,25 @@ func (service *AppService) activateProfile(ctx context.Context, profileID string
 		progress.Phase = "materializing"
 		progress.Current = mod.DisplayName
 		service.emitProfileProgress(progress)
+		sourcePath := cleanOptionalPath(mod.ArchivePath)
+		if sourcePath != "" && strings.EqualFold(filepath.Ext(sourcePath), ".zip") && pathWithin(sourcePath, service.config.ActiveModsDir) && !pathWithin(sourcePath, managedRoot) {
+			if info, statErr := os.Stat(sourcePath); statErr == nil && !info.IsDir() {
+				key, keyErr := beamNGModKey(sourcePath, service.config.ActiveModsDir)
+				if keyErr != nil {
+					return ProfileActivation{}, keyErr
+				}
+				selectedKeys = append(selectedKeys, key)
+				progress.Completed = index + 1
+				service.emitProfileProgress(progress)
+				continue
+			}
+		}
 		expectedHash := strings.ToLower(strings.TrimSpace(mod.SHA256))
 		if expectedHash == "" {
-			if mod.ArchivePath == "" {
+			if sourcePath == "" {
 				return ProfileActivation{}, fmt.Errorf("%s has no linked archive or cached fingerprint", mod.DisplayName)
 			}
-			expectedHash, err = modkit.FullSHA256(ctx, mod.ArchivePath)
+			expectedHash, err = modkit.FullSHA256(ctx, sourcePath)
 			if err != nil {
 				return ProfileActivation{}, fmt.Errorf("fingerprint %s: %w", mod.DisplayName, err)
 			}
@@ -168,10 +237,10 @@ func (service *AppService) activateProfile(ctx context.Context, profileID string
 		}
 		cachePath := filepath.Join(cacheRoot, expectedHash+".zip")
 		if _, statErr := os.Stat(cachePath); errors.Is(statErr, os.ErrNotExist) {
-			if mod.ArchivePath == "" {
+			if sourcePath == "" {
 				return ProfileActivation{}, fmt.Errorf("%s is unavailable; rescan or relink its archive", mod.DisplayName)
 			}
-			if err := copyArchiveToCache(ctx, mod.ArchivePath, cachePath, expectedHash, func(written int64) {
+			if err := copyArchiveToCache(ctx, sourcePath, cachePath, expectedHash, func(written int64) {
 				progress.BytesCopied += written
 				service.emitProfileProgress(progress)
 			}); err != nil {
@@ -180,59 +249,72 @@ func (service *AppService) activateProfile(ctx context.Context, profileID string
 		} else if statErr != nil {
 			return ProfileActivation{}, statErr
 		}
-		base := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(mod.ArchivePath), filepath.Ext(mod.ArchivePath)))
+		base := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath)))
 		if base == "" {
 			base = sanitizeArchiveLabel(mod.DisplayName)
 		}
 		if base == "" {
 			base = "mod"
 		}
-		destination := filepath.Join(nextMods, fmt.Sprintf("%s-%s.zip", base, mod.EntityID[:8]))
+		destination := filepath.Join(nextManaged, fmt.Sprintf("%s-%s.zip", base, mod.EntityID[:8]))
 		if err := os.Link(cachePath, destination); err != nil {
 			if err := copyFileAtomic(cachePath, destination); err != nil {
 				return ProfileActivation{}, err
 			}
 		}
+		key, err := beamNGModKey(filepath.Join(managedRoot, filepath.Base(destination)), service.config.ActiveModsDir)
+		if err != nil {
+			return ProfileActivation{}, err
+		}
+		selectedKeys = append(selectedKeys, key)
 		progress.Completed = index + 1
 		service.emitProfileProgress(progress)
 	}
 	progress.Phase = "activating"
 	progress.Current = ""
 	service.emitProfileProgress(progress)
-	if err := os.MkdirAll(userRoot, 0o755); err != nil {
-		return ProfileActivation{}, err
-	}
-	previous := filepath.Join(profileRoot, ".mods-previous")
+	previous := filepath.Join(service.config.ActiveModsDir, ".beamworlds-managed-previous")
 	_ = os.RemoveAll(previous)
-	if _, err := os.Stat(modsRoot); err == nil {
-		if err := os.Rename(modsRoot, previous); err != nil {
+	if _, err := os.Stat(managedRoot); err == nil {
+		if err := os.Rename(managedRoot, previous); err != nil {
 			return ProfileActivation{}, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return ProfileActivation{}, err
 	}
-	if err := os.Rename(nextMods, modsRoot); err != nil {
+	if err := os.Rename(nextManaged, managedRoot); err != nil {
 		if _, previousErr := os.Stat(previous); previousErr == nil {
-			_ = os.Rename(previous, modsRoot)
+			_ = os.Rename(previous, managedRoot)
 		}
+		return ProfileActivation{}, err
+	}
+	rollback := func() {
+		_ = os.RemoveAll(managedRoot)
+		if _, previousErr := os.Stat(previous); previousErr == nil {
+			_ = os.Rename(previous, managedRoot)
+		}
+	}
+	hadOriginalModState := hasOriginalBeamNGModDatabase(service.config.ActiveModsDir)
+	if err := applyBeamNGModSelection(service.config.ActiveModsDir, selectedKeys); err != nil {
+		rollback()
 		return ProfileActivation{}, err
 	}
 	activatedAt := nowUTC()
 	marker, _ := json.MarshalIndent(map[string]any{"profileId": profileID, "profileName": detail.Profile.Name, "activatedAt": activatedAt, "modCount": len(detail.Mods)}, "", "  ")
-	if err := os.WriteFile(filepath.Join(userRoot, ".beamworlds-profile.json"), append(marker, '\n'), 0o644); err != nil {
-		_ = os.RemoveAll(modsRoot)
-		if _, previousErr := os.Stat(previous); previousErr == nil {
-			_ = os.Rename(previous, modsRoot)
+	if err := writeFileAtomic(filepath.Join(profileRoot, ".beamworlds-profile.json"), append(marker, '\n'), 0o644); err != nil {
+		rollback()
+		if restoreErr := restoreBeamNGModDatabase(service.config.ActiveModsDir); restoreErr == nil && !hadOriginalModState {
+			_ = discardOriginalBeamNGModDatabase(service.config.ActiveModsDir)
 		}
 		return ProfileActivation{}, err
 	}
 	_ = os.RemoveAll(previous)
-	activation = ProfileActivation{ProfileID: profileID, ProfileName: detail.Profile.Name, UserPath: userRoot, ModsPath: modsRoot, ModCount: len(detail.Mods), ActivatedAt: activatedAt}
+	activation = ProfileActivation{ProfileID: profileID, ProfileName: detail.Profile.Name, UserPath: service.config.BeamNGRoot, ModsPath: managedRoot, ModCount: len(detail.Mods), ActivatedAt: activatedAt}
 	progress.Phase = "ready"
 	progress.Completed = progress.Total
 	progress.Done = true
 	service.emitProfileProgress(progress)
-	_ = service.store.AppendEvent(ctx, "", "profile_activated", map[string]any{"profileId": profileID, "profileName": detail.Profile.Name, "modCount": len(detail.Mods), "userPath": userRoot})
+	_ = service.store.AppendEvent(ctx, "", "profile_activated", map[string]any{"profileId": profileID, "profileName": detail.Profile.Name, "modCount": len(detail.Mods), "userPath": service.config.BeamNGRoot})
 	return activation, nil
 }
 

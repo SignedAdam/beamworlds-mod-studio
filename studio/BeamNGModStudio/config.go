@@ -10,6 +10,7 @@ import (
 )
 
 type AppConfig struct {
+	SetupComplete   bool     `json:"setupComplete,omitempty"`
 	BeamNGRoot      string   `json:"beamngRoot"`
 	ActiveModsDir   string   `json:"activeModsDir"`
 	LibraryDir      string   `json:"libraryDir"`
@@ -44,7 +45,7 @@ func LoadAppConfig() (AppConfig, error) {
 		config.ProjectRoot = projectRoot
 		config.ConfigPath = configPath
 	}
-	if config.ProjectRoot == "" {
+	if config.ProjectRoot == "" && configPath != "" {
 		config.ProjectRoot = filepath.Dir(configPath)
 	}
 	if config.DataDir == "" {
@@ -56,6 +57,10 @@ func LoadAppConfig() (AppConfig, error) {
 			return config, errors.New("cannot determine application data directory")
 		}
 	}
+	return finalizeAppConfig(config)
+}
+
+func finalizeAppConfig(config AppConfig) (AppConfig, error) {
 	config.BeamNGRoot = cleanOptionalPath(config.BeamNGRoot)
 	config.ActiveModsDir = cleanOptionalPath(config.ActiveModsDir)
 	config.LibraryDir = cleanOptionalPath(config.LibraryDir)
@@ -84,35 +89,47 @@ func LoadAppConfig() (AppConfig, error) {
 }
 
 func findProjectConfig() (string, string) {
-	candidates := []string{}
 	if value := strings.TrimSpace(os.Getenv("BEAMWORLDS_HOME")); value != "" {
-		candidates = append(candidates, value)
+		root := cleanOptionalPath(value)
+		if configRoot, configPath := findConfigFrom(root); configPath != "" {
+			return configRoot, configPath
+		}
+		return root, ""
 	}
+	if local, err := os.UserConfigDir(); err == nil {
+		root := filepath.Join(local, "BeamWorlds", "ModStudio")
+		filename := filepath.Join(root, "config.json")
+		if info, statErr := os.Stat(filename); statErr == nil && !info.IsDir() {
+			return root, filename
+		}
+	}
+	candidates := []string{}
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, cwd)
 	}
 	if executable, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Dir(executable))
 	}
-	seen := map[string]bool{}
 	for _, candidate := range candidates {
-		current := filepath.Clean(candidate)
-		for range 8 {
-			key := strings.ToLower(current)
-			if seen[key] {
-				break
-			}
-			seen[key] = true
-			filename := filepath.Join(current, "config.json")
-			if info, err := os.Stat(filename); err == nil && !info.IsDir() {
-				return current, filename
-			}
-			parent := filepath.Dir(current)
-			if parent == current {
-				break
-			}
-			current = parent
+		if root, filename := findConfigFrom(candidate); filename != "" {
+			return root, filename
 		}
+	}
+	return "", ""
+}
+
+func findConfigFrom(candidate string) (string, string) {
+	current := filepath.Clean(candidate)
+	for range 8 {
+		filename := filepath.Join(current, "config.json")
+		if info, err := os.Stat(filename); err == nil && !info.IsDir() {
+			return current, filename
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
 	}
 	return "", ""
 }

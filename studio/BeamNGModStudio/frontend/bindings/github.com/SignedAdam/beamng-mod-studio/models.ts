@@ -54,6 +54,7 @@ export interface AgentRunRecord {
 }
 
 export interface AppConfig {
+    "setupComplete"?: boolean;
     "beamngRoot": string;
     "activeModsDir": string;
     "libraryDir": string;
@@ -327,6 +328,28 @@ export interface SettingsUpdate {
     "showAIUsage": boolean;
     "apiKey": string;
     "clearApiKey": boolean;
+}
+
+export interface SetupInput {
+    "beamngRoot": string;
+    "activeModsDir": string;
+    "libraryDir": string;
+    "gameInstallDir": string;
+    "dataDir": string;
+    "additionalScanRoots": string[] | null;
+}
+
+export interface SetupResult {
+    "config": AppConfig;
+    "restartRequired": boolean;
+}
+
+export interface SetupState {
+    "required": boolean;
+    "suggested": SetupInput;
+    "configPath": string;
+    "nativeModCount": number;
+    "nativeEnabledCount": number;
 }
 
 export interface TestInstallRecord {

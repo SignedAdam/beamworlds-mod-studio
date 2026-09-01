@@ -21,6 +21,7 @@ type AppService struct {
 	emit         func(string, any)
 	profileMu    sync.Mutex
 	startProcess func(string, []string, string) (ProcessLaunch, error)
+	gameRunning  func() (bool, error)
 }
 
 type WorkspaceDetail struct {
@@ -55,6 +56,7 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 		agents:       NewAgentManager(store, config, emit),
 		emit:         emit,
 		startProcess: startDetachedProcess,
+		gameRunning:  beamNGProcessRunning,
 	}
 }
 

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { AIUsage, AppConfig, AppSettings, Dashboard, EntityDetail, LibraryItem, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { AIUsage, AppConfig, AppSettings, Dashboard, EntityDetail, LibraryItem, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, SetupState, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { ActivityView } from './ActivityView'
 import { Inspector } from './Inspector'
 import { LibraryView } from './LibraryView'
 import { ModMaker } from './ModMaker'
 import { ProfilesView } from './ProfilesView'
+import { SetupWizard } from './SetupWizard'
 import { Icon } from './icons'
 import { Button } from './ui'
 
@@ -30,6 +31,8 @@ function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [usage, setUsage] = useState<AIUsage | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [setupState, setSetupState] = useState<SetupState | null>(null)
+  const [setupOpen, setSetupOpen] = useState(false)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [items, setItems] = useState<LibraryItem[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
@@ -126,39 +129,49 @@ function App() {
 
   useEffect(() => {
     let active = true
-    API.Dashboard().then(nextDashboard => {
-      if (!active) return Promise.reject(new Error('cancelled'))
-      setDashboard(nextDashboard)
-      return Promise.all([API.Config(), API.ListWorkspaces(), API.ListLibrary('all', 'all', '', 'all'), API.Organization(), API.Settings(), API.AIUsage(), Promise.resolve(nextDashboard)])
-    }).then(([nextConfig, workspaceResult, itemResult, nextOrganization, nextSettings, nextUsage, nextDashboard]) => {
-      if (!active) return
-      const nextWorkspaces = workspaceResult ?? []
-      setConfig(nextConfig)
-      setWorkspaces(nextWorkspaces)
-      setItems(itemResult ?? [])
-      setAllItems(itemResult ?? [])
-      setOrganization(nextOrganization)
-      setSettings(nextSettings)
-      setUsage(nextUsage)
-      if (nextWorkspaces.length) setSelectedWorkspaceID(nextWorkspaces[0].id)
-      setLoading(false)
-      if (nextDashboard.entities === 0 && !autoScanStarted.current) {
-        autoScanStarted.current = true
-        void startScan()
-      }
-    }).catch(error => {
-      if (active && (!(error instanceof Error) || error.message !== 'cancelled')) {
+    void (async () => {
+      try {
+        const nextSetup = await API.GetSetupState()
+        if (!active) return
+        setSetupState(nextSetup)
+        if (nextSetup.required) {
+          setLoading(false)
+          return
+        }
+        const nextDashboard = await API.Dashboard()
+        if (!active) return
+        setDashboard(nextDashboard)
+        const [nextConfig, workspaceResult, itemResult, nextOrganization, nextSettings, nextUsage] = await Promise.all([API.Config(), API.ListWorkspaces(), API.ListLibrary('all', 'all', '', 'all'), API.Organization(), API.Settings(), API.AIUsage()])
+        if (!active) return
+        const nextWorkspaces = workspaceResult ?? []
+        setConfig(nextConfig)
+        setWorkspaces(nextWorkspaces)
+        setItems(itemResult ?? [])
+        setAllItems(itemResult ?? [])
+        setOrganization(nextOrganization)
+        setSettings(nextSettings)
+        setUsage(nextUsage)
+        if (nextWorkspaces.length) setSelectedWorkspaceID(nextWorkspaces[0].id)
         setLoading(false)
-        handleError(error)
+        if (nextDashboard.entities === 0 && !autoScanStarted.current) {
+          autoScanStarted.current = true
+          void startScan()
+        }
+      } catch (error) {
+        if (active) {
+          setLoading(false)
+          handleError(error)
+        }
       }
-    })
+    })()
     return () => { active = false }
   }, [])
 
   useEffect(() => {
+    if (!setupState || setupState.required) return
     const timer = setTimeout(() => { void loadLibrary().catch(handleError) }, 120)
     return () => clearTimeout(timer)
-  }, [status, kind, query, folderID])
+  }, [status, kind, query, folderID, setupState?.required])
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings?.theme ?? 'dark'
@@ -293,10 +306,24 @@ function App() {
     }
   }
 
+  const openSetup = async () => {
+    try {
+      setSetupState(await API.GetSetupState())
+      setSettingsOpen(false)
+      setSetupOpen(true)
+    } catch (error) {
+      handleError(error)
+    }
+  }
+
   const changeView = (next: View) => {
     setView(next)
     setSelectedItem(null)
     setEntityDetail(null)
+  }
+
+  if (setupState && (setupState.required || setupOpen)) {
+    return <SetupWizard state={setupState} required={setupState.required} onCancel={setupState.required ? undefined : () => setSetupOpen(false)} onError={handleError}/>
   }
 
   const startupCount = dashboard?.entities ?? 0
@@ -313,7 +340,7 @@ function App() {
         <button className={view === 'library' ? 'is-active' : ''} onClick={() => changeView('library')}><Icon name="library"/><span>Library</span><small>{dashboard?.entities ?? 0}</small></button>
         <button className={view === 'workspaces' ? 'is-active' : ''} onClick={() => changeView('workspaces')}><Icon name="workspace"/><span>ModMaker</span><small>{workspaces.length}</small></button>
         <button className={view === 'activity' ? 'is-active' : ''} onClick={() => changeView('activity')}><Icon name="activity"/><span>Activity</span></button>
-        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')}><Icon name="play"/><span>Profiles</span><small>{organization?.profiles?.length ?? 0}</small></button>
+        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')}><Icon name="play"/><span>Mod profiles</span><small>{organization?.profiles?.length ?? 0}</small></button>
       </nav>
       <button className="sidebar-settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={16}/><span>Settings</span></button>
     </aside>
@@ -335,7 +362,7 @@ function App() {
       {settings?.showAIUsage && usage?.hasRuns && <div className="usage-compact"><Icon name="agent" size={13}/>{usageLimits.map(limit => <UsageChip key={`${limit.provider}-${limit.label}`} limit={limit}/>)}{usage.totalTokens > 0 && <span>{usage.totalTokens.toLocaleString()} tokens</span>}</div>}
     </footer>
 
-    <SettingsPanel open={settingsOpen} settings={settings} usage={usage} onClose={() => setSettingsOpen(false)} onSave={saveSettings}/>
+    <SettingsPanel open={settingsOpen} settings={settings} usage={usage} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onOpenSetup={() => void openSetup()}/>
     <div className={`toast toast--${toast.tone} ${toast.visible ? 'is-visible' : ''}`} role="status" aria-live="polite"><Icon name={toast.tone === 'error' ? 'error' : toast.tone === 'success' ? 'check' : 'activity'} size={17}/><span>{toast.message}</span><button onClick={() => setToast(current => ({ ...current, visible: false }))} aria-label="Dismiss"><Icon name="close" size={14}/></button></div>
   </div>
 }
@@ -345,7 +372,7 @@ function UsageChip({ limit }: { limit: NonNullable<AIUsage['limits']>[number] })
   return <span title={`${limit.provider} · resets ${new Date(limit.resetsAt).toLocaleString()}`}>{limit.windowId || limit.label} {amount}</span>
 }
 
-function SettingsPanel({ open, settings, usage, onClose, onSave }: { open: boolean; settings: AppSettings | null; usage: AIUsage | null; onClose: () => void; onSave: (update: SettingsUpdate) => Promise<boolean> }) {
+function SettingsPanel({ open, settings, usage, onClose, onSave, onOpenSetup }: { open: boolean; settings: AppSettings | null; usage: AIUsage | null; onClose: () => void; onSave: (update: SettingsUpdate) => Promise<boolean>; onOpenSetup: () => void }) {
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [apiKey, setAPIKey] = useState('')
   const [clearAPIKey, setClearAPIKey] = useState(false)
@@ -382,6 +409,7 @@ function SettingsPanel({ open, settings, usage, onClose, onSave }: { open: boole
       <div className="settings-body">
         <fieldset><legend>Interface</legend><div className="settings-row"><label>Theme<span>Applied to every pane and editor surface.</span></label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'dark' })}>Glass black</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'light' })}>Bright glass</button></div></div></fieldset>
         <fieldset><legend>Project defaults</legend><label className="settings-field"><span>Author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Used by new mods" maxLength={80}/><small>The first author entered in the manual wizard becomes this default.</small></label></fieldset>
+        <fieldset><legend>Storage and paths</legend><div className="settings-row"><label>BeamNG and staging locations<span>Change the game, mod library, or BeamWorlds storage folders.</span></label><Button onClick={onOpenSetup}>Open setup</Button></div></fieldset>
         <fieldset><legend>Virgil</legend>
           <div className="settings-grid">
             <label className="settings-field"><span>Connection</span><select value={draft.agentProfile} onChange={event => setDraft({ ...draft, agentProfile: event.target.value })}><option value="omp">OMP default</option><option value="codex">ChatGPT / Codex</option><option value="claude">Claude</option><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option></select></label>

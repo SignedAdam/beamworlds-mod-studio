@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -189,7 +191,7 @@ func TestDraftRecoveryAndWorkspaceTreeOperations(t *testing.T) {
 	}
 }
 
-func TestProfileActivationAndLaunchIsolation(t *testing.T) {
+func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
 	first, err := service.CreateNewMod(NewModRequest{Name: "Profile One", ModID: "profile_one", Kind: "script", Version: "0.1.0"})
@@ -223,6 +225,17 @@ func TestProfileActivationAndLaunchIsolation(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("existing user mod"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	sentinelKey, err := beamNGModKey(sentinel, service.config.ActiveModsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeDB, err := json.Marshal(map[string]any{"header": map[string]any{"version": 1.1}, "mods": map[string]any{sentinelKey: map[string]any{"active": true, "fullpath": "/mods/existing-user-mod.zip"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), nativeDB, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	progress := []ProfileProgress{}
 	service.emit = func(name string, value any) {
 		if name == "profile:progress" {
@@ -243,8 +256,20 @@ func TestProfileActivationAndLaunchIsolation(t *testing.T) {
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatalf("existing active mod was touched: %v", err)
 	}
-	if !strings.HasPrefix(filepath.Clean(activation.UserPath), filepath.Clean(service.config.ProfileDir)+string(os.PathSeparator)) {
-		t.Fatalf("profile user path escaped profile storage: %s", activation.UserPath)
+	if !samePath(activation.UserPath, service.config.BeamNGRoot) {
+		t.Fatalf("mod profile changed BeamNG user data root: %s", activation.UserPath)
+	}
+	if !samePath(activation.ModsPath, filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)) {
+		t.Fatalf("managed mod path = %s", activation.ModsPath)
+	}
+	var appliedDB struct {
+		Mods map[string]struct {
+			Active bool `json:"active"`
+		} `json:"mods"`
+	}
+	appliedPayload, err := os.ReadFile(filepath.Join(service.config.ActiveModsDir, "db.json"))
+	if err != nil || json.Unmarshal(appliedPayload, &appliedDB) != nil || appliedDB.Mods[sentinelKey].Active {
+		t.Fatalf("existing native mod was not disabled in BeamNG state: %s, err %v", appliedPayload, err)
 	}
 	if len(progress) == 0 || !progress[len(progress)-1].Done || progress[len(progress)-1].Phase != "ready" {
 		t.Fatalf("terminal activation progress missing: %#v", progress)
@@ -272,6 +297,23 @@ func TestProfileActivationAndLaunchIsolation(t *testing.T) {
 	}
 	if launch.Process.PID != 4242 || gotExecutable != service.config.GameExecutable || gotDirectory != service.config.GameInstallDir || len(gotArguments) != 2 || gotArguments[0] != "-userpath" || gotArguments[1] != launch.Activation.UserPath {
 		t.Fatalf("profile launch contract mismatch: launch=%#v executable=%q arguments=%#v directory=%q", launch, gotExecutable, gotArguments, gotDirectory)
+	}
+	if !service.HasAppliedModProfile() {
+		t.Fatal("applied mod profile did not preserve the normal BeamNG state")
+	}
+	if err := service.RestoreNormalModSelection(); err != nil {
+		t.Fatal(err)
+	}
+	if service.HasAppliedModProfile() {
+		t.Fatal("normal BeamNG state still reports as managed after restore")
+	}
+	if _, err := os.Stat(filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed mod directory remains after restore: %v", err)
+	}
+	appliedPayload, err = os.ReadFile(filepath.Join(service.config.ActiveModsDir, "db.json"))
+	appliedDB.Mods = nil
+	if err != nil || json.Unmarshal(appliedPayload, &appliedDB) != nil || !appliedDB.Mods[sentinelKey].Active {
+		t.Fatalf("normal BeamNG mod selection was not restored: %s, err %v", appliedPayload, err)
 	}
 }
 

@@ -3,8 +3,11 @@ package main
 import (
 	"archive/zip"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,16 +23,26 @@ func TestModAuditLocalScanMapsExecutableAndScriptAttackSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.ScannedEntries != 5 || report.ExecutableFiles < 2 || report.SuspiciousFiles < 3 {
+	if report.ScannedEntries != 7 || report.ExecutableFiles < 2 || report.SuspiciousFiles < 3 {
 		t.Fatalf("unexpected local scan summary: %#v", report)
 	}
-	for _, code := range []string{"host_executable", "disguised_pe", "process_launch", "network_access", "dynamic_code", "long_encoded_blob", "hateful_content_signal", "unsafe_archive_path"} {
+	for _, code := range []string{"host_executable", "disguised_pe", "image_type_mismatch", "process_launch", "network_access", "dynamic_code", "long_encoded_blob", "hateful_content_signal", "unsafe_archive_path"} {
 		if !hasAuditSignal(report.Signals, code) {
 			t.Errorf("local scan did not report %s: %#v", code, report.Signals)
 		}
 	}
 	if len(artifacts) < 4 {
 		t.Fatalf("persisted candidate artifacts = %d, want at least 4", len(artifacts))
+	}
+	var imageArtifact *modAuditArtifactRecord
+	for index := range artifacts {
+		if artifacts[index].Path == "art/bad.png" {
+			imageArtifact = &artifacts[index]
+			break
+		}
+	}
+	if imageArtifact == nil || imageArtifact.MediaType != "image/png" {
+		t.Fatalf("raster image was not retained for visual review: %#v", imageArtifact)
 	}
 	var extension, executable *ModAuditAttackSurfaceEntry
 	for index := range surface.Entries {
@@ -122,6 +135,35 @@ func TestModAuditFocusedReadUsesRequestedLargerExcerpt(t *testing.T) {
 	}
 }
 
+func TestModAuditPreScanBatchesEveryCandidate(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	artifacts := make([]modAuditArtifactRecord, 205)
+	for index := range artifacts {
+		artifacts[index].Path = "lua/ge/extensions/candidate-" + strconv.Itoa(index) + ".lua"
+		artifacts[index].EntrypointType = "game-extension"
+	}
+	calls, supplied := 0, 0
+	service.auditAI = func(_ context.Context, request auditAIRequest) (string, error) {
+		calls++
+		var payload struct {
+			Files []auditPromptFile `json:"files"`
+		}
+		if err := json.Unmarshal([]byte(request.Prompt), &payload); err != nil {
+			t.Fatal(err)
+		}
+		supplied += len(payload.Files)
+		return `{"summary":"batch inspected","files":[]}`, nil
+	}
+	report, err := service.runModAuditPreScanBatches(context.Background(), ModAudit{}, artifacts, defaultAppSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 || supplied != len(artifacts) || report.Model != "gpt-5.6-luna" {
+		t.Fatalf("pre-scan batches calls=%d supplied=%d report=%#v", calls, supplied, report)
+	}
+}
+
 func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
@@ -129,6 +171,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 	item := insertModAuditFixture(t, service, archivePath)
 
 	preCalls, fullCalls, followUpCalls := 0, 0, 0
+	visualTempPaths := []string{}
 	service.auditAI = func(_ context.Context, request auditAIRequest) (string, error) {
 		switch request.SystemPrompt {
 		case preScanSystemPrompt:
@@ -139,6 +182,9 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 			if strings.Contains(strings.ToLower(request.SystemPrompt), "verdict") == false {
 				t.Fatal("pre-scan system prompt does not prohibit verdicts")
 			}
+			if len(request.Attachments) != 0 {
+				t.Fatalf("cheap pre-scan received visual attachments: %#v", request.Attachments)
+			}
 			return `{"summary":"The extension launches a process and contacts a remote URL.","files":[{"path":"lua/ge/extensions/audit.lua","observations":["Calls os.execute and fetches an HTTPS URL"],"behaviors":["Can launch a host process"],"followUp":["Inspect the complete command construction"]}]}`, nil
 		case fullAuditSystemPrompt:
 			fullCalls++
@@ -146,11 +192,34 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 				t.Fatalf("full-scan selection = %s/%s", request.Model, request.Reasoning)
 			}
 			if strings.Contains(request.Prompt, "focusedFiles") {
-				return `{"overallRisk":"high","summary":"Focused inspection confirms an externally supplied command reaches os.execute.","findings":[{"severity":"high","title":"Command execution path","path":"lua/ge/extensions/audit.lua","evidence":"External input is concatenated into os.execute","impact":"Host command execution","recommendation":"Remove process launch and constrain input"},{"severity":"critical","title":"Invented path","path":"not/in/the/archive.exe","evidence":"Unsupported model claim","impact":"Unknown","recommendation":"None"}],"contentSignals":[],"followUpPaths":[]}`, nil
+				if len(request.Attachments) != 0 {
+					t.Fatalf("script-focused pass received unrelated images: %#v", request.Attachments)
+				}
+				return `{"overallRisk":"high","summary":"Focused inspection confirms an externally supplied command reaches os.execute and visual review found prohibited imagery.","findings":[{"severity":"high","title":"Command execution path","path":"lua/ge/extensions/audit.lua","evidence":"External input is concatenated into os.execute","impact":"Host command execution","recommendation":"Remove process launch and constrain input"},{"severity":"critical","title":"Invented path","path":"not/in/the/archive.exe","evidence":"Unsupported model claim","impact":"Unknown","recommendation":"None"}],"contentSignals":[{"severity":"high","title":"Hateful visual content","path":"art/bad.png","evidence":"The attached image visibly contains hateful material","impact":"Prohibited visual content","recommendation":"Remove the image"}],"followUpPaths":[]}`, nil
 			}
-			return `{"overallRisk":"high","summary":"Process launch requires focused inspection.","findings":[],"contentSignals":[],"followUpPaths":["lua/ge/extensions/audit.lua"]}`, nil
+			if len(request.Attachments) != 1 || !strings.Contains(request.Prompt, `"sourcePath": "art/bad.png"`) || !strings.Contains(request.Prompt, `"imageInventory"`) {
+				t.Fatalf("full scan did not receive mapped visual evidence: attachments=%#v prompt=%s", request.Attachments, request.Prompt)
+			}
+			if _, err := os.Stat(request.Attachments[0]); err != nil {
+				t.Fatalf("visual attachment was not readable during model call: %v", err)
+			}
+			visualTempPaths = append(visualTempPaths, request.Attachments[0])
+			return `{"overallRisk":"high","summary":"Process launch requires focused inspection; the attached image contains hateful material.","findings":[],"contentSignals":[{"severity":"high","title":"Hateful visual content","path":"art/bad.png","evidence":"The attached image visibly contains hateful material","impact":"Prohibited visual content","recommendation":"Remove the image"}],"followUpPaths":["lua/ge/extensions/audit.lua"]}`, nil
 		case followUpSystemPrompt:
 			followUpCalls++
+			if len(request.Attachments) > 0 {
+				if len(request.Attachments) != 1 {
+					t.Fatalf("image-focused follow-up attachments = %#v", request.Attachments)
+				}
+				if _, err := os.Stat(request.Attachments[0]); err != nil {
+					t.Fatalf("focused visual attachment was not readable: %v", err)
+				}
+				visualTempPaths = append(visualTempPaths, request.Attachments[0])
+				return "The attached image mapped to art/bad.png visibly contains hateful material.", nil
+			}
+			if len(request.Attachments) != 0 {
+				t.Fatalf("text-only follow-up received visual attachments: %#v", request.Attachments)
+			}
 			return "The selected extension passes a constructed string to os.execute; no other file is needed for this answer.", nil
 		default:
 			t.Fatalf("unexpected audit system prompt: %q", request.SystemPrompt)
@@ -177,14 +246,19 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if full.Status != "complete" || full.Final.OverallRisk != "high" || len(full.Final.Findings) != 1 || len(full.Final.FocusedPaths) != 1 {
+	if full.Status != "complete" || full.Final.OverallRisk != "high" || len(full.Final.Findings) != 1 || len(full.Final.ContentSignals) != 1 || len(full.Final.FocusedPaths) != 1 {
 		t.Fatalf("unexpected final Mod Audit: %#v", full.Final)
 	}
-	if len(full.Final.Warnings) != 1 || !strings.Contains(full.Final.Warnings[0], "outside the persisted audit artifacts") {
-		t.Fatalf("unknown model paths were not rejected: %#v", full.Final.Warnings)
+	if !containsAuditWarning(full.Final.Warnings, "outside the persisted audit artifacts") || !containsAuditWarning(full.Final.Warnings, "Image signature did not match") {
+		t.Fatalf("model-path or visual-attachment warnings were not preserved: %#v", full.Final.Warnings)
 	}
 	if preCalls != 1 || fullCalls != 2 {
 		t.Fatalf("AI calls pre=%d full=%d, want persisted pre=1 and focused full=2", preCalls, fullCalls)
+	}
+	for _, path := range visualTempPaths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("initial visual attachment was not removed: %s, err=%v", path, err)
+		}
 	}
 
 	followed, err := service.FollowUpModAudit(item.EntityID, []string{"lua/ge/extensions/audit.lua"}, "Can the command include user-controlled input?")
@@ -195,12 +269,35 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		t.Fatalf("unexpected focused follow-up: %#v", followed.FollowUps)
 	}
 
+	imageFollowed, err := service.FollowUpModAudit(item.EntityID, []string{"art/bad.png"}, "Does the image contain hateful, illegal, or graphic material?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if followUpCalls != 2 || len(imageFollowed.FollowUps) != 2 || !strings.Contains(imageFollowed.FollowUps[1].Response, "art/bad.png") {
+		t.Fatalf("unexpected visual follow-up: %#v", imageFollowed.FollowUps)
+	}
+	for _, path := range visualTempPaths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("focused visual attachment was not removed: %s, err=%v", path, err)
+		}
+	}
+
 	reloaded, err := service.GetModAudit(item.EntityID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.ID != full.ID || len(reloaded.Files) == 0 || len(reloaded.FollowUps) != 1 {
+	if reloaded.ID != full.ID || len(reloaded.Files) == 0 || len(reloaded.FollowUps) != 2 {
 		t.Fatalf("persisted audit did not reload: %#v", reloaded)
+	}
+	var reloadedImage *ModAuditFileArtifact
+	for index := range reloaded.Files {
+		if reloaded.Files[index].Path == "art/bad.png" {
+			reloadedImage = &reloaded.Files[index]
+			break
+		}
+	}
+	if reloadedImage == nil || reloadedImage.MediaType != "image/png" {
+		t.Fatalf("persisted visual artifact did not reload: %#v", reloadedImage)
 	}
 }
 
@@ -223,6 +320,8 @@ func writeModAuditFixtureAt(t *testing.T, root string) string {
 		"bin/helper.exe":               portableExecutableFixture(),
 		"assets/preview.dat":           portableExecutableFixture(),
 		"../escape.exe":                portableExecutableFixture(),
+		"art/bad.png":                  rasterImageFixture(),
+		"assets/fake.png":              portableExecutableFixture(),
 	}
 	for name, content := range entries {
 		entry, createErr := writer.Create(name)
@@ -247,6 +346,14 @@ func portableExecutableFixture() []byte {
 	data[0], data[1] = 'M', 'Z'
 	data[0x3c] = 64
 	copy(data[64:], []byte{'P', 'E', 0, 0})
+	return data
+}
+
+func rasterImageFixture() []byte {
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		panic(err)
+	}
 	return data
 }
 
@@ -275,6 +382,15 @@ func insertModAuditFixture(t *testing.T, service *AppService, archivePath string
 func hasAuditSignal(signals []ModAuditSignal, code string) bool {
 	for _, signal := range signals {
 		if signal.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAuditWarning(warnings []string, fragment string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, fragment) {
 			return true
 		}
 	}

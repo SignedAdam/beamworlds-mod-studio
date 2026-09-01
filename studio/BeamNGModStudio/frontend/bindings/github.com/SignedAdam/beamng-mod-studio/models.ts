@@ -232,6 +232,7 @@ export interface ModAuditFileArtifact {
     "fingerprint": string;
     "sizeBytes": number;
     "entrypointType": string;
+    "mediaType": string;
     "signals": ModAuditSignal[] | null;
     "preScan"?: ModAuditPreScanFile | null;
 }

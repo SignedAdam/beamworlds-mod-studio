@@ -111,6 +111,7 @@ type ModAuditFileArtifact struct {
 	Fingerprint    string               `json:"fingerprint"`
 	SizeBytes      int64                `json:"sizeBytes"`
 	EntrypointType string               `json:"entrypointType"`
+	MediaType      string               `json:"mediaType"`
 	Signals        []ModAuditSignal     `json:"signals"`
 	PreScan        *ModAuditPreScanFile `json:"preScan,omitempty"`
 }
@@ -166,6 +167,11 @@ var auditLongEncodedText = regexp.MustCompile(`[A-Za-z0-9+/]{240,}={0,2}`)
 var auditExecutableExtensions = map[string]bool{
 	".bat": true, ".cmd": true, ".com": true, ".dll": true, ".exe": true,
 	".jar": true, ".msi": true, ".ps1": true, ".scr": true, ".vbs": true,
+}
+
+var auditImageMediaTypes = map[string]string{
+	".gif": "image/gif", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
+	".png": "image/png", ".webp": "image/webp",
 }
 
 var auditTextExtensions = map[string]bool{
@@ -282,6 +288,7 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 		}
 		entryType, _ := classifyAuditEntrypoint(path)
 		extension := strings.ToLower(filepath.Ext(path))
+		mediaType := auditImageMediaTypes[extension]
 		signals := make([]ModAuditSignal, 0, 5)
 		if duplicatePath {
 			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "duplicate_archive_path", Path: canonicalPath, Detail: "Multiple archive entries resolve to the same path", Evidence: "Duplicate normalized archive path"})
@@ -317,6 +324,9 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 					report.ExecutableFiles++
 					signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "disguised_pe", Path: canonicalPath, Detail: "File content has a Windows executable header despite its extension", Evidence: "MZ/PE signature"})
 				}
+				if mediaType != "" && !auditImageMatches(mediaType, data) {
+					signals = append(signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "image_type_mismatch", Path: canonicalPath, Detail: "File uses a supported image extension but does not have the corresponding image signature", Evidence: "Expected " + mediaType + " content"})
+				}
 				if textCandidate && isProbablyAuditText(data) {
 					excerpt = sanitizeAuditExcerpt(data)
 					signals = append(signals, scanAuditText(canonicalPath, excerpt)...)
@@ -328,9 +338,9 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 		signals = append(signals, scanAuditContentSignals(canonicalPath, strings.ToLower(path))...)
 		signals = dedupeAuditSignals(signals)
 		report.Signals = append(report.Signals, signals...)
-		if entryType != "" || len(signals) > 0 {
+		if entryType != "" || mediaType != "" || len(signals) > 0 {
 			record := modAuditArtifactRecord{ModAuditFileArtifact: ModAuditFileArtifact{
-				Path: canonicalPath, Fingerprint: fmt.Sprintf("%08x:%d", file.CRC32, file.UncompressedSize64), SizeBytes: int64(file.UncompressedSize64), EntrypointType: entryType, Signals: signals,
+				Path: canonicalPath, Fingerprint: fmt.Sprintf("%08x:%d", file.CRC32, file.UncompressedSize64), SizeBytes: int64(file.UncompressedSize64), EntrypointType: entryType, MediaType: mediaType, Signals: signals,
 			}, Excerpt: excerpt}
 			if index, exists := artifactIndexes[artifactKey]; exists {
 				existing := &artifacts[index]
@@ -339,6 +349,9 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 				existing.Signals = dedupeAuditSignals(append(existing.Signals, record.Signals...))
 				if existing.EntrypointType == "" {
 					existing.EntrypointType = record.EntrypointType
+				}
+				if existing.MediaType == "" {
+					existing.MediaType = record.MediaType
 				}
 				if recordPriority > existingPriority && record.Excerpt != "" {
 					existing.Fingerprint = record.Fingerprint
@@ -494,6 +507,21 @@ func looksLikePE(data []byte) bool {
 	return len(data) >= 2 && data[0] == 'M' && data[1] == 'Z'
 }
 
+func auditImageMatches(mediaType string, data []byte) bool {
+	switch mediaType {
+	case "image/png":
+		return bytes.HasPrefix(data, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
+	case "image/jpeg":
+		return len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff
+	case "image/gif":
+		return bytes.HasPrefix(data, []byte("GIF87a")) || bytes.HasPrefix(data, []byte("GIF89a"))
+	case "image/webp":
+		return len(data) >= 12 && bytes.Equal(data[:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP"))
+	default:
+		return false
+	}
+}
+
 func isProbablyAuditText(data []byte) bool {
 	if len(data) == 0 {
 		return true
@@ -541,6 +569,9 @@ func auditArtifactPriority(artifact modAuditArtifactRecord) int {
 	score := 0
 	if artifact.EntrypointType != "" {
 		score += 20
+	}
+	if artifact.MediaType != "" {
+		score++
 	}
 	for _, signal := range artifact.Signals {
 		score += auditSeverityRank(signal.Severity) * 10
@@ -677,6 +708,7 @@ func (store *Store) modAuditByID(ctx context.Context, auditID string) (ModAudit,
 		if err := rows.Scan(&artifact.Path, &artifact.Fingerprint, &artifact.SizeBytes, &artifact.EntrypointType, &signals, &analysis); err != nil {
 			return ModAudit{}, err
 		}
+		artifact.MediaType = auditImageMediaTypes[strings.ToLower(filepath.Ext(artifact.Path))]
 		if err := json.Unmarshal([]byte(signals), &artifact.Signals); err != nil {
 			return ModAudit{}, err
 		}
@@ -705,6 +737,7 @@ func (store *Store) modAuditArtifactRecords(ctx context.Context, auditID string)
 		if err := rows.Scan(&record.Path, &record.Fingerprint, &record.SizeBytes, &record.EntrypointType, &signals, &record.Excerpt, &analysis); err != nil {
 			return nil, err
 		}
+		record.MediaType = auditImageMediaTypes[strings.ToLower(filepath.Ext(record.Path))]
 		if err := json.Unmarshal([]byte(signals), &record.Signals); err != nil {
 			return nil, err
 		}

@@ -246,7 +246,7 @@ function ModAuditPanel({ audit, linked, loading, busy, error, followUpPaths, fol
   return <div className="mod-audit">
     <section className="mod-audit__intro">
       <div><Icon name="shield" size={20}/><div><span>MOD AUDIT</span><strong>Staged security analysis</strong></div></div>
-      <p>Local checks identify payloads and entrypoints. AI stages receive inert excerpts only; archive content is never executed.</p>
+      <p>Local checks identify payloads and entrypoints. AI receives inert excerpts and bounded raster attachments; archive content is never executed.</p>
       {audit && audit.status !== 'not_started' && <div className="mod-audit__status"><Badge tone={audit.status === 'failed' ? 'danger' : audit.status === 'complete' ? 'success' : 'neutral'}>{audit.status.replace(/_/g, ' ')}</Badge><span>{audit.updatedAt ? `Updated ${formatDate(audit.updatedAt)}` : ''}</span></div>}
       {error && <div className="mod-audit__error"><Icon name="error" size={15}/><span>{error}</span></div>}
     </section>
@@ -254,7 +254,7 @@ function ModAuditPanel({ audit, linked, loading, busy, error, followUpPaths, fol
     <section className="audit-stages">
       <article><header><span>1</span><div><strong>Local scan</strong><small>No AI · no execution</small></div></header><p>Executable signatures, suspicious primitives, archive safety, and content signals.</p><Button icon="scan" disabled={!linked || busy !== ''} onClick={() => onRun('local')}>{busy === 'local' ? 'Scanning' : hasLocal ? 'Run again' : 'Run local scan'}</Button></article>
       <article><header><span>2</span><div><strong>AI pre-scan</strong><small>Cheap model · no verdict</small></div></header><p>Records per-file observations for reuse by the final review.</p><Button icon="agent" disabled={!linked || busy !== ''} onClick={() => onRun('pre')}>{busy === 'pre' ? 'Analyzing' : hasPreScan ? 'Run again' : 'Run pre-scan'}</Button></article>
-      <article><header><span>3</span><div><strong>Full analysis</strong><small>Strong model · focused follow-up</small></div></header><p>Produces evidence-backed findings and requests larger excerpts when needed.</p><Button icon="shield" tone="primary" disabled={!linked || busy !== ''} onClick={() => onRun('full')}>{busy === 'full' ? 'Reviewing' : hasFinal ? 'Run again' : 'Run full audit'}</Button></article>
+      <article><header><span>3</span><div><strong>Full analysis</strong><small>Strong model · focused follow-up</small></div></header><p>Produces evidence-backed findings, visually reviews supported images, and requests larger excerpts when needed.</p><Button icon="shield" tone="primary" disabled={!linked || busy !== ''} onClick={() => onRun('full')}>{busy === 'full' ? 'Reviewing' : hasFinal ? 'Run again' : 'Run full audit'}</Button></article>
     </section>
 
     {hasLocal && local && <>

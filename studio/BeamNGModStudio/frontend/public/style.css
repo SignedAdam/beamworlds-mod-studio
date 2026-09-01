@@ -549,9 +549,9 @@ html[data-theme="light"] :is(.main-nav button,.sidebar-settings,.sidebar-theme):
 html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);border-color:var(--line-strong);color:var(--text)}
 
 /* Mod Audit: staged evidence, persisted file artifacts, and focused review. */
-.glass-tabs--inspector{padding-inline:4px;overflow-x:auto;overflow-y:hidden}
-.glass-tabs--inspector button{min-width:76px;padding-inline:10px;font-size:var(--font-caption)}
-.glass-tabs--inspector button:last-child{min-width:88px}
+.glass-tabs--inspector{padding-inline:4px;overflow:hidden}
+.glass-tabs--inspector button{min-width:0;flex:1 1 auto;padding-inline:7px;font-size:var(--font-caption)}
+.glass-tabs--inspector button:last-child{min-width:0}
 .glass-tabs--inspector button.is-active{color:var(--text)}
 .mod-audit{display:grid;gap:11px;padding:10px}
 .mod-audit>section{padding:10px;border:1px solid var(--line);border-radius:5px;background:rgba(255,255,255,.018)}

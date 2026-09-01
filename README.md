@@ -2,13 +2,17 @@
 
 Native Wails desktop application for indexing local BeamNG ZIP mods, editing isolated ModMaker workspaces, collaborating with Virgil, and launching isolated mod profiles.
 
-## Configure and run
+## Run
 
-1. Copy `config.example.json` at the repository root to `config.json`.
+For this built checkout:
+
+1. Copy `config.example.json` to `config.json` if `config.json` does not already exist.
 2. Set the BeamNG user-folder, library, active-mod, and installation paths.
-3. Run `Run BeamWorlds Mod Studio.cmd` after building the executable.
+3. Double-click `Run BeamWorlds Mod Studio.cmd`.
 
-The launcher resolves paths relative to the repository. Persistent state lives under the ignored `studio-data/` directory: SQLite metadata, content-addressed images, editable workspaces, launch profiles, and immutable exports.
+That CMD file is the only supported launcher. It starts `studio/BeamNGModStudio/bin/beamngmodstudio.exe` with the repository root as its working directory. Persistent state lives under the ignored `studio-data/` directory: SQLite metadata, content-addressed images, editable workspaces, launch profiles, and immutable exports.
+
+The executable is generated build output and is not committed. A fresh clone must be built once before the launcher can run it.
 
 ## Safety model
 
@@ -20,7 +24,7 @@ The launcher resolves paths relative to the repository. Persistent state lives u
 - Test installs use the `modstudio-test-*.zip` namespace and verify their checksum before launch.
 - Profiles materialize selected archives into application-owned BeamNG user folders and launch with `-userpath`; existing active mods are never moved or deleted.
 
-## Build
+## Build a fresh clone
 
 Install Go, Node.js, and Wails v3, then run from the repository root:
 

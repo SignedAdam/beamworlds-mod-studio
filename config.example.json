@@ -1,0 +1,11 @@
+{
+  "beamngRoot": "C:/Path/To/BeamNG/UserFolder",
+  "activeModsDir": "C:/Path/To/BeamNG/UserFolder/mods",
+  "libraryDir": "C:/Path/To/BeamNG/ModLibrary",
+  "gameInstallDir": "C:/Program Files (x86)/Steam/steamapps/common/BeamNG.drive",
+  "scanRoots": [
+    "C:/Path/To/BeamNG/ModLibrary",
+    "C:/Path/To/BeamNG/UserFolder/mods"
+  ],
+  "scanConcurrency": 4
+}

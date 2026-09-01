@@ -1,0 +1,37 @@
+# Machine-local configuration and runtime state
+config.json
+studio-data/
+.tools/
+
+# Dependencies and generated frontend output
+node_modules/
+**/node_modules/
+**/dist/
+
+# Wails build output and generated task state
+studio/BeamNGModStudio/bin/
+studio/BeamNGModStudio/.task/
+studio/BeamNGModStudio/build/linux/appimage/build/
+studio/BeamNGModStudio/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+studio/BeamNGModStudio/build/ios/xcode/overlay.json
+studio/BeamNGModStudio/build/ios/xcode/gen/
+studio/BeamNGModStudio/build/android/overlay.json
+studio/BeamNGModStudio/build/android/gen/
+
+# Local databases, logs, archives, and secrets
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.log
+*.zip
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

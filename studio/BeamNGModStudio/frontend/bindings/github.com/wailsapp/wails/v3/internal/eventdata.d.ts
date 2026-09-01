@@ -15,6 +15,7 @@ declare module "@wailsio/runtime" {
             "agent:event": main$0.AgentActivity;
             "library:item": main$0.LibraryItem;
             "library:scan": main$0.ScanProgress;
+            "profile:progress": main$0.ProfileProgress;
         }
     }
 }

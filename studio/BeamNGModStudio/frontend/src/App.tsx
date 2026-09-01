@@ -313,7 +313,7 @@ function App() {
         <button className={view === 'library' ? 'is-active' : ''} onClick={() => changeView('library')}><Icon name="library"/><span>Library</span><small>{dashboard?.entities ?? 0}</small></button>
         <button className={view === 'workspaces' ? 'is-active' : ''} onClick={() => changeView('workspaces')}><Icon name="workspace"/><span>ModMaker</span><small>{workspaces.length}</small></button>
         <button className={view === 'activity' ? 'is-active' : ''} onClick={() => changeView('activity')}><Icon name="activity"/><span>Activity</span></button>
-        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')}><Icon name="play"/><span>Profiles</span><small>{organization?.profiles.length ?? 0}</small></button>
+        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')}><Icon name="play"/><span>Profiles</span><small>{organization?.profiles?.length ?? 0}</small></button>
       </nav>
       <button className="sidebar-settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={16}/><span>Settings</span></button>
     </aside>

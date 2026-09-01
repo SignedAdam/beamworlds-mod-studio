@@ -254,3 +254,9 @@ html[data-theme="light"] .message pre{color:var(--text)}
 .setup-footer .button{min-width:92px}
 html[data-theme="light"] .setup-shell{background:radial-gradient(circle at 72% 0,rgba(63,147,197,.2),transparent 48%),linear-gradient(145deg,#eef7fb,#dcebf3)}
 html[data-theme="light"] .setup-wizard{box-shadow:0 28px 75px rgba(20,68,91,.22),inset 0 1px #fff}
+
+/* Library performance: selection must not animate or resize the table. */
+.app-main.has-inspector{transition:none}
+.library-view,.library-workarea,.library-results{min-width:0}
+.mod-table-wrap{min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;contain:layout}
+.mod-table{width:max(100%,calc(100vw - var(--sidebar) - 174px));min-width:980px}

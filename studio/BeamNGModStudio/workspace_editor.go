@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"path"
-	"strings"
-
 	modkit "github.com/SignedAdam/beamworlds-modkit"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 const maxWorkspaceDraftBytes = 4 << 20
@@ -76,6 +79,46 @@ func (service *AppService) DeleteWorkspacePath(workspaceID, relativePath string)
 		return err
 	}
 	return service.store.TouchWorkspace(ctx, workspaceID)
+}
+
+func (service *AppService) RevealWorkspacePath(workspaceID, relativePath string) error {
+	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		return err
+	}
+	relativePath, err = cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(workspace.FilesRoot, filepath.FromSlash(relativePath))
+	info, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		if info.IsDir() {
+			command = exec.Command("explorer.exe", target)
+		} else {
+			command = exec.Command("explorer.exe", "/select,"+target)
+		}
+	case "darwin":
+		if info.IsDir() {
+			command = exec.Command("open", target)
+		} else {
+			command = exec.Command("open", "-R", target)
+		}
+	default:
+		if !info.IsDir() {
+			target = filepath.Dir(target)
+		}
+		command = exec.Command("xdg-open", target)
+	}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	return command.Process.Release()
 }
 
 func (service *AppService) SaveWorkspaceDraft(workspaceID, relativePath, content string) error {

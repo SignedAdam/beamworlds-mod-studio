@@ -20,6 +20,8 @@ type AppService struct {
 	agents       *AgentManager
 	emit         func(string, any)
 	profileMu    sync.Mutex
+	auditMu      sync.Mutex
+	auditAI      auditAIRunner
 	startProcess func(string, []string, string) (ProcessLaunch, error)
 	gameRunning  func() (bool, error)
 }
@@ -49,7 +51,7 @@ type ExportResponse struct {
 }
 
 func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppService {
-	return &AppService{
+	service := &AppService{
 		config:       config,
 		store:        store,
 		library:      NewLibraryEngine(store, config, emit),
@@ -58,6 +60,8 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 		startProcess: startDetachedProcess,
 		gameRunning:  beamNGProcessRunning,
 	}
+	service.auditAI = service.runOMPAudit
+	return service
 }
 
 func (service *AppService) Config() AppConfig { return service.config }

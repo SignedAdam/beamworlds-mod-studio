@@ -89,12 +89,20 @@ export function ExportWorkspace(workspaceID: string, label: string): $Cancellabl
     return $Call.ByID(2564207477, workspaceID, label);
 }
 
+export function FollowUpModAudit(entityID: string, paths: string[] | null, question: string): $CancellablePromise<$models.ModAudit> {
+    return $Call.ByID(3975895313, entityID, paths, question);
+}
+
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(2226382837, entityID);
 }
 
 export function GetKnowledge(entityID: string): $CancellablePromise<$models.KnowledgeDocument[] | null> {
     return $Call.ByID(1016561506, entityID);
+}
+
+export function GetModAudit(entityID: string): $CancellablePromise<$models.ModAudit> {
+    return $Call.ByID(3934379141, entityID);
 }
 
 export function GetPreset(presetID: string): $CancellablePromise<$models.PresetDetail> {
@@ -187,6 +195,22 @@ export function RestartApplication(): $CancellablePromise<void> {
 
 export function RestoreNormalModSelection(): $CancellablePromise<void> {
     return $Call.ByID(58419305);
+}
+
+export function RevealWorkspacePath(workspaceID: string, relativePath: string): $CancellablePromise<void> {
+    return $Call.ByID(878556355, workspaceID, relativePath);
+}
+
+export function RunModAuditFull(entityID: string): $CancellablePromise<$models.ModAudit> {
+    return $Call.ByID(1445065873, entityID);
+}
+
+export function RunModAuditLocal(entityID: string): $CancellablePromise<$models.ModAudit> {
+    return $Call.ByID(487750775, entityID);
+}
+
+export function RunModAuditPreScan(entityID: string): $CancellablePromise<$models.ModAudit> {
+    return $Call.ByID(1673988696, entityID);
 }
 
 export function SaveSettings(update: $models.SettingsUpdate): $CancellablePromise<$models.AppSettings> {

@@ -5,7 +5,8 @@ export type IconName =
   | 'code' | 'mixed' | 'unknown' | 'link' | 'unlink' | 'archive' | 'files'
   | 'warning' | 'check' | 'error' | 'arrow' | 'plus' | 'save' | 'trash'
   | 'edit' | 'diff' | 'agent' | 'play' | 'export' | 'install' | 'terminal'
-  | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'settings'
+  | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'settings' | 'chevron'
+  | 'sun' | 'moon' | 'collapse' | 'more' | 'columns' | 'shield'
 
 const paths: Record<IconName, JSX.Element> = {
   library: <><path d="M4 5.5h16v14H4z"/><path d="M7 9h10M7 13h10M7 17h6"/></>,
@@ -42,8 +43,22 @@ const paths: Record<IconName, JSX.Element> = {
   refresh: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.2 9A7 7 0 0 0 6.4 6.4L4 9M5.8 15A7 7 0 0 0 17.6 17.6L20 15"/></>,
   settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.13.38.35.72.64 1 .3.28.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15z"/></>,
   folder: <path d="M3 6h7l2 2h9v11H3z"/>,
+  chevron: <path d="m8 10 4 4 4-4"/>,
+  sun: <><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></>,
+  moon: <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"/>,
+  collapse: <><path d="m9 7-5 5 5 5M20 5v14"/></>,
+  more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+  columns: <><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16M15 4v16"/></>,
+  shield: <><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6z"/><path d="m9 12 2 2 4-5"/></>,
 }
 
 export function Icon({ name, size = 18, ...props }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {
   return <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[name]}</svg>
+}
+
+export function BeamWorldsMark({ size = 28, className = '' }: { size?: number; className?: string }) {
+  return <svg className={`beamworlds-mark ${className}`} viewBox="0 0 36 32" width={size} height={size} fill="none" aria-hidden="true">
+    <path d="M3.5 4.5h8.2c4.1 0 6.4 2.1 6.4 5.3 0 2.2-1.1 3.8-3.2 4.7 2.7.8 4.1 2.7 4.1 5.7 0 4.5-3 7.3-7.8 7.3H3.5zM8.2 8.8v4h3.1c1.5 0 2.3-.7 2.3-2s-.8-2-2.3-2zm0 8.1v6.2h3.4c1.9 0 2.8-1 2.8-3.1 0-2-.9-3.1-2.8-3.1z" fill="currentColor"/>
+    <path d="m18.2 4.5 3.5 23h4.4l2.2-11.1 2.2 11.1h3.9l1.9-23h-4.4l-.6 13.1-2.4-10.4h-1.2l-2.4 10.4-1.8-13.1z" fill="currentColor"/>
+  </svg>
 }

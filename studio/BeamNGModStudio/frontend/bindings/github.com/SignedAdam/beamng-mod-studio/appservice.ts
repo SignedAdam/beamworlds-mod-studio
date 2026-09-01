@@ -105,8 +105,16 @@ export function GetProfile(profileID: string): $CancellablePromise<$models.Profi
     return $Call.ByID(3217990731, profileID);
 }
 
+export function GetSetupState(): $CancellablePromise<$models.SetupState> {
+    return $Call.ByID(2012181732);
+}
+
 export function GetWorkspace(workspaceID: string): $CancellablePromise<$models.WorkspaceDetail> {
     return $Call.ByID(1349316807, workspaceID);
+}
+
+export function HasAppliedModProfile(): $CancellablePromise<boolean> {
+    return $Call.ByID(2187128874);
 }
 
 export function InstallExportForTest(workspaceID: string, exportID: string): $CancellablePromise<$models.TestInstallRecord> {
@@ -153,6 +161,10 @@ export function Organization(): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(3433886317);
 }
 
+export function PickDirectory(title: string, initialDirectory: string): $CancellablePromise<string> {
+    return $Call.ByID(4292351642, title, initialDirectory);
+}
+
 export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $CancellablePromise<$models.WorkspaceTextFile> {
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
@@ -169,8 +181,20 @@ export function RenameWorkspacePath(workspaceID: string, oldPath: string, newPat
     return $Call.ByID(2387663450, workspaceID, oldPath, newPath);
 }
 
+export function RestartApplication(): $CancellablePromise<void> {
+    return $Call.ByID(2071406909);
+}
+
+export function RestoreNormalModSelection(): $CancellablePromise<void> {
+    return $Call.ByID(58419305);
+}
+
 export function SaveSettings(update: $models.SettingsUpdate): $CancellablePromise<$models.AppSettings> {
     return $Call.ByID(3784651466, update);
+}
+
+export function SaveSetup(input: $models.SetupInput): $CancellablePromise<$models.SetupResult> {
+    return $Call.ByID(654217000, input);
 }
 
 export function SaveWorkspaceDraft(workspaceID: string, relativePath: string, content: string): $CancellablePromise<void> {

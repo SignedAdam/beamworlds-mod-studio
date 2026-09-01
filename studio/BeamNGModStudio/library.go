@@ -235,6 +235,9 @@ func (engine *LibraryEngine) skipDirectory(current, name string) bool {
 	case ".git", "node_modules", "backups", "temp", "$recycle.bin", "system volume information", "windows.old", "__macosx":
 		return true
 	}
+	if lower == managedModDirectoryName || strings.HasPrefix(lower, ".beamworlds-managed-") {
+		return true
+	}
 	for _, excluded := range []string{engine.config.ProjectRoot, engine.config.DataDir} {
 		if excluded != "" && pathWithin(current, excluded) {
 			return true

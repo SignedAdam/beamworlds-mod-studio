@@ -158,13 +158,16 @@ func TestAgentSelectionArgumentsApplyConnectionProfile(t *testing.T) {
 func newTestAppService(t *testing.T) *AppService {
 	t.Helper()
 	root := t.TempDir()
+	beamNGRoot := filepath.Join(root, "beamng")
+	activeModsDir := filepath.Join(beamNGRoot, "current", "mods")
 	config := AppConfig{
+		SetupComplete: true, BeamNGRoot: beamNGRoot,
 		DataDir: root, DatabasePath: filepath.Join(root, "modstudio.sqlite"),
 		ImageCacheDir: filepath.Join(root, "cache", "images"), WorkspaceDir: filepath.Join(root, "workspaces"),
 		ExportDir: filepath.Join(root, "exports"), ProfileDir: filepath.Join(root, "profiles"),
-		ActiveModsDir: filepath.Join(root, "active"), TestInstallDir: filepath.Join(root, "active"), ScanConcurrency: 1,
+		ActiveModsDir: activeModsDir, TestInstallDir: activeModsDir, ScanConcurrency: 1,
 	}
-	for _, directory := range []string{config.ImageCacheDir, config.WorkspaceDir, config.ExportDir, config.ProfileDir, config.ActiveModsDir} {
+	for _, directory := range []string{config.BeamNGRoot, config.ImageCacheDir, config.WorkspaceDir, config.ExportDir, config.ProfileDir, config.ActiveModsDir} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -174,5 +177,7 @@ func newTestAppService(t *testing.T) *AppService {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return NewAppService(config, store, func(string, any) {})
+	service := NewAppService(config, store, func(string, any) {})
+	service.gameRunning = func() (bool, error) { return false, nil }
+	return service
 }

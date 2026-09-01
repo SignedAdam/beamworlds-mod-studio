@@ -82,6 +82,8 @@ type WorkspaceRecord struct {
 	LastValidation string      `json:"lastValidation"`
 	DisplayName    string      `json:"displayName"`
 	Kind           modkit.Kind `json:"kind"`
+	AgentStatus    string      `json:"agentStatus"`
+	AgentUpdatedAt string      `json:"agentUpdatedAt"`
 }
 
 type ExportRecord struct {
@@ -210,6 +212,20 @@ func (s *Store) migrate(ctx context.Context) error {
 			at TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, data_json TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS agent_events_run_idx ON agent_events(run_id, id)`,
+		`CREATE TABLE IF NOT EXISTS mod_audits (
+			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+			status TEXT NOT NULL, stage TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+			deterministic_json TEXT NOT NULL DEFAULT '{}', attack_surface_json TEXT NOT NULL DEFAULT '{}',
+			pre_scan_json TEXT NOT NULL DEFAULT '{}', final_json TEXT NOT NULL DEFAULT '{}',
+			follow_up_json TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS mod_audits_entity_idx ON mod_audits(entity_id, artifact_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS mod_audit_files (
+			audit_id TEXT NOT NULL REFERENCES mod_audits(id) ON DELETE CASCADE, path TEXT NOT NULL,
+			fingerprint TEXT NOT NULL, size_bytes INTEGER NOT NULL, entrypoint_type TEXT NOT NULL,
+			signals_json TEXT NOT NULL, excerpt TEXT NOT NULL, pre_scan_json TEXT NOT NULL DEFAULT '{}',
+			PRIMARY KEY(audit_id, path)
+		)`,
 		`CREATE TABLE IF NOT EXISTS test_installs (
 			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), export_id TEXT NOT NULL REFERENCES exports(id),
 			path TEXT NOT NULL, sha256 TEXT NOT NULL, installed_at TEXT NOT NULL, log_baseline_at TEXT NOT NULL,
@@ -624,12 +640,23 @@ func (s *Store) SaveWorkspace(ctx context.Context, manifest modkit.WorkspaceMani
 
 func (s *Store) GetWorkspace(ctx context.Context, id string) (WorkspaceRecord, error) {
 	var record WorkspaceRecord
-	err := s.db.QueryRowContext(ctx, `SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind FROM workspaces w JOIN entities e ON e.id=w.entity_id WHERE w.id=?`, id).Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,
+			w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind,
+			COALESCE((SELECT status FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'idle'),
+			COALESCE((SELECT started_at FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'')
+		FROM workspaces w JOIN entities e ON e.id=w.entity_id WHERE w.id=?`, id).
+		Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind, &record.AgentStatus, &record.AgentUpdatedAt)
 	return record, err
 }
 
 func (s *Store) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind FROM workspaces w JOIN entities e ON e.id=w.entity_id ORDER BY w.updated_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,
+			w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind,
+			COALESCE((SELECT status FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'idle'),
+			COALESCE((SELECT started_at FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'')
+		FROM workspaces w JOIN entities e ON e.id=w.entity_id ORDER BY w.updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +664,7 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, error) {
 	result := []WorkspaceRecord{}
 	for rows.Next() {
 		var record WorkspaceRecord
-		if err := rows.Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind); err != nil {
+		if err := rows.Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind, &record.AgentStatus, &record.AgentUpdatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, record)

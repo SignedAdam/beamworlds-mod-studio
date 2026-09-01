@@ -79,8 +79,32 @@ func TestCreateNewModBuildsUsableProjects(t *testing.T) {
 	}
 	for _, workspace := range workspaces {
 		if workspace.DisplayName == "" || workspace.Kind == modkit.KindUnknown {
-			t.Errorf("workspace rail metadata missing: %#v", workspace)
+			t.Errorf("project browser metadata missing: %#v", workspace)
 		}
+		if workspace.AgentStatus != "idle" || workspace.AgentUpdatedAt != "" {
+			t.Errorf("new project AI activity = %q at %q, want idle without timestamp", workspace.AgentStatus, workspace.AgentUpdatedAt)
+		}
+	}
+	startedAt := "2026-09-01T20:15:00Z"
+	if err := service.store.CreateAgentRun(context.Background(), AgentRunRecord{ID: "browser-status-run", WorkspaceID: workspaces[0].ID, Prompt: "Review the project", StartedAt: startedAt}); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := service.ListWorkspaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var running WorkspaceRecord
+	for _, workspace := range refreshed {
+		if workspace.ID == workspaces[0].ID {
+			running = workspace
+			break
+		}
+	}
+	if running.AgentStatus != "running" || running.AgentUpdatedAt != startedAt {
+		t.Fatalf("project browser AI activity = %q at %q, want running at %q", running.AgentStatus, running.AgentUpdatedAt, startedAt)
+	}
+	if err := service.RevealWorkspacePath(workspaces[0].ID, "../outside"); err == nil {
+		t.Fatal("RevealWorkspacePath accepted a path outside the project")
 	}
 }
 
@@ -90,14 +114,38 @@ func TestSettingsRoundTripProtectsAPIKey(t *testing.T) {
 	const secret = "unit-test-secret-value"
 
 	saved, err := service.SaveSettings(SettingsUpdate{
-		Theme: "light", DefaultAuthor: "Ada Lovelace", AgentProfile: "codex",
-		AgentModel: "gpt-test", ContextMode: "deep", ShowAIUsage: false, APIKey: secret,
+		Theme:             "light",
+		DefaultAuthor:     "Ada Lovelace",
+		AgentProfile:      "codex",
+		AgentModel:        "gpt-test",
+		ContextMode:       "deep",
+		ShowAIUsage:       false,
+		ShowFileSizes:     true,
+		EmphasisColor:     "#ff6a2a",
+		ActiveTabColor:    "#f1eee4",
+		DarkSurfaceColor:  "#080808",
+		DarkBorderColor:   "#393939",
+		DarkTextColor:     "#f7f5ef",
+		LightSurfaceColor: "#f8f6f0",
+		LightBorderColor:  "#9e9b93",
+		LightTextColor:    "#131210",
+		PreScanModel:      "gpt-5.6-luna",
+		PreScanReasoning:  "medium",
+		FullScanModel:     "gpt-5.6-sol",
+		FullScanReasoning: "xhigh",
+		APIKey:            secret,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.Theme != "light" || saved.DefaultAuthor != "Ada Lovelace" || saved.AgentProfile != "codex" || saved.AgentModel != "gpt-test" || saved.ContextMode != "deep" || saved.ShowAIUsage || !saved.HasAPIKey {
+	if saved.Theme != "light" || saved.DefaultAuthor != "Ada Lovelace" || saved.AgentProfile != "codex" || saved.AgentModel != "gpt-test" || saved.ContextMode != "deep" || saved.ShowAIUsage || !saved.ShowFileSizes || !saved.HasAPIKey {
 		t.Fatalf("unexpected saved settings: %#v", saved)
+	}
+	if saved.EmphasisColor != "#ff6a2a" || saved.ActiveTabColor != "#f1eee4" || saved.DarkSurfaceColor != "#080808" || saved.DarkBorderColor != "#393939" || saved.DarkTextColor != "#f7f5ef" || saved.LightSurfaceColor != "#f8f6f0" || saved.LightBorderColor != "#9e9b93" || saved.LightTextColor != "#131210" {
+		t.Fatalf("appearance settings did not round-trip: %#v", saved)
+	}
+	if saved.PreScanModel != "gpt-5.6-luna" || saved.PreScanReasoning != "medium" || saved.FullScanModel != "gpt-5.6-sol" || saved.FullScanReasoning != "xhigh" {
+		t.Fatalf("Mod Audit settings did not round-trip: %#v", saved)
 	}
 	launch, err := service.agentLaunchSettings(context.Background())
 	if err != nil {
@@ -115,9 +163,26 @@ func TestSettingsRoundTripProtectsAPIKey(t *testing.T) {
 	}
 
 	cleared, err := service.SaveSettings(SettingsUpdate{
-		Theme: saved.Theme, DefaultAuthor: saved.DefaultAuthor, AgentProfile: saved.AgentProfile,
-		AgentModel: saved.AgentModel, ContextMode: saved.ContextMode, ShowAIUsage: saved.ShowAIUsage,
-		ClearAPIKey: true,
+		Theme:             saved.Theme,
+		DefaultAuthor:     saved.DefaultAuthor,
+		AgentProfile:      saved.AgentProfile,
+		AgentModel:        saved.AgentModel,
+		ContextMode:       saved.ContextMode,
+		ShowAIUsage:       saved.ShowAIUsage,
+		ShowFileSizes:     saved.ShowFileSizes,
+		EmphasisColor:     saved.EmphasisColor,
+		ActiveTabColor:    saved.ActiveTabColor,
+		DarkSurfaceColor:  saved.DarkSurfaceColor,
+		DarkBorderColor:   saved.DarkBorderColor,
+		DarkTextColor:     saved.DarkTextColor,
+		LightSurfaceColor: saved.LightSurfaceColor,
+		LightBorderColor:  saved.LightBorderColor,
+		LightTextColor:    saved.LightTextColor,
+		PreScanModel:      saved.PreScanModel,
+		PreScanReasoning:  saved.PreScanReasoning,
+		FullScanModel:     saved.FullScanModel,
+		FullScanReasoning: saved.FullScanReasoning,
+		ClearAPIKey:       true,
 	})
 	if err != nil {
 		t.Fatal(err)

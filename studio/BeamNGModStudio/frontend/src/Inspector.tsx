@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { EntityDetail, LibraryFolder, LibraryItem } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
+import type { EntityDetail, LibraryFolder, LibraryItem, ModAudit } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import type { ArchiveMember, Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
 import { Icon } from './icons'
 import { Badge, Button, EmptyState, Spinner, formatBytes, formatDate, issueTone, kindIcon, kindLabel } from './ui'
 
-type InspectorTab = 'overview' | 'variants' | 'structure' | 'files' | 'history'
+type InspectorTab = 'overview' | 'variants' | 'structure' | 'files' | 'history' | 'audit'
 
 interface InspectorProps {
   item: LibraryItem
@@ -15,23 +16,87 @@ interface InspectorProps {
   onClose: () => void
   onMoveFolder: (folderID: string) => void
   onCreateWorkspace: (mode: 'editor' | 'virgil') => void
+  onError: (error: unknown) => void
 }
 
-export function Inspector({ item, detail, folders, loading, creatingWorkspace, onClose, onMoveFolder, onCreateWorkspace }: InspectorProps) {
+export function Inspector({ item, detail, folders, loading, creatingWorkspace, onClose, onMoveFolder, onCreateWorkspace, onError }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
   const [fileFilter, setFileFilter] = useState('')
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null)
+  const [audit, setAudit] = useState<ModAudit | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditBusy, setAuditBusy] = useState('')
+  const [auditError, setAuditError] = useState('')
+  const [followUpPaths, setFollowUpPaths] = useState('')
+  const [followUpQuestion, setFollowUpQuestion] = useState('')
   useEffect(() => {
     setTab('overview')
     setFileFilter('')
     setSelectedVariant(null)
+    setAudit(null)
+    setAuditError('')
+    setFollowUpPaths('')
+    setFollowUpQuestion('')
   }, [item.entityId])
+  useEffect(() => {
+    if (tab !== 'audit' || audit) return
+    let active = true
+    setAuditLoading(true)
+    API.GetModAudit(item.entityId).then(value => {
+      if (!active) return
+      setAudit(value)
+      setAuditError(value.error || '')
+      if (value.final?.followUpPaths?.length) setFollowUpPaths(value.final.followUpPaths.join(', '))
+    }).catch(error => {
+      if (active) {
+        setAuditError(auditErrorText(error))
+        onError(error)
+      }
+    }).finally(() => {
+      if (active) setAuditLoading(false)
+    })
+    return () => { active = false }
+  }, [tab, item.entityId, audit, onError])
   const manifest = detail?.item.manifest ?? item.manifest
   const members = useMemo(() => {
     const query = fileFilter.toLowerCase().trim()
     const filtered = (manifest?.members ?? []).filter(member => !query || member.path.toLowerCase().includes(query))
     return { total: filtered.length, visible: filtered.slice(0, 500) }
   }, [manifest, fileFilter])
+
+  const runAuditStage = async (stage: 'local' | 'pre' | 'full') => {
+    setAuditBusy(stage)
+    setAuditError('')
+    try {
+      const next = stage === 'local' ? await API.RunModAuditLocal(item.entityId) : stage === 'pre' ? await API.RunModAuditPreScan(item.entityId) : await API.RunModAuditFull(item.entityId)
+      setAudit(next)
+      setAuditError(next.error || '')
+      if (next.final?.followUpPaths?.length) setFollowUpPaths(next.final.followUpPaths.join(', '))
+    } catch (error) {
+      setAuditError(auditErrorText(error))
+      onError(error)
+      try { setAudit(await API.GetModAudit(item.entityId)) } catch { /* preserve the original stage error */ }
+    } finally {
+      setAuditBusy('')
+    }
+  }
+
+  const runAuditFollowUp = async () => {
+    if (!followUpQuestion.trim()) return
+    setAuditBusy('follow-up')
+    setAuditError('')
+    try {
+      const paths = followUpPaths.split(',').map(value => value.trim()).filter(Boolean)
+      const next = await API.FollowUpModAudit(item.entityId, paths, followUpQuestion.trim())
+      setAudit(next)
+      setFollowUpQuestion('')
+    } catch (error) {
+      setAuditError(auditErrorText(error))
+      onError(error)
+    } finally {
+      setAuditBusy('')
+    }
+  }
 
   return <aside className="inspector" aria-label="Mod inspector">
     <header className="inspector__header">
@@ -47,7 +112,7 @@ export function Inspector({ item, detail, folders, loading, creatingWorkspace, o
     </div>
 
     <nav className="glass-tabs glass-tabs--inspector">
-      {(['overview', 'variants', 'structure', 'files', 'history'] as InspectorTab[]).map(value => <button key={value} className={tab === value ? 'is-active' : ''} onClick={() => setTab(value)}>{value === 'variants' ? `Variants ${manifest?.variants?.length ? `(${manifest.variants.length})` : ''}` : value.charAt(0).toUpperCase() + value.slice(1)}</button>)}
+      {(['overview', 'variants', 'structure', 'files', 'history', 'audit'] as InspectorTab[]).map(value => <button key={value} className={tab === value ? 'is-active' : ''} onClick={() => setTab(value)}>{value === 'variants' ? `Variants ${manifest?.variants?.length ? `(${manifest.variants.length})` : ''}` : value === 'audit' ? 'Mod Audit' : value.charAt(0).toUpperCase() + value.slice(1)}</button>)}
     </nav>
 
     <div className="inspector__body">
@@ -57,6 +122,7 @@ export function Inspector({ item, detail, folders, loading, creatingWorkspace, o
         {tab === 'structure' && <Structure item={item}/>} 
         {tab === 'files' && <Files members={members} query={fileFilter} onQuery={setFileFilter}/>} 
         {tab === 'history' && <History detail={detail}/>} 
+        {tab === 'audit' && <ModAuditPanel audit={audit} linked={item.linked} loading={auditLoading} busy={auditBusy} error={auditError} followUpPaths={followUpPaths} followUpQuestion={followUpQuestion} onPaths={setFollowUpPaths} onQuestion={setFollowUpQuestion} onRun={stage => void runAuditStage(stage)} onFollowUp={() => void runAuditFollowUp()}/>}
       </>}
     </div>
   </aside>
@@ -150,6 +216,114 @@ function History({ detail }: { detail: EntityDetail | null }) {
     <section><h3 className="section-title">Archive links</h3><div className="link-list">{links.map(link => <div key={link.id}><Icon name={link.linked ? 'link' : 'unlink'} size={15}/><div><strong>{link.path}</strong><span>{link.linked ? 'Linked' : 'Unlinked'} · last seen {formatDate(link.lastSeenAt)}</span></div></div>)}</div></section>
     <section><h3 className="section-title">Entity history</h3>{history.length === 0 ? <p className="muted">No recorded transitions.</p> : <div className="timeline">{history.map(event => <div className="timeline__item" key={event.id}><span className="timeline__dot"/><div><strong>{event.type.replace(/_/g, ' ')}</strong><time>{formatDate(event.at)}</time>{event.data && <p>{Object.values(event.data).filter(value => typeof value === 'string').join(' · ')}</p>}</div></div>)}</div>}</section>
   </div>
+}
+
+function ModAuditPanel({ audit, linked, loading, busy, error, followUpPaths, followUpQuestion, onPaths, onQuestion, onRun, onFollowUp }: {
+  audit: ModAudit | null
+  linked: boolean
+  loading: boolean
+  busy: string
+  error: string
+  followUpPaths: string
+  followUpQuestion: string
+  onPaths: (value: string) => void
+  onQuestion: (value: string) => void
+  onRun: (stage: 'local' | 'pre' | 'full') => void
+  onFollowUp: () => void
+}) {
+  if (loading) return <div className="center-loader"><Spinner/><span>Loading Mod Audit</span></div>
+  const hasLocal = Boolean(audit?.id)
+  const hasPreScan = Boolean(audit?.preScan?.model)
+  const hasFinal = Boolean(audit?.final?.model)
+  const local = audit?.deterministic
+  const surface = audit?.attackSurface
+  const localSignals = local?.signals ?? []
+  const surfaceEntries = surface?.entries ?? []
+  const preScanFiles = audit?.preScan?.files ?? []
+  const focusedPaths = audit?.final?.focusedPaths ?? []
+  const auditWarnings = audit?.final?.warnings ?? []
+  const followUps = audit?.followUps ?? []
+  return <div className="mod-audit">
+    <section className="mod-audit__intro">
+      <div><Icon name="shield" size={20}/><div><span>MOD AUDIT</span><strong>Staged security analysis</strong></div></div>
+      <p>Local checks identify payloads and entrypoints. AI stages receive inert excerpts only; archive content is never executed.</p>
+      {audit && audit.status !== 'not_started' && <div className="mod-audit__status"><Badge tone={audit.status === 'failed' ? 'danger' : audit.status === 'complete' ? 'success' : 'neutral'}>{audit.status.replace(/_/g, ' ')}</Badge><span>{audit.updatedAt ? `Updated ${formatDate(audit.updatedAt)}` : ''}</span></div>}
+      {error && <div className="mod-audit__error"><Icon name="error" size={15}/><span>{error}</span></div>}
+    </section>
+
+    <section className="audit-stages">
+      <article><header><span>1</span><div><strong>Local scan</strong><small>No AI · no execution</small></div></header><p>Executable signatures, suspicious primitives, archive safety, and content signals.</p><Button icon="scan" disabled={!linked || busy !== ''} onClick={() => onRun('local')}>{busy === 'local' ? 'Scanning' : hasLocal ? 'Run again' : 'Run local scan'}</Button></article>
+      <article><header><span>2</span><div><strong>AI pre-scan</strong><small>Cheap model · no verdict</small></div></header><p>Records per-file observations for reuse by the final review.</p><Button icon="agent" disabled={!linked || busy !== ''} onClick={() => onRun('pre')}>{busy === 'pre' ? 'Analyzing' : hasPreScan ? 'Run again' : 'Run pre-scan'}</Button></article>
+      <article><header><span>3</span><div><strong>Full analysis</strong><small>Strong model · focused follow-up</small></div></header><p>Produces evidence-backed findings and requests larger excerpts when needed.</p><Button icon="shield" tone="primary" disabled={!linked || busy !== ''} onClick={() => onRun('full')}>{busy === 'full' ? 'Reviewing' : hasFinal ? 'Run again' : 'Run full audit'}</Button></article>
+    </section>
+
+    {hasLocal && local && <>
+      <section>
+        <h3 className="section-title">Local evidence</h3>
+        <div className="audit-metrics"><div><strong>{local.scannedEntries.toLocaleString()}</strong><span>Entries</span></div><div><strong>{local.candidateFiles.toLocaleString()}</strong><span>Candidate files</span></div><div><strong>{local.executableFiles.toLocaleString()}</strong><span>Executables</span></div><div><strong>{local.suspiciousFiles.toLocaleString()}</strong><span>Flagged files</span></div></div>
+        {local.truncated && <p className="audit-note">The bounded scan reached its safety limit. Review the saved candidates before relying on absence of a signal.</p>}
+        {localSignals.length === 0 ? <div className="success-line"><Icon name="check" size={15}/>No deterministic signals found</div> : <div className="audit-signal-list">{localSignals.slice(0, 120).map((signal, index) => <article key={`${signal.path}-${signal.code}-${index}`}><Badge tone={auditFindingTone(signal.severity)}>{signal.severity}</Badge><div><strong>{signal.detail}</strong><code>{signal.path}</code><p>{signal.evidence}</p></div></article>)}</div>}
+      </section>
+      <section>
+        <h3 className="section-title">Attack surface</h3>
+        <p className="audit-note">Path patterns are compared with {surface?.libraryMods?.toLocaleString() ?? 0} mods already indexed in this library.</p>
+        {surfaceEntries.length === 0 ? <p className="muted">No executable entrypoints mapped.</p> : <div className="audit-surface-list">{surfaceEntries.slice(0, 120).map(entry => <div key={entry.path}><Icon name={entry.novel ? 'warning' : 'code'} size={14}/><div><strong>{entry.type.replace(/-/g, ' ')}</strong><code>{entry.path}</code><span>{entry.reason} · seen in {entry.libraryOccurrences.toLocaleString()} library mods</span></div>{entry.novel && <Badge tone="warning">Uncommon</Badge>}</div>)}</div>}
+      </section>
+    </>}
+
+    {hasPreScan && audit && <section>
+      <h3 className="section-title">AI pre-scan artifacts</h3>
+      <div className="audit-model-line"><Badge tone="cyan">{audit.preScan.model}</Badge><span>{audit.preScan.reasoning} reasoning · observations only, no verdict</span></div>
+      {audit.preScan.summary && <p className="audit-summary">{audit.preScan.summary}</p>}
+      <div className="audit-file-analysis">{preScanFiles.map(file => {
+        const observations = file.observations ?? []
+        const behaviors = file.behaviors ?? []
+        const questions = file.followUp ?? []
+        return <details key={file.path}><summary><code>{file.path}</code><span>{observations.length + behaviors.length}</span></summary><div>{observations.length > 0 && <><strong>Observations</strong><ul>{observations.map((value, index) => <li key={index}>{value}</li>)}</ul></>}{behaviors.length > 0 && <><strong>Behaviors</strong><ul>{behaviors.map((value, index) => <li key={index}>{value}</li>)}</ul></>}{questions.length > 0 && <><strong>Follow-up</strong><ul>{questions.map((value, index) => <li key={index}>{value}</li>)}</ul></>}</div></details>
+      })}</div>
+    </section>}
+
+    {hasFinal && audit && <section>
+      <h3 className="section-title">Final security review</h3>
+      <div className="audit-verdict"><Badge tone={auditFindingTone(audit.final.overallRisk)}>{audit.final.overallRisk} risk</Badge><span>{audit.final.model} · {audit.final.reasoning} reasoning</span></div>
+      <p className="audit-summary">{audit.final.summary || 'No structured summary returned.'}</p>
+      {focusedPaths.length > 0 && <p className="audit-note">Focused inspection used {focusedPaths.length.toLocaleString()} requested file excerpts.</p>}
+      <AuditFindings title="Technical findings" findings={audit.final.findings}/>
+      <AuditFindings title="Harmful content signals" findings={audit.final.contentSignals}/>
+      {auditWarnings.map((warning, index) => <div className="mod-audit__error" key={index}><Icon name="warning" size={14}/><span>{warning}</span></div>)}
+      <div className="audit-follow-up">
+        <strong>Focused follow-up</strong>
+        <label><span>Files · comma separated</span><input value={followUpPaths} onChange={event => onPaths(event.target.value)} placeholder="lua/ge/extensions/example.lua"/></label>
+        <label><span>Question</span><textarea value={followUpQuestion} onChange={event => onQuestion(event.target.value)} placeholder="What exact input reaches the process-launch call?"/></label>
+        <Button icon="agent" disabled={busy !== '' || !followUpQuestion.trim()} onClick={onFollowUp}>{busy === 'follow-up' ? 'Inspecting' : 'Ask strong model'}</Button>
+      </div>
+      {followUps.length > 0 && <div className="audit-follow-up-history">{followUps.map((followUp, index) => <details key={`${followUp.createdAt}-${index}`}><summary><span>{followUp.question}</span><time>{formatDate(followUp.createdAt)}</time></summary><div><code>{(followUp.paths ?? []).join(', ')}</code><p>{followUp.response}</p></div></details>)}</div>}
+    </section>}
+  </div>
+}
+
+function AuditFindings({ title, findings }: { title: string; findings: ModAudit['final']['findings'] }) {
+  const rows = findings ?? []
+  return <div className="audit-findings"><strong>{title}</strong>{rows.length === 0 ? <p className="muted">None reported.</p> : rows.map((finding, index) => <article key={`${finding.path}-${finding.title}-${index}`}><Badge tone={auditFindingTone(finding.severity)}>{finding.severity}</Badge><div><strong>{finding.title}</strong>{finding.path && <code>{finding.path}</code>}<p>{finding.evidence}</p>{finding.impact && <span>Impact · {finding.impact}</span>}{finding.recommendation && <span>Action · {finding.recommendation}</span>}</div></article>)}</div>
+}
+
+function auditFindingTone(value: string): 'neutral' | 'warning' | 'danger' | 'cyan' {
+  switch (value.toLowerCase()) {
+  case 'critical':
+  case 'high':
+    return 'danger'
+  case 'moderate':
+  case 'medium':
+    return 'warning'
+  case 'low':
+    return 'cyan'
+  default:
+    return 'neutral'
+  }
+}
+
+function auditErrorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

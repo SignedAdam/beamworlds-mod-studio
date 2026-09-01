@@ -81,6 +81,19 @@ export interface AppSettings {
     "agentModel": string;
     "contextMode": string;
     "showAIUsage": boolean;
+    "showFileSizes": boolean;
+    "emphasisColor": string;
+    "activeTabColor": string;
+    "darkSurfaceColor": string;
+    "darkBorderColor": string;
+    "darkTextColor": string;
+    "lightSurfaceColor": string;
+    "lightBorderColor": string;
+    "lightTextColor": string;
+    "preScanModel": string;
+    "preScanReasoning": string;
+    "fullScanModel": string;
+    "fullScanReasoning": string;
     "hasApiKey": boolean;
 }
 
@@ -179,6 +192,112 @@ export interface LibraryItem {
     "variantCount": number;
     "issueCount": number;
     "manifest": modkit$0.Manifest;
+}
+
+export interface ModAudit {
+    "id": string;
+    "entityId": string;
+    "artifactId": string;
+    "status": string;
+    "stage": string;
+    "createdAt": string;
+    "updatedAt": string;
+    "deterministic": ModAuditLocalReport;
+    "attackSurface": ModAuditAttackSurface;
+    "files": ModAuditFileArtifact[] | null;
+    "preScan": ModAuditPreScanReport;
+    "final": ModAuditFinalReport;
+    "followUps": ModAuditFollowUp[] | null;
+    "error": string;
+}
+
+export interface ModAuditAttackSurface {
+    "libraryMods": number;
+    "patterns": { [_ in string]?: number } | null;
+    "entries": ModAuditAttackSurfaceEntry[] | null;
+}
+
+export interface ModAuditAttackSurfaceEntry {
+    "path": string;
+    "type": string;
+    "reason": string;
+    "libraryOccurrences": number;
+    "libraryMods": number;
+    "novel": boolean;
+    "signals": ModAuditSignal[] | null;
+}
+
+export interface ModAuditFileArtifact {
+    "path": string;
+    "fingerprint": string;
+    "sizeBytes": number;
+    "entrypointType": string;
+    "signals": ModAuditSignal[] | null;
+    "preScan"?: ModAuditPreScanFile | null;
+}
+
+export interface ModAuditFinalReport {
+    "model": string;
+    "reasoning": string;
+    "overallRisk": string;
+    "summary": string;
+    "findings": ModAuditFinding[] | null;
+    "contentSignals": ModAuditFinding[] | null;
+    "followUpPaths": string[] | null;
+    "focusedPaths": string[] | null;
+    "warnings": string[] | null;
+    "raw": string;
+}
+
+export interface ModAuditFinding {
+    "severity": string;
+    "title": string;
+    "path": string;
+    "evidence": string;
+    "impact": string;
+    "recommendation": string;
+}
+
+export interface ModAuditFollowUp {
+    "question": string;
+    "paths": string[] | null;
+    "response": string;
+    "createdAt": string;
+}
+
+export interface ModAuditLocalReport {
+    "scannedEntries": number;
+    "candidateFiles": number;
+    "executableFiles": number;
+    "suspiciousFiles": number;
+    "contentSignals": number;
+    "bytesInspected": number;
+    "truncated": boolean;
+    "signals": ModAuditSignal[] | null;
+}
+
+export interface ModAuditPreScanFile {
+    "path": string;
+    "observations": string[] | null;
+    "behaviors": string[] | null;
+    "followUp": string[] | null;
+}
+
+export interface ModAuditPreScanReport {
+    "model": string;
+    "reasoning": string;
+    "summary": string;
+    "files": ModAuditPreScanFile[] | null;
+    "raw": string;
+}
+
+export interface ModAuditSignal {
+    "severity": string;
+    "category": string;
+    "code": string;
+    "path": string;
+    "detail": string;
+    "evidence": string;
 }
 
 export interface ModPreset {
@@ -326,6 +445,19 @@ export interface SettingsUpdate {
     "agentModel": string;
     "contextMode": string;
     "showAIUsage": boolean;
+    "showFileSizes": boolean;
+    "emphasisColor": string;
+    "activeTabColor": string;
+    "darkSurfaceColor": string;
+    "darkBorderColor": string;
+    "darkTextColor": string;
+    "lightSurfaceColor": string;
+    "lightBorderColor": string;
+    "lightTextColor": string;
+    "preScanModel": string;
+    "preScanReasoning": string;
+    "fullScanModel": string;
+    "fullScanReasoning": string;
     "apiKey": string;
     "clearApiKey": boolean;
 }
@@ -411,6 +543,8 @@ export interface WorkspaceRecord {
     "lastValidation": string;
     "displayName": string;
     "kind": modkit$0.Kind;
+    "agentStatus": string;
+    "agentUpdatedAt": string;
 }
 
 export interface WorkspaceTextFile {

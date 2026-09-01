@@ -8,8 +8,8 @@ import { LibraryView } from './LibraryView'
 import { ModMaker } from './ModMaker'
 import { ProfilesView } from './ProfilesView'
 import { SetupWizard } from './SetupWizard'
-import { Icon } from './icons'
-import { Button } from './ui'
+import { BeamWorldsMark, Icon } from './icons'
+import { Button, formatBytes } from './ui'
 
 type View = 'library' | 'workspaces' | 'profiles' | 'activity'
 type ToastTone = 'success' | 'error' | 'info'
@@ -23,6 +23,7 @@ interface ToastState {
 interface EditorStatus {
   path: string
   dirty: boolean
+  sizeBytes: number
 }
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [usage, setUsage] = useState<AIUsage | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('beamworlds.sidebar-collapsed') === 'true')
   const [setupState, setSetupState] = useState<SetupState | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
@@ -51,7 +53,7 @@ function App() {
   const [selectedWorkspaceID, setSelectedWorkspaceID] = useState('')
   const [workspaceDetail, setWorkspaceDetail] = useState<WorkspaceDetail | null>(null)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
-  const [editorStatus, setEditorStatus] = useState<EditorStatus>({ path: '', dirty: false })
+  const [editorStatus, setEditorStatus] = useState<EditorStatus>({ path: '', dirty: false, sizeBytes: 0 })
   const [scan, setScan] = useState<ScanProgress | null>(null)
   const [scanning, setScanning] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -79,9 +81,8 @@ function App() {
     setConfig(nextConfig)
     setDashboard(nextDashboard)
     setWorkspaces(nextWorkspaces)
-    if (!selectedWorkspaceID && nextWorkspaces.length) setSelectedWorkspaceID(nextWorkspaces[0].id)
     return nextDashboard
-  }, [selectedWorkspaceID])
+  }, [])
 
   const loadLibrary = useCallback(async () => {
     const nextItems = await API.ListLibrary(status, kind, query, folderID) ?? []
@@ -151,7 +152,6 @@ function App() {
         setOrganization(nextOrganization)
         setSettings(nextSettings)
         setUsage(nextUsage)
-        if (nextWorkspaces.length) setSelectedWorkspaceID(nextWorkspaces[0].id)
         setLoading(false)
         if (nextDashboard.entities === 0 && !autoScanStarted.current) {
           autoScanStarted.current = true
@@ -174,8 +174,21 @@ function App() {
   }, [status, kind, query, folderID, setupState?.required])
 
   useEffect(() => {
-    document.documentElement.dataset.theme = settings?.theme ?? 'dark'
-  }, [settings?.theme])
+    const root = document.documentElement
+    root.dataset.theme = settings?.theme ?? 'dark'
+    if (!settings) return
+    const colors: Record<string, string> = {
+      '--user-emphasis': settings.emphasisColor,
+      '--user-active-tab': settings.activeTabColor,
+      '--user-dark-surface': settings.darkSurfaceColor,
+      '--user-dark-border': settings.darkBorderColor,
+      '--user-dark-text': settings.darkTextColor,
+      '--user-light-surface': settings.lightSurfaceColor,
+      '--user-light-border': settings.lightBorderColor,
+      '--user-light-text': settings.lightTextColor,
+    }
+    for (const [name, value] of Object.entries(colors)) root.style.setProperty(name, value)
+  }, [settings])
 
   useEffect(() => {
     const stopScan = Events.On('library:scan', event => {
@@ -203,13 +216,17 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (view !== 'workspaces' || !selectedWorkspaceID) return
+    if (view !== 'workspaces') return
+    if (!selectedWorkspaceID) {
+      setWorkspaceDetail(null)
+      return
+    }
     setWorkspaceLoading(true)
     API.GetWorkspace(selectedWorkspaceID).then(setWorkspaceDetail).catch(handleError).finally(() => setWorkspaceLoading(false))
   }, [view, selectedWorkspaceID])
 
   useEffect(() => {
-    if (view !== 'workspaces') setEditorStatus({ path: '', dirty: false })
+    if (view !== 'workspaces') setEditorStatus({ path: '', dirty: false, sizeBytes: 0 })
   }, [view])
 
   const selectItem = async (item: LibraryItem) => {
@@ -322,6 +339,18 @@ function App() {
     setEntityDetail(null)
   }
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed(current => {
+      window.localStorage.setItem('beamworlds.sidebar-collapsed', String(!current))
+      return !current
+    })
+  }
+
+  const toggleTheme = () => {
+    if (!settings) return
+    void saveSettings(settingsUpdate(settings, { theme: settings.theme === 'dark' ? 'light' : 'dark' }))
+  }
+
   if (setupState && (setupState.required || setupOpen)) {
     return <SetupWizard state={setupState} required={setupState.required} onCancel={setupState.required ? undefined : () => setSetupOpen(false)} onError={handleError}/>
   }
@@ -330,35 +359,39 @@ function App() {
   const activeWorkspace = workspaces.find(workspace => workspace.id === selectedWorkspaceID)
   const usageLimits = usage?.limits?.filter(limit => limit.status === 'ok').slice(0, 2) ?? []
 
-  return <div className="app-shell">
+  return <div className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
     <aside className="app-sidebar">
-      <div className="brand-lockup" aria-label="BeamNG Mod Studio">
-        <span className="beam-mark" aria-hidden="true"><i/><i/><i/><i/></span>
-        <div><strong>BeamNG</strong><span>Mod Studio</span></div>
+      <div className="brand-lockup" aria-label="BeamWorlds Mod Studio">
+        <BeamWorldsMark/>
+        <div><strong>BeamWorlds</strong><span>Mod Studio</span></div>
+        <button className="sidebar-collapse" onClick={toggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}><Icon name="collapse" size={15}/></button>
       </div>
       <nav className="main-nav" aria-label="Primary navigation">
-        <button className={view === 'library' ? 'is-active' : ''} onClick={() => changeView('library')}><Icon name="library"/><span>Library</span><small>{dashboard?.entities ?? 0}</small></button>
-        <button className={view === 'workspaces' ? 'is-active' : ''} onClick={() => changeView('workspaces')}><Icon name="workspace"/><span>ModMaker</span><small>{workspaces.length}</small></button>
-        <button className={view === 'activity' ? 'is-active' : ''} onClick={() => changeView('activity')}><Icon name="activity"/><span>Activity</span></button>
-        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')}><Icon name="play"/><span>Mod profiles</span><small>{organization?.profiles?.length ?? 0}</small></button>
+        <button className={view === 'library' ? 'is-active' : ''} onClick={() => changeView('library')} aria-label="Mod Library"><Icon name="library"/><span className="nav-label">Mod Library</span><small>{dashboard?.entities ?? 0}</small><span className="nav-tooltip">Mod Library</span></button>
+        <button className={view === 'workspaces' ? 'is-active' : ''} onClick={() => changeView('workspaces')} aria-label="ModMaker"><Icon name="workspace"/><span className="nav-label">ModMaker</span><small>{workspaces.length}</small><span className="nav-tooltip">ModMaker</span></button>
+        <button className={view === 'activity' ? 'is-active' : ''} onClick={() => changeView('activity')} aria-label="Activity"><Icon name="activity"/><span className="nav-label">Activity</span><span className="nav-tooltip">Activity</span></button>
+        <button className={view === 'profiles' ? 'is-active' : ''} onClick={() => changeView('profiles')} aria-label="Mod Profiles"><Icon name="play"/><span className="nav-label">Mod Profiles</span><small>{organization?.profiles?.length ?? 0}</small><span className="nav-tooltip">Mod Profiles</span></button>
       </nav>
-      <button className="sidebar-settings" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={16}/><span>Settings</span></button>
+      <div className="sidebar-actions">
+        <button className="sidebar-theme" onClick={toggleTheme} aria-label={`Use ${settings?.theme === 'dark' ? 'light' : 'dark'} theme`}><Icon name={settings?.theme === 'dark' ? 'sun' : 'moon'} size={17}/><span>{settings?.theme === 'dark' ? 'Light theme' : 'Dark theme'}</span><span className="nav-tooltip">{settings?.theme === 'dark' ? 'Light theme' : 'Dark theme'}</span></button>
+        <button className="sidebar-settings" onClick={() => setSettingsOpen(true)} aria-label="Settings"><Icon name="settings" size={17}/><span>Settings</span><span className="nav-tooltip">Settings</span></button>
+      </div>
     </aside>
 
     <main className={`app-main ${selectedItem && view === 'library' ? 'has-inspector' : ''}`}>
-      {loading ? <div className="splash"><span className="beam-mark beam-mark--large"><i/><i/><i/><i/></span><div className="splash__line"/><p>{startupCount > 0 ? `Loading ${startupCount.toLocaleString()} mods` : 'Loading mod library'}</p><span>This may take a few seconds.</span></div> : <>
+      {loading ? <div className="splash"><BeamWorldsMark size={64}/><div className="splash__line"/><p>{startupCount > 0 ? `Loading ${startupCount.toLocaleString()} mods` : 'Loading mod library'}</p><span>This may take a few seconds.</span></div> : <>
         {view === 'library' && <LibraryView items={items} folders={organization?.folders ?? []} dashboard={dashboard} scan={scan} scanning={scanning} status={status} kind={kind} query={query} folderID={folderID} selectedID={selectedItem?.entityId ?? ''} onStatusChange={setStatus} onKindChange={setKind} onQueryChange={setQuery} onFolderChange={setFolderID} onCreateFolder={name => void createFolder(name)} onRenameFolder={(id, name) => void renameFolder(id, name)} onDeleteFolder={id => void deleteFolder(id)} onSelect={item => void selectItem(item)} onScan={() => void startScan()} onCancelScan={() => void cancelScan()}/>}
-        {view === 'workspaces' && <ModMaker workspaces={workspaces} detail={workspaceDetail} selectedID={selectedWorkspaceID} loading={workspaceLoading} defaultAuthor={settings?.defaultAuthor ?? ''} openMode={openMode} onOpenModeHandled={() => setOpenMode(null)} onSelect={setSelectedWorkspaceID} onReload={reloadWorkspace} onCreateMod={createNewMod} onAgentStarted={() => { void API.AIUsage().then(setUsage).catch(handleError) }} onEditorStatus={setEditorStatus} onNotify={notify} onError={handleError}/>}
+        {view === 'workspaces' && <ModMaker workspaces={workspaces} detail={workspaceDetail} selectedID={selectedWorkspaceID} loading={workspaceLoading} defaultAuthor={settings?.defaultAuthor ?? ''} showFileSizes={settings?.showFileSizes ?? true} openMode={openMode} onOpenModeHandled={() => setOpenMode(null)} onSelect={setSelectedWorkspaceID} onReload={reloadWorkspace} onCreateMod={createNewMod} onAgentStarted={() => { void API.AIUsage().then(setUsage).catch(handleError) }} onEditorStatus={setEditorStatus} onNotify={notify} onError={handleError}/>}
         {view === 'profiles' && <ProfilesView organization={organization} items={allItems} progress={profileProgress} onOrganization={setOrganization} onNotify={notify} onError={handleError}/>}
         {view === 'activity' && <ActivityView config={config} dashboard={dashboard} onScan={() => void startScan()}/>}
       </>}
     </main>
 
-    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onCreateWorkspace={mode => void createWorkspace(mode)}/>}
+    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onCreateWorkspace={mode => void createWorkspace(mode)} onError={handleError}/>}
 
     <footer className="app-statusbar" aria-label="Application status">
       <div><span className="status-led status-led--ready"/>{scanning ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}` : 'Ready'}</div>
-      <div>{view === 'workspaces' && activeWorkspace ? <><strong>{activeWorkspace.displayName}</strong>{editorStatus.path && <span title={editorStatus.path}>{editorStatus.dirty ? 'Unsaved' : 'Saved'} · {editorStatus.path}</span>}</> : <span>{(dashboard?.entities ?? items.length).toLocaleString()} mods</span>}</div>
+      <div>{view === 'workspaces' && activeWorkspace ? <><strong>{activeWorkspace.displayName}</strong>{editorStatus.path && <span title={editorStatus.path}>{editorStatus.dirty ? 'Unsaved' : 'Saved'} · {editorStatus.path} · {formatBytes(editorStatus.sizeBytes)}</span>}</> : <span>{(dashboard?.entities ?? items.length).toLocaleString()} mods</span>}</div>
       {settings?.showAIUsage && usage?.hasRuns && <div className="usage-compact"><Icon name="agent" size={13}/>{usageLimits.map(limit => <UsageChip key={`${limit.provider}-${limit.label}`} limit={limit}/>)}{usage.totalTokens > 0 && <span>{usage.totalTokens.toLocaleString()} tokens</span>}</div>}
     </footer>
 
@@ -370,6 +403,37 @@ function App() {
 function UsageChip({ limit }: { limit: NonNullable<AIUsage['limits']>[number] }) {
   const amount = limit.unit === 'percent' ? `${Math.round(limit.used)}%` : `${Math.round(limit.remaining)} ${limit.unit}`
   return <span title={`${limit.provider} · resets ${new Date(limit.resetsAt).toLocaleString()}`}>{limit.windowId || limit.label} {amount}</span>
+}
+
+function settingsUpdate(settings: AppSettings, overrides: Partial<SettingsUpdate> = {}): SettingsUpdate {
+  return {
+    theme: settings.theme,
+    defaultAuthor: settings.defaultAuthor,
+    agentProfile: settings.agentProfile,
+    agentModel: settings.agentModel,
+    contextMode: settings.contextMode,
+    showAIUsage: settings.showAIUsage,
+    showFileSizes: settings.showFileSizes,
+    emphasisColor: settings.emphasisColor,
+    activeTabColor: settings.activeTabColor,
+    darkSurfaceColor: settings.darkSurfaceColor,
+    darkBorderColor: settings.darkBorderColor,
+    darkTextColor: settings.darkTextColor,
+    lightSurfaceColor: settings.lightSurfaceColor,
+    lightBorderColor: settings.lightBorderColor,
+    lightTextColor: settings.lightTextColor,
+    preScanModel: settings.preScanModel,
+    preScanReasoning: settings.preScanReasoning,
+    fullScanModel: settings.fullScanModel,
+    fullScanReasoning: settings.fullScanReasoning,
+    apiKey: '',
+    clearApiKey: false,
+    ...overrides,
+  }
+}
+
+function ColorSetting({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return <label className="color-setting"><span>{label}</span><input type="color" value={value} onChange={event => onChange(event.target.value)}/><code>{value}</code></label>
 }
 
 function SettingsPanel({ open, settings, usage, onClose, onSave, onOpenSetup }: { open: boolean; settings: AppSettings | null; usage: AIUsage | null; onClose: () => void; onSave: (update: SettingsUpdate) => Promise<boolean>; onOpenSetup: () => void }) {
@@ -389,27 +453,37 @@ function SettingsPanel({ open, settings, usage, onClose, onSave, onOpenSetup }: 
 
   const submit = async () => {
     setSaving(true)
-    const saved = await onSave({
-      theme: draft.theme,
-      defaultAuthor: draft.defaultAuthor,
-      agentProfile: draft.agentProfile,
-      agentModel: draft.agentModel,
-      contextMode: draft.contextMode,
-      showAIUsage: draft.showAIUsage,
-      apiKey,
-      clearApiKey: clearAPIKey,
-    })
+    const saved = await onSave(settingsUpdate(draft, { apiKey, clearApiKey: clearAPIKey }))
     setSaving(false)
     if (saved) onClose()
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target) onClose() }}>
     <section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header><div><h2 id="settings-title">Settings</h2><span>Interface, author defaults, and Virgil</span></div><button className="icon-button" onClick={onClose} aria-label="Close settings"><Icon name="close"/></button></header>
+      <header><div><h2 id="settings-title">Settings</h2><span>Appearance, ModMaker, AI, and storage</span></div><button className="icon-button" onClick={onClose} aria-label="Close settings"><Icon name="close"/></button></header>
       <div className="settings-body">
-        <fieldset><legend>Interface</legend><div className="settings-row"><label>Theme<span>Applied to every pane and editor surface.</span></label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'dark' })}>Glass black</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'light' })}>Bright glass</button></div></div></fieldset>
+        <fieldset><legend>Appearance</legend>
+          <div className="settings-row"><label>Theme<span>The switch also stays visible in the sidebar.</span></label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'dark' })}>Black glass</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => setDraft({ ...draft, theme: 'light' })}>Light</button></div></div>
+          <div className="appearance-grid">
+            <ColorSetting label="Emphasis" value={draft.emphasisColor} onChange={emphasisColor => setDraft({ ...draft, emphasisColor })}/>
+            <ColorSetting label="Active tabs" value={draft.activeTabColor} onChange={activeTabColor => setDraft({ ...draft, activeTabColor })}/>
+            <ColorSetting label="Dark surface" value={draft.darkSurfaceColor} onChange={darkSurfaceColor => setDraft({ ...draft, darkSurfaceColor })}/>
+            <ColorSetting label="Dark borders" value={draft.darkBorderColor} onChange={darkBorderColor => setDraft({ ...draft, darkBorderColor })}/>
+            <ColorSetting label="Dark text" value={draft.darkTextColor} onChange={darkTextColor => setDraft({ ...draft, darkTextColor })}/>
+            <ColorSetting label="Light surface" value={draft.lightSurfaceColor} onChange={lightSurfaceColor => setDraft({ ...draft, lightSurfaceColor })}/>
+            <ColorSetting label="Light borders" value={draft.lightBorderColor} onChange={lightBorderColor => setDraft({ ...draft, lightBorderColor })}/>
+            <ColorSetting label="Light text" value={draft.lightTextColor} onChange={lightTextColor => setDraft({ ...draft, lightTextColor })}/>
+          </div>
+        </fieldset>
+        <fieldset><legend>ModMaker</legend><label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span><strong>Files navigator</strong> · Show file sizes in the file navigator</span></label></fieldset>
         <fieldset><legend>Project defaults</legend><label className="settings-field"><span>Author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Used by new mods" maxLength={80}/><small>The first author entered in the manual wizard becomes this default.</small></label></fieldset>
         <fieldset><legend>Storage and paths</legend><div className="settings-row"><label>BeamNG and staging locations<span>Change the game, mod library, or BeamWorlds storage folders.</span></label><Button onClick={onOpenSetup}>Open setup</Button></div></fieldset>
+        <fieldset><legend>AI · Mod Audit</legend><p className="settings-explainer">The pre-scan model describes candidate files without a verdict. The full model reviews that evidence and may inspect peculiar findings further.</p><div className="settings-grid">
+          <label className="settings-field"><span>Pre-scan analysis model</span><input value={draft.preScanModel} onChange={event => setDraft({ ...draft, preScanModel: event.target.value })}/><small>Small model recommended: gpt-5.6-luna</small></label>
+          <label className="settings-field"><span>Pre-scan reasoning</span><select value={draft.preScanReasoning} onChange={event => setDraft({ ...draft, preScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium · recommended</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
+          <label className="settings-field"><span>Full vulnerability analysis model</span><input value={draft.fullScanModel} onChange={event => setDraft({ ...draft, fullScanModel: event.target.value })}/><small>Large model recommended: gpt-5.6-sol</small></label>
+          <label className="settings-field"><span>Full analysis reasoning</span><select value={draft.fullScanReasoning} onChange={event => setDraft({ ...draft, fullScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high · recommended</option></select></label>
+        </div></fieldset>
         <fieldset><legend>Virgil</legend>
           <div className="settings-grid">
             <label className="settings-field"><span>Connection</span><select value={draft.agentProfile} onChange={event => setDraft({ ...draft, agentProfile: event.target.value })}><option value="omp">OMP default</option><option value="codex">ChatGPT / Codex</option><option value="claude">Claude</option><option value="openrouter">OpenRouter</option><option value="openai">OpenAI API</option></select></label>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { SetupInput, SetupState } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import { Icon } from './icons'
+import { BeamWorldsMark, Icon } from './icons'
 import { Button } from './ui'
 
 interface SetupWizardProps {
@@ -63,7 +63,7 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
   return <div className="setup-shell">
     <section className="setup-wizard" aria-labelledby="setup-title">
       <header className="setup-header">
-        <div className="brand-lockup" aria-label="BeamNG Mod Studio"><span className="beam-mark"><i/><i/><i/><i/></span><div><strong>BeamNG</strong><span>Mod Studio</span></div></div>
+        <div className="brand-lockup" aria-label="BeamWorlds Mod Studio"><BeamWorldsMark/><div><strong>BeamWorlds</strong><span>Mod Studio</span></div></div>
         {!required && onCancel && <button className="icon-button" onClick={onCancel} aria-label="Close setup"><Icon name="close"/></button>}
       </header>
       <div className="setup-progress" aria-label={`Setup step ${step + 1} of ${steps.length}`}>

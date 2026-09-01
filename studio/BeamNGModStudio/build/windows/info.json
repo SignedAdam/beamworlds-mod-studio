@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "BeamWorlds",
+			"FileDescription": "Local-first BeamNG mod library and ModMaker",
+			"LegalCopyright": "© 2026, My Company",
+			"ProductName": "BeamWorlds Mod Studio",
+			"Comments": "This is a comment"
+		}
+	}
+}

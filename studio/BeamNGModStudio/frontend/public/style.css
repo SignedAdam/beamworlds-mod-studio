@@ -338,6 +338,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--orange);box-shadow:0 
 .sidebar-collapse:hover{border-color:var(--line-strong);background:var(--surface-soft);color:var(--text)}
 .main-nav{padding:8px 7px;gap:4px}
 .main-nav button,.sidebar-settings,.sidebar-theme{height:38px;width:100%;display:flex;align-items:center;gap:10px;padding:0 13px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text-2);text-align:left;position:relative}
+.app-sidebar :is(.main-nav,.sidebar-actions) button>svg{flex:none}
 .main-nav button:before{display:none!important}
 .main-nav button:hover,.sidebar-settings:hover,.sidebar-theme:hover{background:var(--surface-soft);border-color:var(--line);color:var(--text)}
 .main-nav button.is-active{background:rgba(255,255,255,.085);border-color:var(--line-strong);color:var(--text);box-shadow:inset 0 1px rgba(255,255,255,.035)}
@@ -682,29 +683,31 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 .tag-editor>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .tag-editor>header>div{min-width:0}
 .tag-editor>header .section-title{margin:0}
-.tag-editor>header small{display:block;margin-top:2px;color:var(--text-3);font-size:var(--font-caption)}
-.tag-editor>header>button{height:28px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid var(--line);border-radius:4px;background:var(--surface-soft);color:var(--text-2);font-size:var(--font-caption)}
-.tag-editor__assigned{min-height:31px;display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:7px}
-.tag-editor__assigned>span{color:var(--text-3);font-size:var(--font-caption)}
-.tag-editor__assigned>.mod-tag{cursor:pointer}
-.tag-editor__panel{margin-top:8px;padding:7px;border:1px solid var(--line-strong);border-radius:5px;background:var(--field)}
-.tag-editor__panel>form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px}
-.tag-editor__panel>form input{height:30px}
-.tag-editor__panel>form button{height:30px;display:inline-flex;align-items:center;gap:4px;padding:0 8px;border:1px solid var(--line);border-radius:3px;background:var(--surface-soft);color:var(--text-2)}
-.tag-editor__list{max-height:250px;overflow:auto;margin-top:6px;border-top:1px solid var(--line)}
-.tag-editor__list>div{min-height:37px;display:grid;grid-template-columns:minmax(0,1fr) 27px 27px;align-items:center;border-bottom:1px solid var(--line)}
-.tag-editor__list>div.is-selected{background:rgba(255,255,255,.055)}
-.tag-editor__list label{min-width:0;display:flex;align-items:center;gap:7px;padding:4px 5px}
-.tag-editor__list label>span{min-width:0;display:flex;flex-direction:column}
-.tag-editor__list label strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--font-control)}
-.tag-editor__list label small{color:var(--text-3);font-size:var(--font-caption)}
-.tag-editor__list input{width:15px;height:15px;accent-color:var(--orange)}
-.tag-editor__list .icon-button{width:25px;height:25px;border:0;background:transparent;color:var(--text-3)}
+.tag-editor>header small{display:block;margin-top:2px;color:var(--text-3);font-size:var(--font-caption);line-height:1.35}
+.tag-editor__group{margin-top:10px}
+.tag-editor__group>strong,.tag-editor__available-heading>strong{display:block;color:var(--text-3);font-size:var(--font-caption);font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.tag-editor__available-heading{height:29px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tag-editor__available-heading>button{height:27px;display:inline-flex;align-items:center;gap:4px;padding:0 8px;border:1px solid var(--line);border-radius:4px;background:var(--surface-soft);color:var(--text-2);font-size:var(--font-caption)}
+.tag-editor__available-heading>button:hover:not(:disabled){border-color:var(--line-strong);color:var(--text)}
+.tag-editor__chips{min-height:32px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tag-editor__empty{color:var(--text-3);font-size:var(--font-caption)}
+.tag-editor__chip{max-width:100%;height:28px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface-soft);color:var(--text-2);font-size:var(--font-caption)}
+button.tag-editor__chip{cursor:pointer}
+button.tag-editor__chip:hover:not(:disabled){border-color:color-mix(in srgb,var(--active-tab) 60%,var(--line-strong));background:rgba(255,255,255,.085);color:var(--text)}
+.tag-editor__chip.is-assigned{border-color:color-mix(in srgb,var(--active-tab) 58%,var(--line));background:color-mix(in srgb,var(--active-tab) 12%,transparent);color:var(--text)}
+.tag-editor__chip>svg{flex:none;color:var(--text-3)}
+.tag-editor__chip.is-assigned>svg{color:var(--active-tab)}
+.tag-editor__chip>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag-editor__chip>small{flex:none;padding-left:5px;border-left:1px solid var(--line);color:var(--text-3);font-size:10px;font-variant-numeric:tabular-nums}
+.tag-editor__chip--editing{padding:2px 5px;border-color:var(--active-tab);background:var(--field)}
+.tag-editor__chip--editing input{width:min(210px,22ch);min-width:110px;height:22px;padding:0 5px;border:0;background:transparent;box-shadow:none!important;color:var(--text);font-size:var(--font-caption)}
+.tag-editor__context-backdrop{position:fixed;inset:0;z-index:498}
+.tag-editor__context-menu{position:fixed;z-index:499}
 
-/* Track and moving highlight share the same tapered, fading silhouette. */
-.splash__line{width:180px;height:4px;overflow:hidden;background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--active-tab) 18%,transparent) 14%,var(--active-tab) 34%,var(--active-tab) 66%,color-mix(in srgb,var(--active-tab) 18%,transparent) 86%,transparent 100%);clip-path:polygon(0 50%,10% 24%,24% 0,76% 0,90% 24%,100% 50%,90% 76%,76% 100%,24% 100%,10% 76%)}
-.splash__line:after{left:-58px;width:58px;height:100%;background:radial-gradient(ellipse at center,#fff 0%,color-mix(in srgb,var(--active-tab) 88%,#fff) 34%,color-mix(in srgb,var(--active-tab) 32%,transparent) 68%,transparent 100%);clip-path:polygon(0 50%,16% 24%,30% 0,70% 0,84% 24%,100% 50%,84% 76%,70% 100%,30% 100%,16% 76%);animation:splash 1.2s ease-in-out infinite}
-@keyframes splash{from{transform:translateX(0)}to{transform:translateX(238px)}}
+/* Preserve the original thin fade while keeping the highlight wholly inside it. */
+.splash__line{width:180px;height:2px;overflow:hidden;border-radius:999px;background:linear-gradient(90deg,transparent,var(--active-tab),transparent);clip-path:none}
+.splash__line:after{left:0;width:45px;height:100%;border-radius:inherit;background:linear-gradient(90deg,transparent 0%,#fff 50%,transparent 100%);clip-path:none;animation:splash 1.2s ease-in-out infinite alternate}
+@keyframes splash{from{transform:translateX(0)}to{transform:translateX(135px)}}
 
 @media(max-width:980px){
   .pagination{grid-template-columns:1fr auto}

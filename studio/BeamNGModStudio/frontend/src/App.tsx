@@ -338,6 +338,9 @@ function App() {
   const renameTag = async (tagID: string, name: string) => {
     try {
       setOrganization(await API.RenameModTag(tagID, name))
+      const renameItemTag = (item: LibraryItem) => ({ ...item, tags: (item.tags ?? []).map(tag => tag.id === tagID ? { ...tag, name } as ModTag : tag) } as LibraryItem)
+      setSelectedItem(current => current ? renameItemTag(current) : current)
+      setEntityDetail(current => current ? { ...current, item: renameItemTag(current.item) } as EntityDetail : current)
       await Promise.all([loadLibrary(), loadOrganization()])
       notify('Tag renamed', 'success')
     } catch (error) { handleError(error) }
@@ -345,6 +348,9 @@ function App() {
   const deleteTag = async (tagID: string) => {
     try {
       setOrganization(await API.DeleteModTag(tagID))
+      const removeItemTag = (item: LibraryItem) => ({ ...item, tags: (item.tags ?? []).filter(tag => tag.id !== tagID) } as LibraryItem)
+      setSelectedItem(current => current ? removeItemTag(current) : current)
+      setEntityDetail(current => current ? { ...current, item: removeItemTag(current.item) } as EntityDetail : current)
       await Promise.all([loadLibrary(), loadOrganization()])
       notify('Tag deleted', 'success')
     } catch (error) { handleError(error) }

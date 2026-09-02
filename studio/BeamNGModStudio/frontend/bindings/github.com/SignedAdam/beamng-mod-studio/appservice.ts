@@ -41,6 +41,10 @@ export function CreateLibraryFolder(name: string, parentID: string): $Cancellabl
     return $Call.ByID(3930565201, name, parentID);
 }
 
+export function CreateModTag(name: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(1759538554, name);
+}
+
 export function CreateNewMod(request: $models.NewModRequest): $CancellablePromise<$models.WorkspaceDetail> {
     return $Call.ByID(3533916892, request);
 }
@@ -67,6 +71,10 @@ export function Dashboard(): $CancellablePromise<$models.Dashboard> {
 
 export function DeleteLibraryFolder(folderID: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1596845892, folderID);
+}
+
+export function DeleteModTag(tagID: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(1455379505, tagID);
 }
 
 export function DeletePreset(presetID: string): $CancellablePromise<$models.OrganizationState> {
@@ -181,6 +189,10 @@ export function RenameLibraryFolder(folderID: string, name: string): $Cancellabl
     return $Call.ByID(2740790923, folderID, name);
 }
 
+export function RenameModTag(tagID: string, name: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(3546457432, tagID, name);
+}
+
 export function RenameProfile(profileID: string, name: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1831808545, profileID, name);
 }
@@ -231,6 +243,10 @@ export function ScanLibrary(): $CancellablePromise<$models.ScanSummary> {
 
 export function SearchWorkspace(workspaceID: string, query: string, maxResults: number): $CancellablePromise<string[] | null> {
     return $Call.ByID(2068548899, workspaceID, query, maxResults);
+}
+
+export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
+    return $Call.ByID(91975591, entityID, tagIDs);
 }
 
 export function SetPresetMod(presetID: string, entityID: string, included: boolean): $CancellablePromise<void> {

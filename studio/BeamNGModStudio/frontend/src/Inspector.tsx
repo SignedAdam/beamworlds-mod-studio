@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { EntityDetail, LibraryFolder, LibraryItem, ModAudit } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { EntityDetail, LibraryFolder, LibraryItem, ModAudit, ModTag } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import type { ArchiveMember, Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
 import { Icon } from './icons'
+import { TagEditor } from './TagEditor'
 import { Badge, Button, EmptyState, Spinner, formatBytes, formatDate, issueTone, kindIcon, kindLabel } from './ui'
 
 type InspectorTab = 'overview' | 'variants' | 'structure' | 'files' | 'history' | 'audit'
@@ -11,15 +12,20 @@ interface InspectorProps {
   item: LibraryItem
   detail: EntityDetail | null
   folders: LibraryFolder[]
+  tags: ModTag[]
   loading: boolean
   creatingWorkspace: boolean
   onClose: () => void
   onMoveFolder: (folderID: string) => void
+  onSetTags: (tagIDs: string[]) => Promise<void>
+  onCreateTag: (name: string) => Promise<ModTag | null>
+  onRenameTag: (tagID: string, name: string) => Promise<void>
+  onDeleteTag: (tagID: string) => Promise<void>
   onCreateWorkspace: (mode: 'editor' | 'virgil') => void
   onError: (error: unknown) => void
 }
 
-export function Inspector({ item, detail, folders, loading, creatingWorkspace, onClose, onMoveFolder, onCreateWorkspace, onError }: InspectorProps) {
+export function Inspector({ item, detail, folders, tags, loading, creatingWorkspace, onClose, onMoveFolder, onSetTags, onCreateTag, onRenameTag, onDeleteTag, onCreateWorkspace, onError }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
   const [fileFilter, setFileFilter] = useState('')
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null)
@@ -100,14 +106,14 @@ export function Inspector({ item, detail, folders, loading, creatingWorkspace, o
 
   return <aside className="inspector" aria-label="Mod inspector">
     <header className="inspector__header">
-      <div className="inspector__identity"><Icon name={kindIcon(String(item.kind))} size={18}/><div><h2>{item.displayName}</h2><span>{kindLabel(String(item.kind))} · {item.linked ? 'Linked' : 'Missing source'}</span></div></div>
+      <div className="inspector__identity"><Icon name={kindIcon(String(item.kind))} size={18}/><div><h2>{item.displayName}</h2><span>{kindLabel(String(item.kind))} · {item.linked ? 'Source available' : 'Missing source'}</span></div></div>
       <button className="icon-button" onClick={onClose} aria-label="Close inspector"><Icon name="close" size={16}/></button>
     </header>
 
     <div className="inspector__actions">
       <Button icon="edit" tone="primary" disabled={!item.linked || creatingWorkspace} onClick={() => onCreateWorkspace('editor')}>{creatingWorkspace ? 'Opening project' : 'Edit in ModMaker'}</Button>
       <Button icon="agent" disabled={!item.linked || creatingWorkspace} onClick={() => onCreateWorkspace('virgil')}>Work with Virgil</Button>
-      <label className="inspector-folder"><span>Library folder</span><select value={item.folderId || ''} onChange={event => onMoveFolder(event.target.value)}><option value="">Unfiled</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+      <label className="inspector-folder"><span>Collection</span><select value={item.folderId || ''} onChange={event => onMoveFolder(event.target.value)}><option value="">Unfiled</option>{folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
       <code title={item.fingerprint}>SHA {item.fingerprint?.slice(0, 12) || 'pending'}</code>
     </div>
 
@@ -117,7 +123,7 @@ export function Inspector({ item, detail, folders, loading, creatingWorkspace, o
 
     <div className="inspector__body">
       {loading && !detail ? <div className="center-loader"><Spinner/><span>Loading artifact detail</span></div> : <>
-        {tab === 'overview' && <Overview item={item} detail={detail} />}
+        {tab === 'overview' && <Overview item={item} detail={detail} tags={tags} onSetTags={onSetTags} onCreateTag={onCreateTag} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag}/>}
         {tab === 'variants' && <Variants variants={manifest?.variants ?? []} selected={selectedVariant} onSelect={setSelectedVariant}/>} 
         {tab === 'structure' && <Structure item={item}/>} 
         {tab === 'files' && <Files members={members} query={fileFilter} onQuery={setFileFilter}/>} 
@@ -128,12 +134,13 @@ export function Inspector({ item, detail, folders, loading, creatingWorkspace, o
   </aside>
 }
 
-function Overview({ item, detail }: { item: LibraryItem; detail: EntityDetail | null }) {
+function Overview({ item, detail, tags, onSetTags, onCreateTag, onRenameTag, onDeleteTag }: { item: LibraryItem; detail: EntityDetail | null; tags: ModTag[]; onSetTags: (tagIDs: string[]) => Promise<void>; onCreateTag: (name: string) => Promise<ModTag | null>; onRenameTag: (tagID: string, name: string) => Promise<void>; onDeleteTag: (tagID: string) => Promise<void> }) {
   const manifest = detail?.item.manifest ?? item.manifest
   const contentTags = manifest.contentTags ?? []
   const issues = manifest.issues ?? []
   return <div className="inspector-section-stack">
     {manifest.description && <p className="inspector-description">{manifest.description}</p>}
+    <TagEditor assigned={item.tags ?? []} tags={tags} onSet={onSetTags} onCreate={onCreateTag} onRename={onRenameTag} onDelete={onDeleteTag}/>
     <section>
       <h3 className="section-title">Artifact facts</h3>
       <dl className="fact-grid">

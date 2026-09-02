@@ -9,8 +9,8 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
   return <span className={`badge badge--${tone}`}>{children}</span>
 }
 
-export function EmptyState({ icon, title, detail, action }: { icon: IconName; title: string; detail: string; action?: ReactNode }) {
-  return <div className="empty-state"><div className="empty-state__icon"><Icon name={icon} size={28}/></div><h3>{title}</h3><p>{detail}</p>{action}</div>
+export function EmptyState({ icon, title, detail, action }: { icon: IconName; title: string; detail?: string; action?: ReactNode }) {
+  return <div className="empty-state"><div className="empty-state__icon"><Icon name={icon} size={28}/></div><h3>{title}</h3>{detail && <p>{detail}</p>}{action}</div>
 }
 
 export function Spinner({ small = false }: { small?: boolean }) {

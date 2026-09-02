@@ -6,7 +6,7 @@ export type IconName =
   | 'warning' | 'check' | 'error' | 'arrow' | 'plus' | 'save' | 'trash'
   | 'edit' | 'diff' | 'agent' | 'play' | 'export' | 'install' | 'terminal'
   | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'settings' | 'chevron'
-  | 'sun' | 'moon' | 'collapse' | 'more' | 'columns' | 'shield'
+  | 'sun' | 'moon' | 'collapse' | 'more' | 'columns' | 'shield' | 'tag' | 'filter' | 'user'
 
 const paths: Record<IconName, JSX.Element> = {
   library: <><path d="M4 5.5h16v14H4z"/><path d="M7 9h10M7 13h10M7 17h6"/></>,
@@ -49,6 +49,9 @@ const paths: Record<IconName, JSX.Element> = {
   collapse: <><path d="m9 7-5 5 5 5M20 5v14"/></>,
   more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
   columns: <><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16M15 4v16"/></>,
+  tag: <><path d="M4 5v6.5L12.5 20 20 12.5 11.5 4H5z"/><circle cx="8.5" cy="8.5" r="1.5"/></>,
+  filter: <path d="M3 5h18l-7 8v5l-4 2v-7z"/>,
+  user: <><circle cx="12" cy="8" r="4"/><path d="M4.5 21c.8-4.2 3.3-6.3 7.5-6.3s6.7 2.1 7.5 6.3"/></>,
   shield: <><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6z"/><path d="m9 12 2 2 4-5"/></>,
 }
 

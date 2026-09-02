@@ -36,6 +36,7 @@ export type {
     ModAuditSignal,
     ModPreset,
     ModProfile,
+    ModTag,
     NewModRequest,
     OrganizationState,
     PresetDetail,

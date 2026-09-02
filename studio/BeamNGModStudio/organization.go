@@ -39,6 +39,7 @@ type ModProfile struct {
 
 type OrganizationState struct {
 	Folders  []LibraryFolder `json:"folders"`
+	Tags     []ModTag        `json:"tags"`
 	Presets  []ModPreset     `json:"presets"`
 	Profiles []ModProfile    `json:"profiles"`
 }
@@ -171,6 +172,10 @@ func (s *Store) Organization(ctx context.Context) (OrganizationState, error) {
 	if err != nil {
 		return OrganizationState{}, err
 	}
+	tags, err := s.listModTags(ctx)
+	if err != nil {
+		return OrganizationState{}, err
+	}
 	presets, err := s.listPresets(ctx)
 	if err != nil {
 		return OrganizationState{}, err
@@ -179,7 +184,7 @@ func (s *Store) Organization(ctx context.Context) (OrganizationState, error) {
 	if err != nil {
 		return OrganizationState{}, err
 	}
-	return OrganizationState{Folders: folders, Presets: presets, Profiles: profiles}, nil
+	return OrganizationState{Folders: folders, Tags: tags, Presets: presets, Profiles: profiles}, nil
 }
 
 func (s *Store) listLibraryFolders(ctx context.Context) ([]LibraryFolder, error) {

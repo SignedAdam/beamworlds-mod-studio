@@ -15,7 +15,7 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
 	ctx := context.Background()
-	for _, table := range []string{"library_folders", "library_folder_entities", "mod_presets", "mod_preset_entities", "mod_profiles", "mod_profile_presets", "workspace_drafts"} {
+	for _, table := range []string{"library_folders", "library_folder_entities", "mod_tags", "mod_tag_entities", "mod_presets", "mod_preset_entities", "mod_profiles", "mod_profile_presets", "workspace_drafts"} {
 		var name string
 		if err := service.store.db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name); err != nil {
 			t.Fatalf("migration table %s: %v", table, err)
@@ -105,6 +105,109 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	unfiled, err = service.ListLibrary("all", "all", "", "unfiled")
 	if err != nil || !containsEntity(unfiled, first.Entity.EntityID) {
 		t.Fatalf("deleting a folder did not safely unfile its mod: %#v, err %v", unfiled, err)
+	}
+}
+
+func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	state, err := service.Organization()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tags) != len(exampleModTagNames) {
+		t.Fatalf("seeded tags = %d, want %d: %#v", len(state.Tags), len(exampleModTagNames), state.Tags)
+	}
+	for _, name := range exampleModTagNames {
+		tag := findModTag(t, state, name)
+		if tag.ModCount != 0 {
+			t.Fatalf("fresh tag %q unexpectedly has %d assignments", name, tag.ModCount)
+		}
+	}
+
+	first, err := service.CreateNewMod(NewModRequest{Name: "Road Mission", ModID: "road_mission", Kind: "script", Author: "Ava Builder", Version: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.CreateNewMod(NewModRequest{Name: "Interface Pack", ModID: "interface_pack", Kind: "ui", Author: "Bea Builder", Version: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstItem, err := service.store.GetLibraryItem(context.Background(), first.Entity.EntityID)
+	if err != nil || len(firstItem.Tags) != 0 {
+		t.Fatalf("fresh mod tags = %#v, err %v", firstItem.Tags, err)
+	}
+
+	state, err = service.CreateModTag("Favorite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	car := findModTag(t, state, "Car")
+	gameplay := findModTag(t, state, "Gameplay Overhaul")
+	favorite := findModTag(t, state, "Favorite")
+	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, gameplay.ID, favorite.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateModTag("favorite"); err == nil {
+		t.Fatal("case-insensitive duplicate tag was accepted")
+	}
+	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, "missing-tag"}); err == nil {
+		t.Fatal("unknown tag assignment was accepted")
+	}
+	firstItem, err = service.store.GetLibraryItem(context.Background(), first.Entity.EntityID)
+	if err != nil || len(firstItem.Tags) != 3 {
+		t.Fatalf("failed assignment changed existing tags: %#v, err %v", firstItem.Tags, err)
+	}
+
+	for query, entityID := range map[string]string{
+		`in:tag "Gameplay Overhaul"`: first.Entity.EntityID,
+		`in:tag Car is:linked`:       first.Entity.EntityID,
+		`in:author "Ava Builder"`:    first.Entity.EntityID,
+		`car`:                        first.Entity.EntityID,
+		`in:name "Interface Pack"`:   second.Entity.EntityID,
+	} {
+		items, err := service.ListLibrary("all", "all", query, "all")
+		if err != nil || len(items) != 1 || items[0].EntityID != entityID {
+			t.Fatalf("query %q = %#v, err %v", query, items, err)
+		}
+	}
+	missing, err := service.ListLibrary("all", "all", "is:missing", "all")
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("missing-source query = %#v, err %v", missing, err)
+	}
+
+	state, err = service.CreateLibraryFolder("Road Tests", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := state.Folders[0]
+	if err := service.MoveLibraryItem(first.Entity.EntityID, collection.ID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.ListLibrary("all", "all", `in:collection "Road Tests"`, "all")
+	if err != nil || len(items) != 1 || items[0].EntityID != first.Entity.EntityID {
+		t.Fatalf("collection query = %#v, err %v", items, err)
+	}
+
+	state, err = service.RenameModTag(favorite.ID, "Must Play")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := findModTag(t, state, "Must Play")
+	items, err = service.ListLibrary("all", "all", `in:tag "Must Play"`, "all")
+	if err != nil || len(items) != 1 || items[0].EntityID != first.Entity.EntityID {
+		t.Fatalf("renamed tag query = %#v, err %v", items, err)
+	}
+	state, err = service.DeleteModTag(renamed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(state.Tags, func(tag ModTag) bool { return tag.ID == renamed.ID }) {
+		t.Fatal("deleted tag remains in organization state")
+	}
+	firstItem, err = service.store.GetLibraryItem(context.Background(), first.Entity.EntityID)
+	if err != nil || slices.ContainsFunc(firstItem.Tags, func(tag ModTag) bool { return tag.ID == renamed.ID }) {
+		t.Fatalf("deleted tag assignment remains: %#v, err %v", firstItem.Tags, err)
 	}
 }
 
@@ -319,6 +422,17 @@ func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 
 func containsEntity(items []LibraryItem, entityID string) bool {
 	return slices.ContainsFunc(items, func(item LibraryItem) bool { return item.EntityID == entityID })
+}
+
+func findModTag(t *testing.T, state OrganizationState, name string) ModTag {
+	t.Helper()
+	for _, tag := range state.Tags {
+		if strings.EqualFold(tag.Name, name) {
+			return tag
+		}
+	}
+	t.Fatalf("tag %q missing from %#v", name, state.Tags)
+	return ModTag{}
 }
 
 func findReusablePreset(t *testing.T, state OrganizationState, name string) ModPreset {

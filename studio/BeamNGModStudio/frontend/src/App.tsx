@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { AIUsage, AppConfig, AppSettings, Dashboard, EntityDetail, LibraryItem, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, SetupState, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { AIUsage, AppConfig, AppSettings, Dashboard, EntityDetail, LibraryItem, ModTag, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, SetupState, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { ActivityView } from './ActivityView'
 import { Inspector } from './Inspector'
 import { LibraryView } from './LibraryView'
@@ -37,14 +37,13 @@ function App() {
   const [setupOpen, setSetupOpen] = useState(false)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [items, setItems] = useState<LibraryItem[]>([])
+  const [libraryLoading, setLibraryLoading] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([])
   const [allItems, setAllItems] = useState<LibraryItem[]>([])
   const [organization, setOrganization] = useState<OrganizationState | null>(null)
   const [folderID, setFolderID] = useState('all')
   const [profileProgress, setProfileProgress] = useState<ProfileProgress | null>(null)
   const [openMode, setOpenMode] = useState<'editor' | 'virgil' | null>(null)
-  const [status, setStatus] = useState('all')
-  const [kind, setKind] = useState('all')
   const [query, setQuery] = useState('')
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null)
   const [entityDetail, setEntityDetail] = useState<EntityDetail | null>(null)
@@ -60,6 +59,7 @@ function App() {
   const [toast, setToast] = useState<ToastState>({ message: '', tone: 'info', visible: false })
   const toastTimer = useRef<number>()
   const autoScanStarted = useRef(false)
+  const libraryLoadVersion = useRef(0)
 
   const notify = useCallback((message: string, tone: ToastTone = 'info') => {
     setToast({ message, tone, visible: true })
@@ -85,7 +85,9 @@ function App() {
   }, [])
 
   const loadLibrary = useCallback(async () => {
-    const nextItems = await API.ListLibrary(status, kind, query, folderID) ?? []
+    const requestVersion = libraryLoadVersion.current
+    const nextItems = await API.ListLibrary('all', 'all', query, folderID) ?? []
+    if (requestVersion !== libraryLoadVersion.current) return
     setItems(nextItems)
     if (selectedItem) {
       const replacement = nextItems.find(item => item.entityId === selectedItem.entityId)
@@ -95,7 +97,7 @@ function App() {
         setEntityDetail(null)
       }
     }
-  }, [status, kind, query, folderID, selectedItem?.entityId])
+  }, [query, folderID, selectedItem?.entityId])
   const loadOrganization = useCallback(async () => {
     const [nextOrganization, nextItems] = await Promise.all([API.Organization(), API.ListLibrary('all', 'all', '', 'all')])
     setOrganization(nextOrganization)
@@ -169,9 +171,17 @@ function App() {
 
   useEffect(() => {
     if (!setupState || setupState.required) return
-    const timer = setTimeout(() => { void loadLibrary().catch(handleError) }, 120)
+    const requestVersion = ++libraryLoadVersion.current
+    setLibraryLoading(true)
+    const timer = setTimeout(() => {
+      void loadLibrary().catch(error => {
+        if (requestVersion === libraryLoadVersion.current) handleError(error)
+      }).finally(() => {
+        if (requestVersion === libraryLoadVersion.current) setLibraryLoading(false)
+      })
+    }, 120)
     return () => clearTimeout(timer)
-  }, [status, kind, query, folderID, setupState?.required])
+  }, [query, folderID, setupState?.required])
 
   useEffect(() => {
     const root = document.documentElement
@@ -297,13 +307,13 @@ function App() {
   }
 
   const createFolder = async (name: string) => {
-    try { setOrganization(await API.CreateLibraryFolder(name, '')); await loadLibrary(); notify(`Created folder ${name}`, 'success') } catch (error) { handleError(error) }
+    try { setOrganization(await API.CreateLibraryFolder(name, '')); await loadLibrary(); notify(`Created collection ${name}`, 'success') } catch (error) { handleError(error) }
   }
   const renameFolder = async (id: string, name: string) => {
-    try { setOrganization(await API.RenameLibraryFolder(id, name)); notify('Folder renamed', 'success') } catch (error) { handleError(error) }
+    try { setOrganization(await API.RenameLibraryFolder(id, name)); notify('Collection renamed', 'success') } catch (error) { handleError(error) }
   }
   const deleteFolder = async (id: string) => {
-    try { setOrganization(await API.DeleteLibraryFolder(id)); setFolderID('all'); await loadLibrary(); notify('Folder removed; mods are now unfiled', 'success') } catch (error) { handleError(error) }
+    try { setOrganization(await API.DeleteLibraryFolder(id)); setFolderID('all'); await loadLibrary(); notify('Collection removed; its mods are now Unfiled', 'success') } catch (error) { handleError(error) }
   }
   const moveSelectedItem = async (nextFolderID: string) => {
     if (!selectedItem) return
@@ -311,7 +321,41 @@ function App() {
       await API.MoveLibraryItem(selectedItem.entityId, nextFolderID)
       setSelectedItem({ ...selectedItem, folderId: nextFolderID } as LibraryItem)
       await Promise.all([loadLibrary(), loadOrganization()])
-      notify(nextFolderID ? 'Mod moved to library folder' : 'Mod moved to Unfiled', 'success')
+      notify(nextFolderID ? 'Mod moved to collection' : 'Mod moved to Unfiled', 'success')
+    } catch (error) { handleError(error) }
+  }
+  const createTag = async (name: string): Promise<ModTag | null> => {
+    try {
+      const next = await API.CreateModTag(name)
+      setOrganization(next)
+      notify(`Created tag ${name}`, 'success')
+      return (next.tags ?? []).find(tag => tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0) ?? null
+    } catch (error) {
+      handleError(error)
+      return null
+    }
+  }
+  const renameTag = async (tagID: string, name: string) => {
+    try {
+      setOrganization(await API.RenameModTag(tagID, name))
+      await Promise.all([loadLibrary(), loadOrganization()])
+      notify('Tag renamed', 'success')
+    } catch (error) { handleError(error) }
+  }
+  const deleteTag = async (tagID: string) => {
+    try {
+      setOrganization(await API.DeleteModTag(tagID))
+      await Promise.all([loadLibrary(), loadOrganization()])
+      notify('Tag deleted', 'success')
+    } catch (error) { handleError(error) }
+  }
+  const setSelectedTags = async (tagIDs: string[]) => {
+    if (!selectedItem) return
+    try {
+      const next = await API.SetLibraryItemTags(selectedItem.entityId, tagIDs)
+      setSelectedItem(next)
+      setEntityDetail(current => current ? { ...current, item: next } as EntityDetail : current)
+      await Promise.all([loadLibrary(), loadOrganization()])
     } catch (error) { handleError(error) }
   }
 
@@ -360,11 +404,11 @@ function App() {
   const usageLimits = usage?.limits?.filter(limit => limit.status === 'ok').slice(0, 2) ?? []
 
   return <div className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
-    <aside className="app-sidebar">
+    <aside id="app-sidebar" className="app-sidebar">
       <div className="brand-lockup" aria-label="BeamWorlds Mod Studio">
         <BeamWorldsMark/>
         <div><strong>BeamWorlds</strong><span>Mod Studio</span></div>
-        <button className="sidebar-collapse" onClick={toggleSidebar} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}><Icon name="collapse" size={15}/></button>
+        <button className="sidebar-collapse" onClick={toggleSidebar} aria-controls="app-sidebar" aria-expanded={!sidebarCollapsed} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}><Icon name="collapse" size={15}/></button>
       </div>
       <nav className="main-nav" aria-label="Primary navigation">
         <button className={view === 'library' ? 'is-active' : ''} onClick={() => changeView('library')} aria-label="Mod Library"><Icon name="library"/><span className="nav-label">Mod Library</span><small>{dashboard?.entities ?? 0}</small><span className="nav-tooltip">Mod Library</span></button>
@@ -380,14 +424,14 @@ function App() {
 
     <main className={`app-main ${selectedItem && view === 'library' ? 'has-inspector' : ''}`}>
       {loading ? <div className="splash"><BeamWorldsMark size={64}/><div className="splash__line"/><p>{startupCount > 0 ? `Loading ${startupCount.toLocaleString()} mods` : 'Loading mod library'}</p><span>This may take a few seconds.</span></div> : <>
-        {view === 'library' && <LibraryView items={items} folders={organization?.folders ?? []} dashboard={dashboard} scan={scan} scanning={scanning} status={status} kind={kind} query={query} folderID={folderID} selectedID={selectedItem?.entityId ?? ''} onStatusChange={setStatus} onKindChange={setKind} onQueryChange={setQuery} onFolderChange={setFolderID} onCreateFolder={name => void createFolder(name)} onRenameFolder={(id, name) => void renameFolder(id, name)} onDeleteFolder={id => void deleteFolder(id)} onSelect={item => void selectItem(item)} onScan={() => void startScan()} onCancelScan={() => void cancelScan()}/>}
+        {view === 'library' && <LibraryView items={items} catalogItems={allItems} folders={organization?.folders ?? []} tags={organization?.tags ?? []} scan={scan} scanning={scanning} loading={libraryLoading} query={query} folderID={folderID} selectedID={selectedItem?.entityId ?? ''} onQueryChange={setQuery} onFolderChange={setFolderID} onCreateFolder={name => void createFolder(name)} onRenameFolder={(id, name) => void renameFolder(id, name)} onDeleteFolder={id => void deleteFolder(id)} onSelect={item => void selectItem(item)} onScan={() => void startScan()} onCancelScan={() => void cancelScan()}/>}
         {view === 'workspaces' && <ModMaker workspaces={workspaces} detail={workspaceDetail} selectedID={selectedWorkspaceID} loading={workspaceLoading} defaultAuthor={settings?.defaultAuthor ?? ''} showFileSizes={settings?.showFileSizes ?? true} openMode={openMode} onOpenModeHandled={() => setOpenMode(null)} onSelect={setSelectedWorkspaceID} onReload={reloadWorkspace} onCreateMod={createNewMod} onAgentStarted={() => { void API.AIUsage().then(setUsage).catch(handleError) }} onEditorStatus={setEditorStatus} onNotify={notify} onError={handleError}/>}
         {view === 'profiles' && <ProfilesView organization={organization} items={allItems} progress={profileProgress} onOrganization={setOrganization} onNotify={notify} onError={handleError}/>}
         {view === 'activity' && <ActivityView config={config} dashboard={dashboard} onScan={() => void startScan()}/>}
       </>}
     </main>
 
-    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onCreateWorkspace={mode => void createWorkspace(mode)} onError={handleError}/>}
+    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} tags={organization?.tags ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onSetTags={setSelectedTags} onCreateTag={createTag} onRenameTag={renameTag} onDeleteTag={deleteTag} onCreateWorkspace={mode => void createWorkspace(mode)} onError={handleError}/>}
 
     <footer className="app-statusbar" aria-label="Application status">
       <div><span className="status-led status-led--ready"/>{scanning ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}` : 'Ready'}</div>

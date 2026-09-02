@@ -40,6 +40,7 @@ type LibraryItem struct {
 	VariantCount   int             `json:"variantCount"`
 	IssueCount     int             `json:"issueCount"`
 	Manifest       modkit.Manifest `json:"manifest"`
+	Tags           []ModTag        `json:"tags"`
 }
 
 type EventRecord struct {
@@ -242,6 +243,16 @@ func (s *Store) migrate(ctx context.Context) error {
 			position INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS library_folder_entities_folder_idx ON library_folder_entities(folder_id, position)`,
+		`CREATE TABLE IF NOT EXISTS mod_tags (
+			id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS mod_tag_entities (
+			tag_id TEXT NOT NULL REFERENCES mod_tags(id) ON DELETE CASCADE,
+			entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+			created_at TEXT NOT NULL, PRIMARY KEY(tag_id, entity_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS mod_tag_entities_entity_idx ON mod_tag_entities(entity_id, tag_id)`,
 		`CREATE TABLE IF NOT EXISTS mod_presets (
 			id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -270,6 +281,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("database migration: %w", err)
 		}
+	}
+	if err := s.ensureExampleModTags(ctx); err != nil {
+		return fmt.Errorf("seed example tags: %w", err)
 	}
 	return nil
 }
@@ -468,7 +482,11 @@ func (s *Store) ListLibrary(ctx context.Context, status, kind, query, folderID s
 	if err != nil {
 		return nil, err
 	}
-	query = strings.ToLower(strings.TrimSpace(query))
+	collectionNames, err := s.libraryCollectionNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	search := parseLibrarySearchQuery(query)
 	filtered := items[:0]
 	for _, item := range items {
 		if status == "linked" && !item.Linked || status == "unlinked" && item.Linked {
@@ -480,11 +498,8 @@ func (s *Store) ListLibrary(ctx context.Context, status, kind, query, folderID s
 		if folderID == "unfiled" && item.FolderID != "" || folderID != "" && folderID != "all" && folderID != "unfiled" && item.FolderID != folderID {
 			continue
 		}
-		if query != "" {
-			haystack := strings.ToLower(item.DisplayName + " " + item.ArchivePath + " " + strings.Join(namespaceValues(item.Manifest.Namespaces), " "))
-			if !strings.Contains(haystack, query) {
-				continue
-			}
+		if !search.matches(item, collectionNames) {
+			continue
 		}
 		filtered = append(filtered, item)
 	}
@@ -534,7 +549,16 @@ func (s *Store) listItems(ctx context.Context, entityID string) ([]LibraryItem, 
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := s.attachLibraryItemTags(ctx, items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *Store) GetEntityDetail(ctx context.Context, entityID string) (EntityDetail, error) {

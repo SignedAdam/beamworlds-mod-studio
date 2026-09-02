@@ -192,6 +192,7 @@ export interface LibraryItem {
     "variantCount": number;
     "issueCount": number;
     "manifest": modkit$0.Manifest;
+    "tags": ModTag[] | null;
 }
 
 export interface ModAudit {
@@ -317,6 +318,12 @@ export interface ModProfile {
     "modCount": number;
 }
 
+export interface ModTag {
+    "id": string;
+    "name": string;
+    "modCount": number;
+}
+
 export interface NewModRequest {
     "name": string;
     "modId": string;
@@ -328,6 +335,7 @@ export interface NewModRequest {
 
 export interface OrganizationState {
     "folders": LibraryFolder[] | null;
+    "tags": ModTag[] | null;
     "presets": ModPreset[] | null;
     "profiles": ModProfile[] | null;
 }

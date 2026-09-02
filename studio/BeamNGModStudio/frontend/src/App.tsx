@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { AIUsage, AppConfig, AppSettings, Dashboard, EntityDetail, LibraryItem, ModTag, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, SetupState, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { AIUsage, AppConfig, AppSettings, ArchiveMemberPreview, Dashboard, EntityDetail, LibraryItem, LibraryItemDetailsUpdate, LibraryVariantUpdate, ModTag, NewModRequest, OrganizationState, ProfileProgress, ScanProgress, SettingsUpdate, SetupState, WorkspaceDetail, WorkspaceRecord } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { ActivityView } from './ActivityView'
 import { Inspector } from './Inspector'
 import { LibraryView } from './LibraryView'
@@ -193,6 +193,7 @@ function App() {
     const colors: Record<string, string> = {
       '--user-emphasis': settings.emphasisColor,
       '--user-active-tab': settings.activeTabColor,
+      '--user-subsection-title': settings.subsectionTitleColor,
       '--user-dark-surface': settings.darkSurfaceColor,
       '--user-dark-border': settings.darkBorderColor,
       '--user-dark-text': settings.darkTextColor,
@@ -338,45 +339,86 @@ function App() {
       notify(nextFolderID ? 'Mod moved to collection' : 'Mod moved to Unfiled', 'success')
     } catch (error) { handleError(error) }
   }
-  const createTag = async (name: string): Promise<ModTag | null> => {
+  const createTag = async (name: string, color: string, icon: string): Promise<ModTag | null> => {
+    const next = await API.CreateModTag(name, color, icon)
+    setOrganization(next)
+    notify(`Created tag ${name}`, 'success')
+    return (next.tags ?? []).find(tag => tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0) ?? null
+  }
+  const updateSelectedTag = (tagID: string, replacement: ModTag | null) => {
+    const updateItem = (item: LibraryItem) => ({
+      ...item,
+      tags: replacement
+        ? (item.tags ?? []).map(tag => tag.id === tagID ? replacement : tag)
+        : (item.tags ?? []).filter(tag => tag.id !== tagID),
+    })
+    setSelectedItem(current => current ? updateItem(current) : current)
+    setEntityDetail(current => current ? { ...current, item: updateItem(current.item) } : current)
+  }
+  const updateTagVisual = async (tagID: string, color: string, icon: string): Promise<void> => {
+    const next = await API.UpdateModTagVisual(tagID, color, icon)
+    setOrganization(next)
+    const updatedTag = (next.tags ?? []).find(tag => tag.id === tagID)
+    const currentTag = selectedItem?.tags?.find(tag => tag.id === tagID)
+    updateSelectedTag(tagID, updatedTag ?? (currentTag ? { ...currentTag, color, icon } : { id: tagID, name: '', modCount: 0, color, icon }))
+    await Promise.all([loadLibrary(), loadOrganization()])
+  }
+  const renameTag = async (tagID: string, name: string) => {
+    const next = await API.RenameModTag(tagID, name)
+    setOrganization(next)
+    const updatedTag = (next.tags ?? []).find(tag => tag.id === tagID)
+    const currentTag = selectedItem?.tags?.find(tag => tag.id === tagID)
+    updateSelectedTag(tagID, updatedTag ?? (currentTag ? { ...currentTag, name } : { id: tagID, name, modCount: 0, color: '', icon: '' }))
+    await Promise.all([loadLibrary(), loadOrganization()])
+    notify('Tag renamed', 'success')
+  }
+  const deleteTag = async (tagID: string) => {
+    const next = await API.DeleteModTag(tagID)
+    setOrganization(next)
+    updateSelectedTag(tagID, null)
+    await Promise.all([loadLibrary(), loadOrganization()])
+    notify('Tag deleted', 'success')
+  }
+  const setSelectedTags = async (tagIDs: string[]) => {
+    if (!selectedItem) return
+    const next = await API.SetLibraryItemTags(selectedItem.entityId, tagIDs)
+    const nextDetail = await API.GetEntity(next.entityId)
+    setSelectedItem(nextDetail.item)
+    setEntityDetail(nextDetail)
+    await Promise.all([loadLibrary(), loadOrganization()])
+  }
+  const saveDetails = async (update: LibraryItemDetailsUpdate): Promise<void> => {
+    if (!selectedItem) return
+    const next = await API.UpdateLibraryItemDetails(selectedItem.entityId, update)
+    setSelectedItem(next.item)
+    setEntityDetail(next)
+    await Promise.all([loadLibrary(), loadOrganization()])
+  }
+  const saveVariant = async (update: LibraryVariantUpdate): Promise<void> => {
+    if (!selectedItem) return
+    const next = await API.UpdateLibraryVariant(selectedItem.entityId, update)
+    setSelectedItem(next.item)
+    setEntityDetail(next)
+    await Promise.all([loadLibrary(), loadOrganization()])
+  }
+  const previewMember = async (path: string): Promise<ArchiveMemberPreview | null> => {
+    if (!selectedItem) return null
     try {
-      const next = await API.CreateModTag(name)
-      setOrganization(next)
-      notify(`Created tag ${name}`, 'success')
-      return (next.tags ?? []).find(tag => tag.name.localeCompare(name, undefined, { sensitivity: 'base' }) === 0) ?? null
+      return await API.PreviewLibraryArchiveMember(selectedItem.entityId, path)
     } catch (error) {
       handleError(error)
       return null
     }
   }
-  const renameTag = async (tagID: string, name: string) => {
-    try {
-      setOrganization(await API.RenameModTag(tagID, name))
-      const renameItemTag = (item: LibraryItem) => ({ ...item, tags: (item.tags ?? []).map(tag => tag.id === tagID ? { ...tag, name } as ModTag : tag) } as LibraryItem)
-      setSelectedItem(current => current ? renameItemTag(current) : current)
-      setEntityDetail(current => current ? { ...current, item: renameItemTag(current.item) } as EntityDetail : current)
-      await Promise.all([loadLibrary(), loadOrganization()])
-      notify('Tag renamed', 'success')
-    } catch (error) { handleError(error) }
-  }
-  const deleteTag = async (tagID: string) => {
-    try {
-      setOrganization(await API.DeleteModTag(tagID))
-      const removeItemTag = (item: LibraryItem) => ({ ...item, tags: (item.tags ?? []).filter(tag => tag.id !== tagID) } as LibraryItem)
-      setSelectedItem(current => current ? removeItemTag(current) : current)
-      setEntityDetail(current => current ? { ...current, item: removeItemTag(current.item) } as EntityDetail : current)
-      await Promise.all([loadLibrary(), loadOrganization()])
-      notify('Tag deleted', 'success')
-    } catch (error) { handleError(error) }
-  }
-  const setSelectedTags = async (tagIDs: string[]) => {
+  const extractMember = async (path: string): Promise<void> => {
     if (!selectedItem) return
-    try {
-      const next = await API.SetLibraryItemTags(selectedItem.entityId, tagIDs)
-      setSelectedItem(next)
-      setEntityDetail(current => current ? { ...current, item: next } as EntityDetail : current)
-      await Promise.all([loadLibrary(), loadOrganization()])
-    } catch (error) { handleError(error) }
+    const savedPath = await API.ExtractLibraryArchiveMember(selectedItem.entityId, path)
+    if (savedPath) notify(`Extracted ${path} to ${savedPath}`, 'success')
+  }
+  const revealArchive = async (): Promise<void> => {
+    if (!selectedItem) return
+    await API.RevealLibraryArchive(selectedItem.entityId)
+    notify('Archive revealed', 'success')
   }
 
   const cancelScan = async () => {
@@ -454,7 +496,7 @@ function App() {
       </>}
     </main>
 
-    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} tags={organization?.tags ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onSetTags={setSelectedTags} onCreateTag={createTag} onRenameTag={renameTag} onDeleteTag={deleteTag} onCreateWorkspace={() => void createWorkspace()} onVirusScan={openVirusScanner} onError={handleError}/>}
+    {selectedItem && view === 'library' && <Inspector item={selectedItem} detail={entityDetail} folders={organization?.folders ?? []} tags={organization?.tags ?? []} loading={entityLoading} creatingWorkspace={creatingWorkspace} onClose={() => { setSelectedItem(null); setEntityDetail(null) }} onMoveFolder={folder => void moveSelectedItem(folder)} onSetTags={setSelectedTags} onCreateTag={createTag} onUpdateTagVisual={updateTagVisual} onRenameTag={renameTag} onDeleteTag={deleteTag} onSaveDetails={saveDetails} onSaveVariant={saveVariant} onPreviewMember={previewMember} onExtractMember={extractMember} onRevealArchive={revealArchive} onCreateWorkspace={() => void createWorkspace()} onVirusScan={openVirusScanner} onError={handleError}/>}
 
     <footer className="app-statusbar" aria-label="Application status">
       <div><span className="status-led status-led--ready"/>{scanning ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}` : 'Ready'}</div>

@@ -84,6 +84,7 @@ export interface AppSettings {
     "showFileSizes": boolean;
     "emphasisColor": string;
     "activeTabColor": string;
+    "subsectionTitleColor": string;
     "darkSurfaceColor": string;
     "darkBorderColor": string;
     "darkTextColor": string;
@@ -107,6 +108,16 @@ export interface ArchiveLink {
     "modifiedAt": string;
     "discoveredAt": string;
     "lastSeenAt": string;
+}
+
+export interface ArchiveMemberPreview {
+    "path": string;
+    "kind": string;
+    "mime": string;
+    "text": string;
+    "dataUrl": string;
+    "sizeBytes": number;
+    "truncated": boolean;
 }
 
 export interface Dashboard {
@@ -194,8 +205,34 @@ export interface LibraryItem {
     "healthStatus": string;
     "healthLabel": string;
     "lastSecurityScanAt": string;
+    "lastSecurityScanVerdict": string;
+    "lastSecurityScanSha256": string;
+    "securityScanChanged": boolean;
     "manifest": modkit$0.Manifest;
     "tags": ModTag[] | null;
+}
+
+export interface LibraryItemDetailsUpdate {
+    "description": string;
+    "author": string;
+    "version": string;
+}
+
+export interface LibraryVariantUpdate {
+    "configPath": string;
+    "configuration": string;
+    "description": string;
+    "configType": string;
+    "bodyStyle": string;
+    "drivetrain": string;
+    "transmission": string;
+    "fuelType": string;
+    "propulsion": string;
+    "power": string;
+    "torque": string;
+    "weight": string;
+    "value": string;
+    "topSpeed": string;
 }
 
 export interface ModPreset {
@@ -224,6 +261,8 @@ export interface ModSecurityMetadata {
 export interface ModTag {
     "id": string;
     "name": string;
+    "color": string;
+    "icon": string;
     "modCount": number;
 }
 
@@ -360,6 +399,7 @@ export interface SettingsUpdate {
     "showFileSizes": boolean;
     "emphasisColor": string;
     "activeTabColor": string;
+    "subsectionTitleColor": string;
     "darkSurfaceColor": string;
     "darkBorderColor": string;
     "darkTextColor": string;
@@ -437,6 +477,7 @@ export interface VirusScanRun {
     "id": string;
     "entityId": string;
     "artifactId": string;
+    "fileSha256": string;
     "mode": string;
     "status": string;
     "currentStage": string;
@@ -452,6 +493,7 @@ export interface VirusScanStage {
     "scanId": string;
     "entityId": string;
     "artifactId": string;
+    "fileSha256": string;
     "stage": string;
     "status": string;
     "createdAt": string;

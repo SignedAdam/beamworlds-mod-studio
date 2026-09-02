@@ -41,8 +41,8 @@ export function CreateLibraryFolder(name: string, parentID: string): $Cancellabl
     return $Call.ByID(3930565201, name, parentID);
 }
 
-export function CreateModTag(name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1759538554, name);
+export function CreateModTag(name: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(1759538554, name, color, icon);
 }
 
 export function CreateNewMod(request: $models.NewModRequest): $CancellablePromise<$models.WorkspaceDetail> {
@@ -95,6 +95,10 @@ export function DeleteWorkspacePath(workspaceID: string, relativePath: string): 
 
 export function ExportWorkspace(workspaceID: string, label: string): $CancellablePromise<$models.ExportResponse> {
     return $Call.ByID(2564207477, workspaceID, label);
+}
+
+export function ExtractLibraryArchiveMember(entityID: string, memberPath: string): $CancellablePromise<string> {
+    return $Call.ByID(3883547530, entityID, memberPath);
 }
 
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
@@ -177,6 +181,10 @@ export function PickDirectory(title: string, initialDirectory: string): $Cancell
     return $Call.ByID(4292351642, title, initialDirectory);
 }
 
+export function PreviewLibraryArchiveMember(entityID: string, memberPath: string): $CancellablePromise<$models.ArchiveMemberPreview | null> {
+    return $Call.ByID(1766868719, entityID, memberPath);
+}
+
 export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $CancellablePromise<$models.WorkspaceTextFile> {
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
@@ -203,6 +211,10 @@ export function RestartApplication(): $CancellablePromise<void> {
 
 export function RestoreNormalModSelection(): $CancellablePromise<void> {
     return $Call.ByID(58419305);
+}
+
+export function RevealLibraryArchive(entityID: string): $CancellablePromise<void> {
+    return $Call.ByID(3289149128, entityID);
 }
 
 export function RevealWorkspacePath(workspaceID: string, relativePath: string): $CancellablePromise<void> {
@@ -267,6 +279,18 @@ export function StopAgent(runID: string): $CancellablePromise<boolean> {
 
 export function UninstallTest(workspaceID: string): $CancellablePromise<void> {
     return $Call.ByID(3380044888, workspaceID);
+}
+
+export function UpdateLibraryItemDetails(entityID: string, update: $models.LibraryItemDetailsUpdate): $CancellablePromise<$models.EntityDetail> {
+    return $Call.ByID(3924468085, entityID, update);
+}
+
+export function UpdateLibraryVariant(entityID: string, update: $models.LibraryVariantUpdate): $CancellablePromise<$models.EntityDetail> {
+    return $Call.ByID(2339916167, entityID, update);
+}
+
+export function UpdateModTagVisual(tagID: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(719045307, tagID, color, icon);
 }
 
 export function UpdatePreset(presetID: string, name: string, description: string): $CancellablePromise<$models.OrganizationState> {

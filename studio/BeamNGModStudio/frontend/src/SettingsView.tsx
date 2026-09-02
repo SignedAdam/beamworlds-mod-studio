@@ -61,6 +61,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup }: SettingsV
         <div className="appearance-grid">
           <ColorSetting label="Emphasis" value={draft.emphasisColor} onChange={emphasisColor => setDraft({ ...draft, emphasisColor })}/>
           <ColorSetting label="Active tabs" value={draft.activeTabColor} onChange={activeTabColor => setDraft({ ...draft, activeTabColor })}/>
+          <ColorSetting label="Subsection titles" value={draft.subsectionTitleColor} onChange={subsectionTitleColor => setDraft({ ...draft, subsectionTitleColor })}/>
           <ColorSetting label="Dark surface" value={draft.darkSurfaceColor} onChange={darkSurfaceColor => setDraft({ ...draft, darkSurfaceColor })}/>
           <ColorSetting label="Dark borders" value={draft.darkBorderColor} onChange={darkBorderColor => setDraft({ ...draft, darkBorderColor })}/>
           <ColorSetting label="Dark text" value={draft.darkTextColor} onChange={darkTextColor => setDraft({ ...draft, darkTextColor })}/>
@@ -108,6 +109,7 @@ export function settingsUpdate(settings: AppSettings, overrides: Partial<Setting
     showFileSizes: settings.showFileSizes,
     emphasisColor: settings.emphasisColor,
     activeTabColor: settings.activeTabColor,
+    subsectionTitleColor: settings.subsectionTitleColor,
     darkSurfaceColor: settings.darkSurfaceColor,
     darkBorderColor: settings.darkBorderColor,
     darkTextColor: settings.darkTextColor,

@@ -17,50 +17,52 @@ const (
 )
 
 type AppSettings struct {
-	Theme             string `json:"theme"`
-	DefaultAuthor     string `json:"defaultAuthor"`
-	AgentProfile      string `json:"agentProfile"`
-	AgentModel        string `json:"agentModel"`
-	ContextMode       string `json:"contextMode"`
-	ShowAIUsage       bool   `json:"showAIUsage"`
-	ShowFileSizes     bool   `json:"showFileSizes"`
-	EmphasisColor     string `json:"emphasisColor"`
-	ActiveTabColor    string `json:"activeTabColor"`
-	DarkSurfaceColor  string `json:"darkSurfaceColor"`
-	DarkBorderColor   string `json:"darkBorderColor"`
-	DarkTextColor     string `json:"darkTextColor"`
-	LightSurfaceColor string `json:"lightSurfaceColor"`
-	LightBorderColor  string `json:"lightBorderColor"`
-	LightTextColor    string `json:"lightTextColor"`
-	PreScanModel      string `json:"preScanModel"`
-	PreScanReasoning  string `json:"preScanReasoning"`
-	FullScanModel     string `json:"fullScanModel"`
-	FullScanReasoning string `json:"fullScanReasoning"`
-	HasAPIKey         bool   `json:"hasApiKey"`
+	Theme                string `json:"theme"`
+	DefaultAuthor        string `json:"defaultAuthor"`
+	AgentProfile         string `json:"agentProfile"`
+	AgentModel           string `json:"agentModel"`
+	ContextMode          string `json:"contextMode"`
+	ShowAIUsage          bool   `json:"showAIUsage"`
+	ShowFileSizes        bool   `json:"showFileSizes"`
+	EmphasisColor        string `json:"emphasisColor"`
+	ActiveTabColor       string `json:"activeTabColor"`
+	SubsectionTitleColor string `json:"subsectionTitleColor"`
+	DarkSurfaceColor     string `json:"darkSurfaceColor"`
+	DarkBorderColor      string `json:"darkBorderColor"`
+	DarkTextColor        string `json:"darkTextColor"`
+	LightSurfaceColor    string `json:"lightSurfaceColor"`
+	LightBorderColor     string `json:"lightBorderColor"`
+	LightTextColor       string `json:"lightTextColor"`
+	PreScanModel         string `json:"preScanModel"`
+	PreScanReasoning     string `json:"preScanReasoning"`
+	FullScanModel        string `json:"fullScanModel"`
+	FullScanReasoning    string `json:"fullScanReasoning"`
+	HasAPIKey            bool   `json:"hasApiKey"`
 }
 
 type SettingsUpdate struct {
-	Theme             string `json:"theme"`
-	DefaultAuthor     string `json:"defaultAuthor"`
-	AgentProfile      string `json:"agentProfile"`
-	AgentModel        string `json:"agentModel"`
-	ContextMode       string `json:"contextMode"`
-	ShowAIUsage       bool   `json:"showAIUsage"`
-	ShowFileSizes     bool   `json:"showFileSizes"`
-	EmphasisColor     string `json:"emphasisColor"`
-	ActiveTabColor    string `json:"activeTabColor"`
-	DarkSurfaceColor  string `json:"darkSurfaceColor"`
-	DarkBorderColor   string `json:"darkBorderColor"`
-	DarkTextColor     string `json:"darkTextColor"`
-	LightSurfaceColor string `json:"lightSurfaceColor"`
-	LightBorderColor  string `json:"lightBorderColor"`
-	LightTextColor    string `json:"lightTextColor"`
-	PreScanModel      string `json:"preScanModel"`
-	PreScanReasoning  string `json:"preScanReasoning"`
-	FullScanModel     string `json:"fullScanModel"`
-	FullScanReasoning string `json:"fullScanReasoning"`
-	APIKey            string `json:"apiKey"`
-	ClearAPIKey       bool   `json:"clearApiKey"`
+	Theme                string `json:"theme"`
+	DefaultAuthor        string `json:"defaultAuthor"`
+	AgentProfile         string `json:"agentProfile"`
+	AgentModel           string `json:"agentModel"`
+	ContextMode          string `json:"contextMode"`
+	ShowAIUsage          bool   `json:"showAIUsage"`
+	ShowFileSizes        bool   `json:"showFileSizes"`
+	EmphasisColor        string `json:"emphasisColor"`
+	ActiveTabColor       string `json:"activeTabColor"`
+	SubsectionTitleColor string `json:"subsectionTitleColor"`
+	DarkSurfaceColor     string `json:"darkSurfaceColor"`
+	DarkBorderColor      string `json:"darkBorderColor"`
+	DarkTextColor        string `json:"darkTextColor"`
+	LightSurfaceColor    string `json:"lightSurfaceColor"`
+	LightBorderColor     string `json:"lightBorderColor"`
+	LightTextColor       string `json:"lightTextColor"`
+	PreScanModel         string `json:"preScanModel"`
+	PreScanReasoning     string `json:"preScanReasoning"`
+	FullScanModel        string `json:"fullScanModel"`
+	FullScanReasoning    string `json:"fullScanReasoning"`
+	APIKey               string `json:"apiKey"`
+	ClearAPIKey          bool   `json:"clearApiKey"`
 }
 
 type UsageLimit struct {
@@ -100,48 +102,50 @@ type agentLaunchSettings struct {
 
 func defaultAppSettings() AppSettings {
 	return AppSettings{
-		Theme:             "dark",
-		AgentProfile:      "omp",
-		ContextMode:       "balanced",
-		ShowAIUsage:       true,
-		ShowFileSizes:     true,
-		EmphasisColor:     "#f26522",
-		ActiveTabColor:    "#e8e4d8",
-		DarkSurfaceColor:  "#090909",
-		DarkBorderColor:   "#343434",
-		DarkTextColor:     "#f2f0ea",
-		LightSurfaceColor: "#f4f2ed",
-		LightBorderColor:  "#aaa69d",
-		LightTextColor:    "#171614",
-		PreScanModel:      "gpt-5.6-luna",
-		PreScanReasoning:  "medium",
-		FullScanModel:     "gpt-5.6-sol",
-		FullScanReasoning: "xhigh",
+		Theme:                "dark",
+		AgentProfile:         "omp",
+		ContextMode:          "balanced",
+		ShowAIUsage:          true,
+		ShowFileSizes:        true,
+		EmphasisColor:        "#f26522",
+		ActiveTabColor:       "#e8e4d8",
+		SubsectionTitleColor: "#3f93c5",
+		DarkSurfaceColor:     "#090909",
+		DarkBorderColor:      "#343434",
+		DarkTextColor:        "#f2f0ea",
+		LightSurfaceColor:    "#f4f2ed",
+		LightBorderColor:     "#aaa69d",
+		LightTextColor:       "#171614",
+		PreScanModel:         "gpt-5.6-luna",
+		PreScanReasoning:     "medium",
+		FullScanModel:        "gpt-5.6-sol",
+		FullScanReasoning:    "xhigh",
 	}
 }
 
 func validateSettings(update SettingsUpdate) (AppSettings, error) {
 	defaults := defaultAppSettings()
 	settings := AppSettings{
-		Theme:             strings.ToLower(strings.TrimSpace(update.Theme)),
-		DefaultAuthor:     strings.TrimSpace(update.DefaultAuthor),
-		AgentProfile:      strings.ToLower(strings.TrimSpace(update.AgentProfile)),
-		AgentModel:        strings.TrimSpace(update.AgentModel),
-		ContextMode:       strings.ToLower(strings.TrimSpace(update.ContextMode)),
-		ShowAIUsage:       update.ShowAIUsage,
-		ShowFileSizes:     update.ShowFileSizes,
-		EmphasisColor:     colorOrDefault(update.EmphasisColor, defaults.EmphasisColor),
-		ActiveTabColor:    colorOrDefault(update.ActiveTabColor, defaults.ActiveTabColor),
-		DarkSurfaceColor:  colorOrDefault(update.DarkSurfaceColor, defaults.DarkSurfaceColor),
-		DarkBorderColor:   colorOrDefault(update.DarkBorderColor, defaults.DarkBorderColor),
-		DarkTextColor:     colorOrDefault(update.DarkTextColor, defaults.DarkTextColor),
-		LightSurfaceColor: colorOrDefault(update.LightSurfaceColor, defaults.LightSurfaceColor),
-		LightBorderColor:  colorOrDefault(update.LightBorderColor, defaults.LightBorderColor),
-		LightTextColor:    colorOrDefault(update.LightTextColor, defaults.LightTextColor),
-		PreScanModel:      firstValue(update.PreScanModel, defaults.PreScanModel),
-		PreScanReasoning:  firstValue(strings.ToLower(update.PreScanReasoning), defaults.PreScanReasoning),
-		FullScanModel:     firstValue(update.FullScanModel, defaults.FullScanModel),
-		FullScanReasoning: firstValue(strings.ToLower(update.FullScanReasoning), defaults.FullScanReasoning),
+		Theme:                strings.ToLower(strings.TrimSpace(update.Theme)),
+		DefaultAuthor:        strings.TrimSpace(update.DefaultAuthor),
+		AgentProfile:         strings.ToLower(strings.TrimSpace(update.AgentProfile)),
+		AgentModel:           strings.TrimSpace(update.AgentModel),
+		ContextMode:          strings.ToLower(strings.TrimSpace(update.ContextMode)),
+		ShowAIUsage:          update.ShowAIUsage,
+		ShowFileSizes:        update.ShowFileSizes,
+		EmphasisColor:        colorOrDefault(update.EmphasisColor, defaults.EmphasisColor),
+		ActiveTabColor:       colorOrDefault(update.ActiveTabColor, defaults.ActiveTabColor),
+		SubsectionTitleColor: colorOrDefault(update.SubsectionTitleColor, defaults.SubsectionTitleColor),
+		DarkSurfaceColor:     colorOrDefault(update.DarkSurfaceColor, defaults.DarkSurfaceColor),
+		DarkBorderColor:      colorOrDefault(update.DarkBorderColor, defaults.DarkBorderColor),
+		DarkTextColor:        colorOrDefault(update.DarkTextColor, defaults.DarkTextColor),
+		LightSurfaceColor:    colorOrDefault(update.LightSurfaceColor, defaults.LightSurfaceColor),
+		LightBorderColor:     colorOrDefault(update.LightBorderColor, defaults.LightBorderColor),
+		LightTextColor:       colorOrDefault(update.LightTextColor, defaults.LightTextColor),
+		PreScanModel:         firstValue(update.PreScanModel, defaults.PreScanModel),
+		PreScanReasoning:     firstValue(strings.ToLower(update.PreScanReasoning), defaults.PreScanReasoning),
+		FullScanModel:        firstValue(update.FullScanModel, defaults.FullScanModel),
+		FullScanReasoning:    firstValue(strings.ToLower(update.FullScanReasoning), defaults.FullScanReasoning),
 	}
 	if settings.Theme != "dark" && settings.Theme != "light" {
 		return AppSettings{}, errors.New("theme must be dark or light")
@@ -210,6 +214,7 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 	if err := json.Unmarshal([]byte(encoded), &settings); err != nil {
 		return AppSettings{}, fmt.Errorf("decode application settings: %w", err)
 	}
+	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaultAppSettings().SubsectionTitleColor)
 	return settings, nil
 }
 

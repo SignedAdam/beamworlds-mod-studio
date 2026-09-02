@@ -108,6 +108,8 @@ func normalizeLibraryScope(value string) string {
 		return "namespace"
 	case "collection", "collections", "folder", "folders":
 		return "collection"
+	case "source", "archive":
+		return "source"
 	default:
 		return ""
 	}
@@ -115,17 +117,27 @@ func normalizeLibraryScope(value string) string {
 
 func normalizeLibraryStatus(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "linked", "available":
-		return "linked"
-	case "missing", "unlinked":
-		return "missing"
+	case "safe", "clean":
+		return "safe"
+	case "review", "needs-review", "needs_review":
+		return "review"
+	case "threat", "unsafe", "infected":
+		return "threat"
+	case "broken", "invalid":
+		return "broken"
+	case "unscanned", "not-scanned", "not_scanned":
+		return "unscanned"
+	case "failed", "scan-failed", "scan_failed":
+		return "scan_failed"
+	case "scanning":
+		return "scanning"
 	default:
 		return ""
 	}
 }
 
 func (query librarySearchQuery) matches(item LibraryItem, collectionNames map[string]string) bool {
-	if query.status == "linked" && !item.Linked || query.status == "missing" && item.Linked {
+	if query.status != "" && item.HealthStatus != query.status {
 		return false
 	}
 	for _, term := range query.terms {
@@ -168,6 +180,15 @@ func librarySearchTermMatches(item LibraryItem, collectionName string, term libr
 			return true
 		}
 		return contains(collectionName)
+	case "source":
+		switch term.value {
+		case "available", "linked", "present":
+			return item.Linked
+		case "missing", "unlinked", "unavailable":
+			return !item.Linked
+		default:
+			return contains(item.ArchivePath)
+		}
 	default:
 		return contains(item.DisplayName) || contains(item.ArchivePath) || contains(item.Manifest.Author) || contains(string(item.Kind)) || contains(libraryKindSearchName(string(item.Kind))) || contains(collectionName) || containsAny(namespaceValues(item.Manifest.Namespaces)) || containsAny(tagNames)
 	}

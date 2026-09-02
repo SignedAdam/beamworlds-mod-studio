@@ -22,6 +22,7 @@ interface LibraryViewProps {
   onRenameFolder: (id: string, name: string) => void
   onDeleteFolder: (id: string) => void
   onSelect: (item: LibraryItem) => void
+  onVirusScan: (item: LibraryItem) => void
   onScan: () => void
   onCancelScan: () => void
 }
@@ -37,7 +38,7 @@ const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   name: { label: 'Name', defaultWidth: 270 },
   path: { label: 'Path', defaultWidth: 360 },
   kind: { label: 'Kind', defaultWidth: 110 },
-  status: { label: 'Source', defaultWidth: 132 },
+  status: { label: 'Health', defaultWidth: 146 },
   author: { label: 'Author', defaultWidth: 180 },
   tags: { label: 'Tags', defaultWidth: 250 },
   files: { label: 'Files', defaultWidth: 78, align: 'right' },
@@ -47,7 +48,7 @@ const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   issues: { label: 'Issues', defaultWidth: 76, align: 'right' },
 }
 const defaultColumnOrder = Object.keys(columnDefinitions) as ColumnKey[]
-const columnStorageKey = 'beamworlds.library-columns.v1'
+const columnStorageKey = 'beamworlds.library-columns.v2'
 const pageSizeStorageKey = 'beamworlds.library-page-size.v1'
 
 export function LibraryView(props: LibraryViewProps) {
@@ -58,6 +59,7 @@ export function LibraryView(props: LibraryViewProps) {
   const [columns, setColumns] = useState<ColumnState[]>(readColumns)
   const [columnsOpen, setColumnsOpen] = useState(false)
   const [draggedColumn, setDraggedColumn] = useState<ColumnKey | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ item: LibraryItem; x: number; y: number } | null>(null)
   const lastResizePointer = useRef<{ key: ColumnKey; at: number } | null>(null)
   const onSelectRef = useRef(props.onSelect)
   onSelectRef.current = props.onSelect
@@ -75,6 +77,16 @@ export function LibraryView(props: LibraryViewProps) {
   useEffect(() => { if (page >= pageCount) setPage(pageCount - 1) }, [page, pageCount])
   useEffect(() => window.localStorage.setItem(columnStorageKey, JSON.stringify(columns)), [columns])
   useEffect(() => window.localStorage.setItem(pageSizeStorageKey, String(pageSizeChoice)), [pageSizeChoice])
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
 
   const changeSort = useCallback((key: SortKey) => {
     if (key === sortKey) setSortDirection(direction => direction === 1 ? -1 : 1)
@@ -148,7 +160,7 @@ export function LibraryView(props: LibraryViewProps) {
         case 'name': text = item.displayName; break
         case 'path': text = item.archivePath || 'Source archive missing'; break
         case 'kind': text = kindLabel(String(item.kind)).toUpperCase(); break
-        case 'status': text = item.linked ? 'Available' : 'Missing source'; break
+        case 'status': text = item.healthLabel || 'Not scanned'; break
         case 'author': text = item.manifest?.author || '—'; break
         case 'tags': text = (item.tags ?? []).map(tag => tag.name).join(', ') || '—'; break
         case 'files': text = item.memberCount.toLocaleString(); break
@@ -189,7 +201,8 @@ export function LibraryView(props: LibraryViewProps) {
   else if (props.folderID !== 'all') appliedFilters.push(`collection “${activeCollection?.name ?? 'Selected collection'}”`)
   const emptyFilterTitle = `No matching mods for these filters: ${appliedFilters.length > 0 ? appliedFilters.join(', ') : 'none'}.`
 
-  return <section className="view library-view" aria-label="Mod library">
+  return <>
+  <section className="view library-view" aria-label="Mod library">
     <header className="view-header view-header--compact"><h1>Mod Library</h1><div className="view-header__actions">{props.scanning ? <Button icon="close" onClick={props.onCancelScan}>Cancel scan</Button> : <Button icon="scan" tone="primary" onClick={props.onScan} title="Scans configured folders for new or updated mods">Rescan mods</Button>}</div></header>
     {props.scan && (props.scanning || props.scan.done) && <div className={`scan-strip ${props.scan.error ? 'scan-strip--error' : ''}`}><div className="scan-strip__pulse"><Icon name={props.scan.error ? 'error' : props.scan.done ? 'check' : 'scan'} size={15}/></div><strong>{props.scan.error ? 'Scan stopped' : props.scan.done ? 'Scan complete' : props.scan.phase === 'discovering' ? 'Discovering' : 'Analyzing'}</strong><span title={props.scan.path}>{props.scan.error || props.scan.path || 'Finalizing index'}</span><div className="scan-strip__metrics"><span>{props.scan.discovered} found</span><span>{props.scan.analyzed} processed</span>{props.scan.cached > 0 && <span>{props.scan.cached} cached</span>}{props.scan.failed > 0 && <span>{props.scan.failed} failed</span>}</div></div>}
     <div className="library-toolbar">
@@ -206,7 +219,7 @@ export function LibraryView(props: LibraryViewProps) {
           <table className="mod-table" style={{ width: tableWidth }}>
             <colgroup>{visibleColumns.map(column => <col key={column.key} style={{ width: column.width }}/>)}</colgroup>
             <thead><tr>{visibleColumns.map(column => <SortableHead key={column.key} column={column} active={sortKey} direction={sortDirection} onSort={changeSort} onDragStart={setDraggedColumn} onDrop={target => { if (draggedColumn) moveColumn(draggedColumn, target); setDraggedColumn(null) }} onResize={beginColumnResize}/>)}</tr></thead>
-            <tbody>{visible.map(item => <ModRow key={item.entityId} item={item} columns={visibleColumns} selected={item.entityId === props.selectedID} onSelect={selectItem}/>)}</tbody>
+            <tbody>{visible.map(item => <ModRow key={item.entityId} item={item} columns={visibleColumns} selected={item.entityId === props.selectedID} onSelect={selectItem} onContextMenu={(selected, event) => { selectItem(selected); setContextMenu({ item: selected, x: Math.min(event.clientX, window.innerWidth - 248), y: Math.min(event.clientY, window.innerHeight - 112) }) }}/>)}</tbody>
           </table>
         </div>}
         <footer className="pagination">
@@ -217,6 +230,13 @@ export function LibraryView(props: LibraryViewProps) {
       </div>
     </div>
   </section>
+    {contextMenu && <>
+      <button className="mod-context-backdrop" aria-label="Close mod actions" onClick={() => setContextMenu(null)}/>
+      <div className="mod-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+        <button role="menuitem" disabled={!contextMenu.item.linked} onClick={() => { props.onVirusScan(contextMenu.item); setContextMenu(null) }}><Icon name="shield" size={17}/><span><strong>Scan for threats</strong><small>{contextMenu.item.linked ? 'Choose signature-based or full scan' : 'Source archive unavailable'}</small></span></button>
+      </div>
+    </>}
+  </>
 }
 
 const SortableHead = memo(function SortableHead({ column, active, direction, onSort, onDragStart, onDrop, onResize }: { column: ColumnState; active: SortKey; direction: 1 | -1; onSort: (value: SortKey) => void; onDragStart: (value: ColumnKey) => void; onDrop: (value: ColumnKey) => void; onResize: (event: React.PointerEvent<HTMLElement>, key: ColumnKey, width: number) => void }) {
@@ -228,8 +248,8 @@ const SortableHead = memo(function SortableHead({ column, active, direction, onS
   return <th draggable onDragStart={() => onDragStart(key)} onDragOver={event => event.preventDefault()} onDrop={() => onDrop(key)} aria-sort={selected ? direction === 1 ? 'ascending' : 'descending' : 'none'}><button onClick={() => onSort(key)}>{columnDefinitions[key].label}<span>{selected ? direction === 1 ? '▲' : '▼' : '↕'}</span></button><i className="column-resizer" title="Double-click to fit contents" onPointerDown={event => onResize(event, key, column.width)}/></th>
 })
 
-const ModRow = memo(function ModRow({ item, columns, selected, onSelect }: { item: LibraryItem; columns: ColumnState[]; selected: boolean; onSelect: (item: LibraryItem) => void }) {
-  return <tr className={selected ? 'is-selected' : ''} onClick={() => onSelect(item)} onDoubleClick={() => onSelect(item)} tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item) }}>{columns.map(column => <Cell key={column.key} item={item} column={column.key}/>)}</tr>
+const ModRow = memo(function ModRow({ item, columns, selected, onSelect, onContextMenu }: { item: LibraryItem; columns: ColumnState[]; selected: boolean; onSelect: (item: LibraryItem) => void; onContextMenu: (item: LibraryItem, event: React.MouseEvent<HTMLTableRowElement>) => void }) {
+  return <tr className={selected ? 'is-selected' : ''} onClick={() => onSelect(item)} onDoubleClick={() => onSelect(item)} onContextMenu={event => { event.preventDefault(); onContextMenu(item, event) }} tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') onSelect(item) }}>{columns.map(column => <Cell key={column.key} item={item} column={column.key}/>)}</tr>
 })
 
 function Cell({ item, column }: { item: LibraryItem; column: ColumnKey }) {
@@ -237,9 +257,9 @@ function Cell({ item, column }: { item: LibraryItem; column: ColumnKey }) {
   switch (column) {
   case 'thumbnail': return <td className="mod-table__thumbnail"><span className="mod-table__icon">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }}/> : <Icon name={kindIcon(String(item.kind))} size={16}/>}</span></td>
   case 'name': return <td className="mod-table__name"><strong>{item.displayName}</strong></td>
-  case 'path': return <td className="mod-table__path" title={item.archivePath}><span>{item.archivePath || 'Source archive missing'}</span></td>
+  case 'path': return <td className={`mod-table__path ${item.linked ? '' : 'is-unavailable'}`} title={item.archivePath || 'Source archive unavailable'}><span>{item.archivePath || 'Source unavailable'}</span></td>
   case 'kind': return <td><Badge tone={item.kind === 'unknown' ? 'warning' : 'neutral'}>{kindLabel(String(item.kind))}</Badge></td>
-  case 'status': return <td title={item.linked ? 'Archive exists in a configured mod folder' : 'Known mod whose source archive is no longer present'}>{item.linked ? 'Available' : 'Missing source'}</td>
+  case 'status': return <td title={healthDescription(item.healthStatus)}><span className={`health-pill health-pill--${item.healthStatus || 'unscanned'}`}><Icon name={healthIcon(item.healthStatus)} size={14}/>{item.healthLabel || 'Not scanned'}</span></td>
   case 'author': return <td title={item.manifest?.author || ''}>{item.manifest?.author || '—'}</td>
   case 'tags': return <td><div className="mod-table__tags">{tags.length === 0 ? <span>—</span> : <>{tags.slice(0, 3).map(tag => <span className="mod-tag" key={tag.id}>{tag.name}</span>)}{tags.length > 3 && <em>+{tags.length - 3}</em>}</>}</div></td>
   case 'files': return <td className="number-cell">{item.memberCount.toLocaleString()}</td>
@@ -281,7 +301,7 @@ function sortValue(item: LibraryItem, key: SortKey): string | number {
   case 'name': return item.displayName.toLowerCase()
   case 'path': return item.archivePath.toLowerCase()
   case 'kind': return String(item.kind)
-  case 'status': return item.linked ? 0 : 1
+  case 'status': return healthRank(item.healthStatus)
   case 'author': return (item.manifest?.author || '').toLowerCase()
   case 'tags': return (item.tags ?? []).map(tag => tag.name).join(' ').toLowerCase()
   case 'files': return item.memberCount
@@ -289,6 +309,43 @@ function sortValue(item: LibraryItem, key: SortKey): string | number {
   case 'size': return item.sizeBytes
   case 'modified': return item.modifiedAt ? new Date(item.modifiedAt).valueOf() : 0
   case 'issues': return item.issueCount
+  }
+}
+
+function healthRank(status: string) {
+  switch (status) {
+  case 'threat': return 0
+  case 'broken': return 1
+  case 'review': return 2
+  case 'scan_failed': return 3
+  case 'scanning': return 4
+  case 'unscanned': return 5
+  case 'safe': return 6
+  default: return 5
+  }
+}
+
+function healthIcon(status: string): 'check' | 'warning' | 'error' | 'scan' | 'shield' {
+  switch (status) {
+  case 'safe': return 'check'
+  case 'review': return 'warning'
+  case 'threat':
+  case 'broken':
+  case 'scan_failed': return 'error'
+  case 'scanning': return 'scan'
+  default: return 'shield'
+  }
+}
+
+function healthDescription(status: string) {
+  switch (status) {
+  case 'safe': return 'Latest scan found no threat signals'
+  case 'review': return 'Latest scan found items that need review'
+  case 'threat': return 'Latest scan found a high-risk threat'
+  case 'broken': return 'The mod has structural errors'
+  case 'scan_failed': return 'The latest scan failed'
+  case 'scanning': return 'A virus scan is running'
+  default: return 'No virus scan has run'
   }
 }
 

@@ -227,7 +227,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		}
 	}
 
-	preScan, err := service.RunModAuditPreScan(item.EntityID)
+	preScan, err := service.runModAuditPreScan(item.EntityID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,12 +242,12 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		t.Fatal("pre-scan did not persist reusable file excerpts")
 	}
 
-	full, err := service.RunModAuditFull(item.EntityID)
+	full, err := service.runModAuditFull(item.EntityID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if full.Status != "complete" || full.Final.OverallRisk != "high" || len(full.Final.Findings) != 1 || len(full.Final.ContentSignals) != 1 || len(full.Final.FocusedPaths) != 1 {
-		t.Fatalf("unexpected final Mod Audit: %#v", full.Final)
+		t.Fatalf("unexpected final Virus Scanner report: %#v", full.Final)
 	}
 	if !containsAuditWarning(full.Final.Warnings, "outside the persisted audit artifacts") || !containsAuditWarning(full.Final.Warnings, "Image signature did not match") {
 		t.Fatalf("model-path or visual-attachment warnings were not preserved: %#v", full.Final.Warnings)
@@ -261,7 +261,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		}
 	}
 
-	followed, err := service.FollowUpModAudit(item.EntityID, []string{"lua/ge/extensions/audit.lua"}, "Can the command include user-controlled input?")
+	followed, err := service.followUpModAudit(item.EntityID, []string{"lua/ge/extensions/audit.lua"}, "Can the command include user-controlled input?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		t.Fatalf("unexpected focused follow-up: %#v", followed.FollowUps)
 	}
 
-	imageFollowed, err := service.FollowUpModAudit(item.EntityID, []string{"art/bad.png"}, "Does the image contain hateful, illegal, or graphic material?")
+	imageFollowed, err := service.followUpModAudit(item.EntityID, []string{"art/bad.png"}, "Does the image contain hateful, illegal, or graphic material?")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		}
 	}
 
-	reloaded, err := service.GetModAudit(item.EntityID)
+	reloaded, err := service.getModAudit(item.EntityID)
 	if err != nil {
 		t.Fatal(err)
 	}

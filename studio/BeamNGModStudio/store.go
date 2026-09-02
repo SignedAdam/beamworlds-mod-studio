@@ -20,27 +20,30 @@ type Store struct {
 }
 
 type LibraryItem struct {
-	EntityID       string          `json:"entityId"`
-	ArtifactID     string          `json:"artifactId"`
-	LinkID         string          `json:"linkId"`
-	FolderID       string          `json:"folderId"`
-	DisplayName    string          `json:"displayName"`
-	Kind           modkit.Kind     `json:"kind"`
-	ArchivePath    string          `json:"archivePath"`
-	RootPath       string          `json:"rootPath"`
-	Linked         bool            `json:"linked"`
-	SizeBytes      int64           `json:"sizeBytes"`
-	ModifiedAt     string          `json:"modifiedAt"`
-	LastSeenAt     string          `json:"lastSeenAt"`
-	Fingerprint    string          `json:"fingerprint"`
-	SHA256         string          `json:"sha256"`
-	ThumbnailURL   string          `json:"thumbnailUrl"`
-	MemberCount    int             `json:"memberCount"`
-	NamespaceCount int             `json:"namespaceCount"`
-	VariantCount   int             `json:"variantCount"`
-	IssueCount     int             `json:"issueCount"`
-	Manifest       modkit.Manifest `json:"manifest"`
-	Tags           []ModTag        `json:"tags"`
+	EntityID           string          `json:"entityId"`
+	ArtifactID         string          `json:"artifactId"`
+	LinkID             string          `json:"linkId"`
+	FolderID           string          `json:"folderId"`
+	DisplayName        string          `json:"displayName"`
+	Kind               modkit.Kind     `json:"kind"`
+	ArchivePath        string          `json:"archivePath"`
+	RootPath           string          `json:"rootPath"`
+	Linked             bool            `json:"linked"`
+	SizeBytes          int64           `json:"sizeBytes"`
+	ModifiedAt         string          `json:"modifiedAt"`
+	LastSeenAt         string          `json:"lastSeenAt"`
+	Fingerprint        string          `json:"fingerprint"`
+	SHA256             string          `json:"sha256"`
+	ThumbnailURL       string          `json:"thumbnailUrl"`
+	MemberCount        int             `json:"memberCount"`
+	NamespaceCount     int             `json:"namespaceCount"`
+	VariantCount       int             `json:"variantCount"`
+	IssueCount         int             `json:"issueCount"`
+	HealthStatus       string          `json:"healthStatus"`
+	HealthLabel        string          `json:"healthLabel"`
+	LastSecurityScanAt string          `json:"lastSecurityScanAt"`
+	Manifest           modkit.Manifest `json:"manifest"`
+	Tags               []ModTag        `json:"tags"`
 }
 
 type EventRecord struct {
@@ -227,6 +230,20 @@ func (s *Store) migrate(ctx context.Context) error {
 			signals_json TEXT NOT NULL, excerpt TEXT NOT NULL, pre_scan_json TEXT NOT NULL DEFAULT '{}',
 			PRIMARY KEY(audit_id, path)
 		)`,
+		`CREATE TABLE IF NOT EXISTS virus_scans (
+			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+			mode TEXT NOT NULL, status TEXT NOT NULL, current_stage TEXT NOT NULL, verdict TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS virus_scans_entity_idx ON virus_scans(entity_id, artifact_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS virus_scan_stages (
+			id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES virus_scans(id) ON DELETE CASCADE,
+			entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+			stage TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT '',
+			parameters_json TEXT NOT NULL DEFAULT '{}', inputs_json TEXT NOT NULL DEFAULT '[]',
+			metadata_file TEXT NOT NULL, audit_id TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS virus_scan_stages_lineage_idx ON virus_scan_stages(entity_id, artifact_id, stage, completed_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS test_installs (
 			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), export_id TEXT NOT NULL REFERENCES exports(id),
 			path TEXT NOT NULL, sha256 TEXT NOT NULL, installed_at TEXT NOT NULL, log_baseline_at TEXT NOT NULL,
@@ -477,7 +494,7 @@ func (s *Store) GetLibraryItem(ctx context.Context, entityID string) (LibraryIte
 	return items[0], nil
 }
 
-func (s *Store) ListLibrary(ctx context.Context, status, kind, query, folderID string) ([]LibraryItem, error) {
+func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID string) ([]LibraryItem, error) {
 	items, err := s.listItems(ctx, "")
 	if err != nil {
 		return nil, err
@@ -487,9 +504,10 @@ func (s *Store) ListLibrary(ctx context.Context, status, kind, query, folderID s
 		return nil, err
 	}
 	search := parseLibrarySearchQuery(query)
+	health = normalizeLibraryStatus(health)
 	filtered := items[:0]
 	for _, item := range items {
-		if status == "linked" && !item.Linked || status == "unlinked" && item.Linked {
+		if health != "" && item.HealthStatus != health {
 			continue
 		}
 		if kind != "" && kind != "all" && string(item.Kind) != kind {
@@ -556,6 +574,9 @@ func (s *Store) listItems(ctx context.Context, entityID string) ([]LibraryItem, 
 		return nil, err
 	}
 	if err := s.attachLibraryItemTags(ctx, items); err != nil {
+		return nil, err
+	}
+	if err := s.attachLibraryItemHealth(ctx, items); err != nil {
 		return nil, err
 	}
 	return items, nil

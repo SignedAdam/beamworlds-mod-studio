@@ -10,7 +10,11 @@ import (
 	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
 
-const exampleTagSeedKey = "library_example_tags_seeded_v1"
+const (
+	exampleTagSeedKey  = "library_example_tags_seeded_v1"
+	defaultModTagColor = "#7a8791"
+	defaultModTagIcon  = "tag"
+)
 
 var exampleModTagNames = []string{
 	"Car",
@@ -28,11 +32,43 @@ var exampleModTagNames = []string{
 type ModTag struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Icon     string `json:"icon"`
 	ModCount int    `json:"modCount"`
 }
 
-func (service *AppService) CreateModTag(name string) (OrganizationState, error) {
-	if err := service.store.CreateModTag(context.Background(), name); err != nil {
+func normalizeModTagColor(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != 7 || value[0] != '#' {
+		return "", errors.New("tag color must be a #RRGGBB value")
+	}
+	for _, char := range value[1:] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return "", errors.New("tag color must be a #RRGGBB value")
+		}
+	}
+	return value, nil
+}
+
+func normalizeModTagIcon(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "tag", "vehicle", "map", "code", "files", "shield", "user":
+		return value, nil
+	default:
+		return "", errors.New("tag icon must be one of tag, vehicle, map, code, files, shield, or user")
+	}
+}
+
+func (service *AppService) CreateModTag(name, color, icon string) (OrganizationState, error) {
+	if err := service.store.CreateModTag(context.Background(), name, color, icon); err != nil {
+		return OrganizationState{}, err
+	}
+	return service.Organization()
+}
+
+func (service *AppService) UpdateModTagVisual(tagID, color, icon string) (OrganizationState, error) {
+	if err := service.store.UpdateModTagVisual(context.Background(), tagID, color, icon); err != nil {
 		return OrganizationState{}, err
 	}
 	return service.Organization()
@@ -60,6 +96,51 @@ func (service *AppService) SetLibraryItemTags(entityID string, tagIDs []string) 
 	return service.store.GetLibraryItem(ctx, entityID)
 }
 
+func (s *Store) ensureModTagVisualColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(mod_tags)`)
+	if err != nil {
+		return err
+	}
+	hasColor, hasIcon := false, false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "color":
+			hasColor = true
+		case "icon":
+			hasIcon = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasColor {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE mod_tags ADD COLUMN color TEXT NOT NULL DEFAULT '#7a8791'`); err != nil {
+			return err
+		}
+	}
+	if !hasIcon {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE mod_tags ADD COLUMN icon TEXT NOT NULL DEFAULT 'tag'`); err != nil {
+			return err
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE mod_tags SET color=? WHERE color IS NULL OR TRIM(color)=''`, defaultModTagColor); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE mod_tags SET icon=? WHERE icon IS NULL OR TRIM(icon)=''`, defaultModTagIcon)
+	return err
+}
+
 func (s *Store) ensureExampleModTags(ctx context.Context) error {
 	var seeded string
 	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
@@ -75,7 +156,7 @@ func (s *Store) ensureExampleModTags(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, name := range exampleModTagNames {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart(name), name, nowUTC(), nowUTC()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart(name), name, defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
 			return err
 		}
 	}
@@ -102,7 +183,7 @@ func tagIDPart(value string) string {
 }
 
 func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +191,7 @@ func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
 	result := []ModTag{}
 	for rows.Next() {
 		var tag ModTag
-		if err := rows.Scan(&tag.ID, &tag.Name, &tag.ModCount); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.ModCount); err != nil {
 			return nil, err
 		}
 		result = append(result, tag)
@@ -118,8 +199,16 @@ func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
 	return result, rows.Err()
 }
 
-func (s *Store) CreateModTag(ctx context.Context, name string) error {
+func (s *Store) CreateModTag(ctx context.Context, name, color, icon string) error {
 	name, err := cleanOrganizationName(name, "tag name")
+	if err != nil {
+		return err
+	}
+	color, err = normalizeModTagColor(color)
+	if err != nil {
+		return err
+	}
+	icon, err = normalizeModTagIcon(icon)
 	if err != nil {
 		return err
 	}
@@ -127,11 +216,24 @@ func (s *Store) CreateModTag(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO mod_tags(id,name,created_at,updated_at) VALUES(?,?,?,?)`, id, name, nowUTC(), nowUTC())
+	_, err = s.db.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?)`, id, name, color, icon, nowUTC(), nowUTC())
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
 		return fmt.Errorf("tag %q already exists", name)
 	}
 	return err
+}
+
+func (s *Store) UpdateModTagVisual(ctx context.Context, tagID, color, icon string) error {
+	color, err := normalizeModTagColor(color)
+	if err != nil {
+		return err
+	}
+	icon, err = normalizeModTagIcon(icon)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE mod_tags SET color=?,icon=?,updated_at=? WHERE id=?`, color, icon, nowUTC(), strings.TrimSpace(tagID))
+	return requireChanged(result, err, "tag")
 }
 
 func (s *Store) RenameModTag(ctx context.Context, tagID, name string) error {
@@ -147,8 +249,51 @@ func (s *Store) RenameModTag(ctx context.Context, tagID, name string) error {
 }
 
 func (s *Store) DeleteModTag(ctx context.Context, tagID string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM mod_tags WHERE id=?`, strings.TrimSpace(tagID))
-	return requireChanged(result, err, "tag")
+	tagID = strings.TrimSpace(tagID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var tagName, color, icon string
+	if err := tx.QueryRowContext(ctx, `SELECT name,color,icon FROM mod_tags WHERE id=?`, tagID).Scan(&tagName, &color, &icon); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("tag was not found")
+		}
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT entity_id FROM mod_tag_entities WHERE tag_id=? ORDER BY entity_id`, tagID)
+	if err != nil {
+		return err
+	}
+	entityIDs := []string{}
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			rows.Close()
+			return err
+		}
+		entityIDs = append(entityIDs, entityID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, entityID := range entityIDs {
+		if err := appendEventTx(ctx, tx, entityID, "tag_removed", map[string]any{
+			"tagId": tagID, "tagName": tagName, "color": color, "icon": icon,
+		}); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM mod_tags WHERE id=?`, tagID)
+	if err := requireChanged(result, err, "tag"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) SetLibraryItemTags(ctx context.Context, entityID string, tagIDs []string) error {
@@ -171,14 +316,56 @@ func (s *Store) SetLibraryItemTags(ctx context.Context, entityID string, tagIDs 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var exists string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM entities WHERE id=?`, entityID).Scan(&exists); err != nil {
+	var entity string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM entities WHERE id=?`, entityID).Scan(&entity); err != nil {
 		return err
 	}
+	type tagAssignment struct {
+		id, name, color, icon string
+	}
+	current := make(map[string]tagAssignment)
+	currentOrder := make([]string, 0)
+	rows, err := tx.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon
+		FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id
+		WHERE te.entity_id=? ORDER BY t.id`, entityID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var tag tagAssignment
+		if err := rows.Scan(&tag.id, &tag.name, &tag.color, &tag.icon); err != nil {
+			rows.Close()
+			return err
+		}
+		current[tag.id] = tag
+		currentOrder = append(currentOrder, tag.id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	requested := make(map[string]tagAssignment, len(unique))
 	for _, tagID := range unique {
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM mod_tags WHERE id=?`, tagID).Scan(&exists); err != nil {
+		var tag tagAssignment
+		if err := tx.QueryRowContext(ctx, `SELECT id,name,color,icon FROM mod_tags WHERE id=?`, tagID).Scan(&tag.id, &tag.name, &tag.color, &tag.icon); err != nil {
 			return fmt.Errorf("unknown tag %q: %w", tagID, err)
 		}
+		requested[tagID] = tag
+	}
+	same := len(current) == len(requested)
+	if same {
+		for _, tagID := range unique {
+			if _, exists := current[tagID]; !exists {
+				same = false
+				break
+			}
+		}
+	}
+	if same {
+		return tx.Commit()
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM mod_tag_entities WHERE entity_id=?`, entityID); err != nil {
 		return err
@@ -188,9 +375,30 @@ func (s *Store) SetLibraryItemTags(ctx context.Context, entityID string, tagIDs 
 			return err
 		}
 	}
+	for _, tagID := range currentOrder {
+		if _, exists := requested[tagID]; exists {
+			continue
+		}
+		tag := current[tagID]
+		if err := appendEventTx(ctx, tx, entityID, "tag_removed", map[string]any{
+			"tagId": tag.id, "tagName": tag.name, "color": tag.color, "icon": tag.icon,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, tagID := range unique {
+		if _, exists := current[tagID]; exists {
+			continue
+		}
+		tag := requested[tagID]
+		if err := appendEventTx(ctx, tx, entityID, "tag_added", map[string]any{
+			"tagId": tag.id, "tagName": tag.name, "color": tag.color, "icon": tag.icon,
+		}); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
-
 func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) error {
 	if len(items) == 0 {
 		return nil
@@ -200,13 +408,12 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 		items[index].Tags = []ModTag{}
 		byEntity[items[index].EntityID] = &items[index]
 	}
-	query := `SELECT te.entity_id,t.id,t.name FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
 	args := []any{}
 	if len(items) == 1 {
 		query += ` WHERE te.entity_id=?`
 		args = append(args, items[0].EntityID)
 	}
-	query += ` ORDER BY t.name COLLATE NOCASE`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
@@ -215,7 +422,7 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 	for rows.Next() {
 		var entityID string
 		var tag ModTag
-		if err := rows.Scan(&entityID, &tag.ID, &tag.Name); err != nil {
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon); err != nil {
 			return err
 		}
 		if item := byEntity[entityID]; item != nil {

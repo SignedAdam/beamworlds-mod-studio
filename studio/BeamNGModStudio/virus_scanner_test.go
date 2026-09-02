@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	modkit "github.com/SignedAdam/beamworlds-modkit"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +22,13 @@ func TestSignatureVirusScansKeepEveryHistoricalArtifact(t *testing.T) {
 	first, err := service.RunVirusScan(item.EntityID, VirusScanModeSignature)
 	if err != nil {
 		t.Fatal(err)
+	}
+	expectedSHA256, err := modkit.FullSHA256(context.Background(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.FileSHA256 != expectedSHA256 || first.Stages[0].FileSHA256 != expectedSHA256 {
+		t.Fatalf("scan hashes = run %q stage %q, want %q", first.FileSHA256, first.Stages[0].FileSHA256, expectedSHA256)
 	}
 	second, err := service.RunVirusScan(item.EntityID, VirusScanModeSignature)
 	if err != nil {
@@ -52,7 +60,7 @@ func TestSignatureVirusScansKeepEveryHistoricalArtifact(t *testing.T) {
 		if err := json.Unmarshal(data, &document); err != nil {
 			t.Fatal(err)
 		}
-		if document.Stage.ID != reference.ID || document.Stage.CreatedAt == "" || document.Stage.CompletedAt == "" || document.Stage.Parameters["scanner"] == "" {
+		if document.Stage.ID != reference.ID || document.Stage.CreatedAt == "" || document.Stage.CompletedAt == "" || document.Stage.Parameters["scanner"] == "" || document.Stage.FileSHA256 != expectedSHA256 {
 			t.Fatalf("incomplete signature stage metadata: %#v", document.Stage)
 		}
 	}
@@ -61,12 +69,39 @@ func TestSignatureVirusScansKeepEveryHistoricalArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(filtered) != 1 || filtered[0].EntityID != item.EntityID || filtered[0].HealthStatus != second.Verdict || filtered[0].LastSecurityScanAt == "" {
+	if len(filtered) != 1 || filtered[0].EntityID != item.EntityID || filtered[0].HealthStatus != second.Verdict || filtered[0].LastSecurityScanAt == "" || filtered[0].LastSecurityScanVerdict != second.Verdict || filtered[0].LastSecurityScanSHA256 != expectedSHA256 || filtered[0].SecurityScanChanged {
 		t.Fatalf("health status did not derive from latest signature scan: %#v", filtered)
 	}
 	directHealthFilter, err := service.ListLibrary(second.Verdict, "all", "", "all")
 	if err != nil || len(directHealthFilter) != 1 || directHealthFilter[0].EntityID != item.EntityID {
 		t.Fatalf("Library health parameter did not filter latest scan status: %#v, err %v", directHealthFilter, err)
+	}
+
+	changedSHA256 := strings.Repeat("a", 64)
+	if changedSHA256 == expectedSHA256 {
+		changedSHA256 = strings.Repeat("b", 64)
+	}
+	if err := service.store.SetEntityArtifactSHA(context.Background(), item.EntityID, changedSHA256); err != nil {
+		t.Fatal(err)
+	}
+	history, err := service.ListVirusScans(item.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("virus scan history length = %d, want 2", len(history))
+	}
+	for _, run := range history {
+		if run.FileSHA256 != expectedSHA256 || len(run.Stages) != 1 || run.Stages[0].FileSHA256 != expectedSHA256 {
+			t.Fatalf("historical scan hash changed with mutable artifact state: %#v", run)
+		}
+	}
+	stale, err := service.ListLibrary("all", "all", "", "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stale) != 1 || !stale[0].SecurityScanChanged || stale[0].LastSecurityScanSHA256 != expectedSHA256 {
+		t.Fatalf("changed source was not distinguished from its last scan: %#v", stale)
 	}
 }
 

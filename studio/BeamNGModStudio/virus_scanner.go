@@ -40,6 +40,7 @@ type VirusScanStage struct {
 	ScanID       string            `json:"scanId"`
 	EntityID     string            `json:"entityId"`
 	ArtifactID   string            `json:"artifactId"`
+	FileSHA256   string            `json:"fileSha256"`
 	Stage        string            `json:"stage"`
 	Status       string            `json:"status"`
 	CreatedAt    string            `json:"createdAt"`
@@ -56,6 +57,7 @@ type VirusScanRun struct {
 	ID           string           `json:"id"`
 	EntityID     string           `json:"entityId"`
 	ArtifactID   string           `json:"artifactId"`
+	FileSHA256   string           `json:"fileSha256"`
 	Mode         string           `json:"mode"`
 	Status       string           `json:"status"`
 	CurrentStage string           `json:"currentStage"`
@@ -64,6 +66,47 @@ type VirusScanRun struct {
 	UpdatedAt    string           `json:"updatedAt"`
 	Error        string           `json:"error"`
 	Stages       []VirusScanStage `json:"stages"`
+}
+
+func (store *Store) ensureVirusScanHashColumns(ctx context.Context) error {
+	columns := []struct {
+		table, column, statement string
+	}{
+		{table: "virus_scans", column: "file_sha256", statement: `ALTER TABLE virus_scans ADD COLUMN file_sha256 TEXT NOT NULL DEFAULT ''`},
+		{table: "virus_scan_stages", column: "file_sha256", statement: `ALTER TABLE virus_scan_stages ADD COLUMN file_sha256 TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		rows, err := store.db.QueryContext(ctx, `PRAGMA table_info(`+column.table+`)`)
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				rows.Close()
+				return err
+			}
+			if strings.EqualFold(strings.TrimSpace(name), column.column) {
+				found = true
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if !found {
+			if _, err := store.db.ExecContext(ctx, column.statement); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type VirusScanStageReference struct {
@@ -106,13 +149,25 @@ func (service *AppService) RunVirusScan(entityID, mode string) (VirusScanRun, er
 	if !item.Linked || strings.TrimSpace(item.ArchivePath) == "" {
 		return VirusScanRun{}, errors.New("virus scan requires an available source archive")
 	}
+	fileSHA256, err := modkit.FullSHA256(ctx, item.ArchivePath)
+	if err != nil {
+		return VirusScanRun{}, fmt.Errorf("hash source archive for virus scan: %w", err)
+	}
+	fileSHA256 = strings.ToLower(strings.TrimSpace(fileSHA256))
+	if fileSHA256 == "" {
+		return VirusScanRun{}, errors.New("source archive hash is empty")
+	}
+	if err := service.store.SetEntityArtifactSHA(ctx, item.EntityID, fileSHA256); err != nil {
+		return VirusScanRun{}, fmt.Errorf("persist source archive hash: %w", err)
+	}
+	item.SHA256 = fileSHA256
 	scanID, err := modkit.NewID()
 	if err != nil {
 		return VirusScanRun{}, err
 	}
 	now := nowUTC()
 	run := VirusScanRun{
-		ID: scanID, EntityID: item.EntityID, ArtifactID: item.ArtifactID, Mode: mode,
+		ID: scanID, EntityID: item.EntityID, ArtifactID: item.ArtifactID, FileSHA256: fileSHA256, Mode: mode,
 		Status: "running", CurrentStage: VirusScanStageSignature, CreatedAt: now, UpdatedAt: now,
 		Stages: []VirusScanStage{},
 	}
@@ -259,7 +314,7 @@ func (service *AppService) beginVirusScanStage(ctx context.Context, run VirusSca
 	}
 	createdAt := nowUTC()
 	stage := VirusScanStage{
-		ID: id, ScanID: run.ID, EntityID: run.EntityID, ArtifactID: run.ArtifactID,
+		ID: id, ScanID: run.ID, EntityID: run.EntityID, ArtifactID: run.ArtifactID, FileSHA256: run.FileSHA256,
 		Stage: stageName, Status: "running", CreatedAt: createdAt, Parameters: parameters,
 		Inputs: append([]string(nil), inputs...), MetadataFile: service.virusScanStagePath(run.EntityID, id),
 	}
@@ -303,7 +358,7 @@ func (service *AppService) completeVirusScan(ctx context.Context, run VirusScanR
 	if err := service.store.updateVirusScan(ctx, run.ID, "complete", stage, verdict, ""); err != nil {
 		return VirusScanRun{}, err
 	}
-	_ = service.store.AppendEvent(ctx, run.EntityID, "virus_scan_complete", map[string]any{"scanId": run.ID, "mode": run.Mode, "verdict": verdict})
+	_ = service.store.AppendEvent(ctx, run.EntityID, "virus_scan_complete", map[string]any{"scanId": run.ID, "mode": run.Mode, "verdict": verdict, "fileSha256": run.FileSHA256})
 	stageTotal := 1
 	if run.Mode == VirusScanModeFull {
 		stageTotal = 3
@@ -552,8 +607,8 @@ func (store *Store) upsertModAuditArtifacts(ctx context.Context, auditID string,
 }
 
 func (store *Store) createVirusScan(ctx context.Context, run VirusScanRun) error {
-	_, err := store.db.ExecContext(ctx, `INSERT INTO virus_scans(id,entity_id,artifact_id,mode,status,current_stage,verdict,created_at,updated_at,error) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		run.ID, run.EntityID, run.ArtifactID, run.Mode, run.Status, run.CurrentStage, run.Verdict, run.CreatedAt, run.UpdatedAt, run.Error)
+	_, err := store.db.ExecContext(ctx, `INSERT INTO virus_scans(id,entity_id,artifact_id,file_sha256,mode,status,current_stage,verdict,created_at,updated_at,error) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		run.ID, run.EntityID, run.ArtifactID, run.FileSHA256, run.Mode, run.Status, run.CurrentStage, run.Verdict, run.CreatedAt, run.UpdatedAt, run.Error)
 	return err
 }
 
@@ -571,8 +626,8 @@ func (store *Store) createVirusScanStage(ctx context.Context, stage VirusScanSta
 	if err != nil {
 		return err
 	}
-	_, err = store.db.ExecContext(ctx, `INSERT INTO virus_scan_stages(id,scan_id,entity_id,artifact_id,stage,status,created_at,completed_at,parameters_json,inputs_json,metadata_file,audit_id,summary,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		stage.ID, stage.ScanID, stage.EntityID, stage.ArtifactID, stage.Stage, stage.Status, stage.CreatedAt, stage.CompletedAt, string(parameters), string(inputs), stage.MetadataFile, stage.AuditID, stage.Summary, stage.Error)
+	_, err = store.db.ExecContext(ctx, `INSERT INTO virus_scan_stages(id,scan_id,entity_id,artifact_id,file_sha256,stage,status,created_at,completed_at,parameters_json,inputs_json,metadata_file,audit_id,summary,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		stage.ID, stage.ScanID, stage.EntityID, stage.ArtifactID, stage.FileSHA256, stage.Stage, stage.Status, stage.CreatedAt, stage.CompletedAt, string(parameters), string(inputs), stage.MetadataFile, stage.AuditID, stage.Summary, stage.Error)
 	return err
 }
 
@@ -583,15 +638,15 @@ func (store *Store) finishVirusScanStage(ctx context.Context, stage VirusScanSta
 }
 
 func (store *Store) latestVirusScanStage(ctx context.Context, entityID, artifactID, stageName string) (VirusScanStage, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT id,scan_id,entity_id,artifact_id,stage,status,created_at,completed_at,parameters_json,inputs_json,metadata_file,audit_id,summary,error
-		FROM virus_scan_stages WHERE entity_id=? AND artifact_id=? AND stage=? AND status='complete' ORDER BY completed_at DESC,id DESC LIMIT 1`, entityID, artifactID, stageName)
+	row := store.db.QueryRowContext(ctx, `SELECT s.id,s.scan_id,s.entity_id,s.artifact_id,COALESCE(NULLIF(s.file_sha256,''),a.sha256,'') AS file_sha256,s.stage,s.status,s.created_at,s.completed_at,s.parameters_json,s.inputs_json,s.metadata_file,s.audit_id,s.summary,s.error
+		FROM virus_scan_stages s LEFT JOIN artifacts a ON a.id=s.artifact_id WHERE s.entity_id=? AND s.artifact_id=? AND s.stage=? AND s.status='complete' ORDER BY s.completed_at DESC,s.id DESC LIMIT 1`, entityID, artifactID, stageName)
 	return scanVirusScanStage(row)
 }
 
 func (store *Store) virusScanByID(ctx context.Context, scanID string) (VirusScanRun, error) {
 	var run VirusScanRun
-	err := store.db.QueryRowContext(ctx, `SELECT id,entity_id,artifact_id,mode,status,current_stage,verdict,created_at,updated_at,error FROM virus_scans WHERE id=?`, scanID).
-		Scan(&run.ID, &run.EntityID, &run.ArtifactID, &run.Mode, &run.Status, &run.CurrentStage, &run.Verdict, &run.CreatedAt, &run.UpdatedAt, &run.Error)
+	err := store.db.QueryRowContext(ctx, `SELECT v.id,v.entity_id,v.artifact_id,COALESCE(NULLIF(v.file_sha256,''),a.sha256,'') AS file_sha256,v.mode,v.status,v.current_stage,v.verdict,v.created_at,v.updated_at,v.error FROM virus_scans v LEFT JOIN artifacts a ON a.id=v.artifact_id WHERE v.id=?`, scanID).
+		Scan(&run.ID, &run.EntityID, &run.ArtifactID, &run.FileSHA256, &run.Mode, &run.Status, &run.CurrentStage, &run.Verdict, &run.CreatedAt, &run.UpdatedAt, &run.Error)
 	if err != nil {
 		return VirusScanRun{}, err
 	}
@@ -604,13 +659,13 @@ func (store *Store) virusScanByID(ctx context.Context, scanID string) (VirusScan
 }
 
 func (store *Store) listVirusScans(ctx context.Context, entityID string) ([]VirusScanRun, error) {
-	query := `SELECT id,entity_id,artifact_id,mode,status,current_stage,verdict,created_at,updated_at,error FROM virus_scans`
+	query := `SELECT v.id,v.entity_id,v.artifact_id,COALESCE(NULLIF(v.file_sha256,''),a.sha256,'') AS file_sha256,v.mode,v.status,v.current_stage,v.verdict,v.created_at,v.updated_at,v.error FROM virus_scans v LEFT JOIN artifacts a ON a.id=v.artifact_id`
 	args := []any{}
 	if entityID != "" {
-		query += ` WHERE entity_id=?`
+		query += ` WHERE v.entity_id=?`
 		args = append(args, entityID)
 	}
-	query += ` ORDER BY created_at DESC,id DESC LIMIT 300`
+	query += ` ORDER BY v.created_at DESC,v.id DESC LIMIT 300`
 	rows, err := store.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -619,7 +674,7 @@ func (store *Store) listVirusScans(ctx context.Context, entityID string) ([]Viru
 	runs := []VirusScanRun{}
 	for rows.Next() {
 		var run VirusScanRun
-		if err := rows.Scan(&run.ID, &run.EntityID, &run.ArtifactID, &run.Mode, &run.Status, &run.CurrentStage, &run.Verdict, &run.CreatedAt, &run.UpdatedAt, &run.Error); err != nil {
+		if err := rows.Scan(&run.ID, &run.EntityID, &run.ArtifactID, &run.FileSHA256, &run.Mode, &run.Status, &run.CurrentStage, &run.Verdict, &run.CreatedAt, &run.UpdatedAt, &run.Error); err != nil {
 			return nil, err
 		}
 		run.Stages = []VirusScanStage{}
@@ -641,8 +696,8 @@ func (store *Store) listVirusScans(ctx context.Context, entityID string) ([]Viru
 		indices[runs[index].ID] = index
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(runs)), ",")
-	stageRows, err := store.db.QueryContext(ctx, `SELECT id,scan_id,entity_id,artifact_id,stage,status,created_at,completed_at,parameters_json,inputs_json,metadata_file,audit_id,summary,error
-		FROM virus_scan_stages WHERE scan_id IN (`+placeholders+`) ORDER BY created_at,id`, arguments...)
+	stageRows, err := store.db.QueryContext(ctx, `SELECT s.id,s.scan_id,s.entity_id,s.artifact_id,COALESCE(NULLIF(s.file_sha256,''),a.sha256,'') AS file_sha256,s.stage,s.status,s.created_at,s.completed_at,s.parameters_json,s.inputs_json,s.metadata_file,s.audit_id,s.summary,s.error
+		FROM virus_scan_stages s LEFT JOIN artifacts a ON a.id=s.artifact_id WHERE s.scan_id IN (`+placeholders+`) ORDER BY s.created_at,s.id`, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -663,7 +718,7 @@ func (store *Store) listVirusScans(ctx context.Context, entityID string) ([]Viru
 }
 
 func (store *Store) virusScanStages(ctx context.Context, scanID string) ([]VirusScanStage, error) {
-	rows, err := store.db.QueryContext(ctx, `SELECT id,scan_id,entity_id,artifact_id,stage,status,created_at,completed_at,parameters_json,inputs_json,metadata_file,audit_id,summary,error FROM virus_scan_stages WHERE scan_id=? ORDER BY created_at,id`, scanID)
+	rows, err := store.db.QueryContext(ctx, `SELECT s.id,s.scan_id,s.entity_id,s.artifact_id,COALESCE(NULLIF(s.file_sha256,''),a.sha256,'') AS file_sha256,s.stage,s.status,s.created_at,s.completed_at,s.parameters_json,s.inputs_json,s.metadata_file,s.audit_id,s.summary,s.error FROM virus_scan_stages s LEFT JOIN artifacts a ON a.id=s.artifact_id WHERE s.scan_id=? ORDER BY s.created_at,s.id`, scanID)
 	if err != nil {
 		return nil, err
 	}
@@ -686,7 +741,7 @@ type virusScanRow interface {
 func scanVirusScanStage(row virusScanRow) (VirusScanStage, error) {
 	var stage VirusScanStage
 	var parameters, inputs string
-	err := row.Scan(&stage.ID, &stage.ScanID, &stage.EntityID, &stage.ArtifactID, &stage.Stage, &stage.Status, &stage.CreatedAt, &stage.CompletedAt, &parameters, &inputs, &stage.MetadataFile, &stage.AuditID, &stage.Summary, &stage.Error)
+	err := row.Scan(&stage.ID, &stage.ScanID, &stage.EntityID, &stage.ArtifactID, &stage.FileSHA256, &stage.Stage, &stage.Status, &stage.CreatedAt, &stage.CompletedAt, &parameters, &inputs, &stage.MetadataFile, &stage.AuditID, &stage.Summary, &stage.Error)
 	if err != nil {
 		return VirusScanStage{}, err
 	}
@@ -712,35 +767,48 @@ func (store *Store) attachLibraryItemHealth(ctx context.Context, items []Library
 			items[index].HealthStatus = "broken"
 		}
 		items[index].HealthLabel = virusHealthLabel(items[index].HealthStatus)
+		items[index].LastSecurityScanAt = ""
+		items[index].LastSecurityScanVerdict = ""
+		items[index].LastSecurityScanSHA256 = ""
+		items[index].SecurityScanChanged = false
 	}
 	if len(items) == 0 {
 		return nil
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT entity_id,artifact_id,status,verdict,updated_at FROM (
-		SELECT entity_id,artifact_id,status,verdict,updated_at,id,ROW_NUMBER() OVER(PARTITION BY entity_id,artifact_id ORDER BY updated_at DESC,id DESC) AS ordinal FROM virus_scans
-	) WHERE ordinal=1`)
+	type healthRecord struct {
+		artifactID, status, verdict, updatedAt, sha256 string
+	}
+	currentHealth := map[string]healthRecord{}
+	latestHealth := map[string]healthRecord{}
+	rows, err := store.db.QueryContext(ctx, `SELECT entity_id,artifact_id,status,verdict,updated_at,artifact_sha256,current_ordinal,entity_ordinal FROM (
+		SELECT v.entity_id,v.artifact_id,v.status,v.verdict,v.updated_at,COALESCE(NULLIF(v.file_sha256,''),a.sha256,'') AS artifact_sha256,
+			ROW_NUMBER() OVER(PARTITION BY v.entity_id,v.artifact_id ORDER BY v.updated_at DESC,v.id DESC) AS current_ordinal,
+			ROW_NUMBER() OVER(PARTITION BY v.entity_id ORDER BY v.updated_at DESC,v.id DESC) AS entity_ordinal
+		FROM virus_scans v LEFT JOIN artifacts a ON a.id=v.artifact_id
+	) WHERE current_ordinal=1 OR entity_ordinal=1`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	type healthRecord struct{ status, verdict, updatedAt string }
-	health := map[string]healthRecord{}
 	for rows.Next() {
 		var entityID, artifactID string
 		var record healthRecord
-		if err := rows.Scan(&entityID, &artifactID, &record.status, &record.verdict, &record.updatedAt); err != nil {
+		var currentOrdinal, entityOrdinal int
+		if err := rows.Scan(&entityID, &artifactID, &record.status, &record.verdict, &record.updatedAt, &record.sha256, &currentOrdinal, &entityOrdinal); err != nil {
 			return err
 		}
-		health[entityID+"\x00"+artifactID] = record
+		record.artifactID = artifactID
+		if currentOrdinal == 1 {
+			currentHealth[entityID+"\x00"+artifactID] = record
+		}
+		if entityOrdinal == 1 {
+			latestHealth[entityID] = record
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for index := range items {
-		record, ok := health[items[index].EntityID+"\x00"+items[index].ArtifactID]
-		if !ok {
-			continue
-		}
+	scanStatus := func(record healthRecord) string {
 		status := record.verdict
 		if record.status == "running" {
 			status = "scanning"
@@ -750,12 +818,29 @@ func (store *Store) attachLibraryItemHealth(ctx context.Context, items []Library
 		if status == "" {
 			status = "unscanned"
 		}
-		if status != "threat" && libraryItemBroken(items[index]) {
+		return status
+	}
+	for index := range items {
+		item := &items[index]
+		if record, ok := latestHealth[item.EntityID]; ok {
+			item.LastSecurityScanAt = record.updatedAt
+			item.LastSecurityScanVerdict = record.verdict
+			item.LastSecurityScanSHA256 = record.sha256
+			item.SecurityScanChanged = record.artifactID != item.ArtifactID
+			if !item.SecurityScanChanged && record.sha256 != "" && item.SHA256 != "" {
+				item.SecurityScanChanged = !strings.EqualFold(record.sha256, item.SHA256)
+			}
+		}
+		record, ok := currentHealth[item.EntityID+"\x00"+item.ArtifactID]
+		if !ok {
+			continue
+		}
+		status := scanStatus(record)
+		if status != "threat" && libraryItemBroken(*item) {
 			status = "broken"
 		}
-		items[index].HealthStatus = status
-		items[index].HealthLabel = virusHealthLabel(status)
-		items[index].LastSecurityScanAt = record.updatedAt
+		item.HealthStatus = status
+		item.HealthLabel = virusHealthLabel(status)
 	}
 	return nil
 }

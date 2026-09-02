@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -108,6 +109,101 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	}
 }
 
+func TestModTagVisualMigrationUpgradesExistingDatabase(t *testing.T) {
+	t.Parallel()
+	filename := filepath.Join(t.TempDir(), "legacy.sqlite")
+	legacy, err := sql.Open("sqlite", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE mod_tags (
+		id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`INSERT INTO mod_tags(id,name,created_at,updated_at) VALUES('legacy','Legacy','before','before')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenStore(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var color, icon string
+	if err := store.db.QueryRow(`SELECT color,icon FROM mod_tags WHERE id='legacy'`).Scan(&color, &icon); err != nil {
+		t.Fatal(err)
+	}
+	if color != defaultModTagColor || icon != defaultModTagIcon {
+		t.Fatalf("migrated tag visuals = %q/%q", color, icon)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(filename)
+	if err != nil {
+		t.Fatalf("idempotent reopen: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVirusScanHashMigrationUpgradesExistingDatabase(t *testing.T) {
+	t.Parallel()
+	filename := filepath.Join(t.TempDir(), "legacy-scans.sqlite")
+	legacy, err := sql.Open("sqlite", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE virus_scans (
+		id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, artifact_id TEXT NOT NULL,
+		mode TEXT NOT NULL, status TEXT NOT NULL, current_stage TEXT NOT NULL, verdict TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT NOT NULL DEFAULT ''
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`CREATE TABLE virus_scan_stages (
+		id TEXT PRIMARY KEY, scan_id TEXT NOT NULL, entity_id TEXT NOT NULL, artifact_id TEXT NOT NULL,
+		stage TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT '',
+		parameters_json TEXT NOT NULL DEFAULT '{}', inputs_json TEXT NOT NULL DEFAULT '[]',
+		metadata_file TEXT NOT NULL, audit_id TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenStore(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"virus_scans", "virus_scan_stages"} {
+		var count int
+		query := `SELECT COUNT(*) FROM pragma_table_info('` + table + `') WHERE name='file_sha256'`
+		if err := store.db.QueryRow(query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("%s file_sha256 columns = %d, want 1", table, count)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenStore(filename)
+	if err != nil {
+		t.Fatalf("idempotent reopen: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
@@ -122,6 +218,9 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 		tag := findModTag(t, state, name)
 		if tag.ModCount != 0 {
 			t.Fatalf("fresh tag %q unexpectedly has %d assignments", name, tag.ModCount)
+		}
+		if tag.Color != defaultModTagColor || tag.Icon != defaultModTagIcon {
+			t.Fatalf("seeded tag %q visuals = %q/%q", name, tag.Color, tag.Icon)
 		}
 	}
 
@@ -138,18 +237,35 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 		t.Fatalf("fresh mod tags = %#v, err %v", firstItem.Tags, err)
 	}
 
-	state, err = service.CreateModTag("Favorite")
+	state, err = service.CreateModTag("Favorite", "#e85d8f", "vehicle")
 	if err != nil {
 		t.Fatal(err)
 	}
 	car := findModTag(t, state, "Car")
 	gameplay := findModTag(t, state, "Gameplay Overhaul")
 	favorite := findModTag(t, state, "Favorite")
+	if favorite.Color != "#e85d8f" || favorite.Icon != "vehicle" {
+		t.Fatalf("created tag visuals = %#v", favorite)
+	}
+	state, err = service.UpdateModTagVisual(favorite.ID, "#a978e5", "shield")
+	if err != nil {
+		t.Fatal(err)
+	}
+	favorite = findModTag(t, state, "Favorite")
+	if favorite.Color != "#a978e5" || favorite.Icon != "shield" {
+		t.Fatalf("updated tag visuals = %#v", favorite)
+	}
 	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, gameplay.ID, favorite.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateModTag("favorite"); err == nil {
+	if _, err := service.CreateModTag("favorite", "#7a8791", "tag"); err == nil {
 		t.Fatal("case-insensitive duplicate tag was accepted")
+	}
+	if _, err := service.CreateModTag("Invalid Color", "purple", "tag"); err == nil {
+		t.Fatal("invalid tag color was accepted")
+	}
+	if _, err := service.UpdateModTagVisual(favorite.ID, "#a978e5", "star"); err == nil {
+		t.Fatal("non-preset tag icon was accepted")
 	}
 	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, "missing-tag"}); err == nil {
 		t.Fatal("unknown tag assignment was accepted")
@@ -157,6 +273,19 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	firstItem, err = service.store.GetLibraryItem(context.Background(), first.Entity.EntityID)
 	if err != nil || len(firstItem.Tags) != 3 {
 		t.Fatalf("failed assignment changed existing tags: %#v, err %v", firstItem.Tags, err)
+	}
+	detail, err := service.GetEntity(first.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	added := 0
+	for _, event := range detail.History {
+		if event.Type == "tag_added" {
+			added++
+		}
+	}
+	if added != 3 {
+		t.Fatalf("tag assignment history has %d additions, want 3: %#v", added, detail.History)
 	}
 
 	for query, entityID := range map[string]string{
@@ -198,6 +327,22 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].EntityID != first.Entity.EntityID {
 		t.Fatalf("renamed tag query = %#v, err %v", items, err)
 	}
+	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, gameplay.ID}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err = service.GetEntity(first.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	for _, event := range detail.History {
+		if event.Type == "tag_removed" && event.Data["tagName"] == "Must Play" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("tag removal missing from history: %#v", detail.History)
+	}
 	state, err = service.DeleteModTag(renamed.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -208,6 +353,23 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	firstItem, err = service.store.GetLibraryItem(context.Background(), first.Entity.EntityID)
 	if err != nil || slices.ContainsFunc(firstItem.Tags, func(tag ModTag) bool { return tag.ID == renamed.ID }) {
 		t.Fatalf("deleted tag assignment remains: %#v, err %v", firstItem.Tags, err)
+	}
+	state, err = service.DeleteModTag(gameplay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = service.GetEntity(first.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletedAssignmentRecorded := false
+	for _, event := range detail.History {
+		if event.Type == "tag_removed" && event.Data["tagName"] == "Gameplay Overhaul" {
+			deletedAssignmentRecorded = true
+		}
+	}
+	if !deletedAssignmentRecorded {
+		t.Fatalf("tag deletion did not record removed assignments: %#v", detail.History)
 	}
 }
 

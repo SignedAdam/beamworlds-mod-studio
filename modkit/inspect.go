@@ -337,7 +337,17 @@ func prioritizedMetadataFiles(logical []string, actual map[string]string, files 
 }
 
 func normalizePrimaryMetadata(manifest *Manifest) {
+	hasPrimaryDocument := false
 	for _, document := range manifest.MetadataDocuments {
+		if strings.EqualFold(path.Base(document.Path), "info.json") {
+			hasPrimaryDocument = true
+			break
+		}
+	}
+	for _, document := range manifest.MetadataDocuments {
+		if hasPrimaryDocument && !strings.EqualFold(path.Base(document.Path), "info.json") {
+			continue
+		}
 		data := document.Data
 		if manifest.Title == "" {
 			manifest.Title = firstString(data, "title", "Name", "name", "Configuration")

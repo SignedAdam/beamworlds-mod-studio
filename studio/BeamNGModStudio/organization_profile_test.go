@@ -161,7 +161,7 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 
 	for query, entityID := range map[string]string{
 		`in:tag "Gameplay Overhaul"`: first.Entity.EntityID,
-		`in:tag Car is:linked`:       first.Entity.EntityID,
+		`in:tag Car is:unscanned`:    first.Entity.EntityID,
 		`in:author "Ava Builder"`:    first.Entity.EntityID,
 		`car`:                        first.Entity.EntityID,
 		`in:name "Interface Pack"`:   second.Entity.EntityID,
@@ -171,9 +171,9 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 			t.Fatalf("query %q = %#v, err %v", query, items, err)
 		}
 	}
-	missing, err := service.ListLibrary("all", "all", "is:missing", "all")
+	missing, err := service.ListLibrary("all", "all", "in:source missing", "all")
 	if err != nil || len(missing) != 0 {
-		t.Fatalf("missing-source query = %#v, err %v", missing, err)
+		t.Fatalf("missing-source scope query = %#v, err %v", missing, err)
 	}
 
 	state, err = service.CreateLibraryFolder("Road Tests", "")

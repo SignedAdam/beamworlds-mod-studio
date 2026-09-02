@@ -191,115 +191,11 @@ export interface LibraryItem {
     "namespaceCount": number;
     "variantCount": number;
     "issueCount": number;
+    "healthStatus": string;
+    "healthLabel": string;
+    "lastSecurityScanAt": string;
     "manifest": modkit$0.Manifest;
     "tags": ModTag[] | null;
-}
-
-export interface ModAudit {
-    "id": string;
-    "entityId": string;
-    "artifactId": string;
-    "status": string;
-    "stage": string;
-    "createdAt": string;
-    "updatedAt": string;
-    "deterministic": ModAuditLocalReport;
-    "attackSurface": ModAuditAttackSurface;
-    "files": ModAuditFileArtifact[] | null;
-    "preScan": ModAuditPreScanReport;
-    "final": ModAuditFinalReport;
-    "followUps": ModAuditFollowUp[] | null;
-    "error": string;
-}
-
-export interface ModAuditAttackSurface {
-    "libraryMods": number;
-    "patterns": { [_ in string]?: number } | null;
-    "entries": ModAuditAttackSurfaceEntry[] | null;
-}
-
-export interface ModAuditAttackSurfaceEntry {
-    "path": string;
-    "type": string;
-    "reason": string;
-    "libraryOccurrences": number;
-    "libraryMods": number;
-    "novel": boolean;
-    "signals": ModAuditSignal[] | null;
-}
-
-export interface ModAuditFileArtifact {
-    "path": string;
-    "fingerprint": string;
-    "sizeBytes": number;
-    "entrypointType": string;
-    "mediaType": string;
-    "signals": ModAuditSignal[] | null;
-    "preScan"?: ModAuditPreScanFile | null;
-}
-
-export interface ModAuditFinalReport {
-    "model": string;
-    "reasoning": string;
-    "overallRisk": string;
-    "summary": string;
-    "findings": ModAuditFinding[] | null;
-    "contentSignals": ModAuditFinding[] | null;
-    "followUpPaths": string[] | null;
-    "focusedPaths": string[] | null;
-    "warnings": string[] | null;
-    "raw": string;
-}
-
-export interface ModAuditFinding {
-    "severity": string;
-    "title": string;
-    "path": string;
-    "evidence": string;
-    "impact": string;
-    "recommendation": string;
-}
-
-export interface ModAuditFollowUp {
-    "question": string;
-    "paths": string[] | null;
-    "response": string;
-    "createdAt": string;
-}
-
-export interface ModAuditLocalReport {
-    "scannedEntries": number;
-    "candidateFiles": number;
-    "executableFiles": number;
-    "suspiciousFiles": number;
-    "contentSignals": number;
-    "bytesInspected": number;
-    "truncated": boolean;
-    "signals": ModAuditSignal[] | null;
-}
-
-export interface ModAuditPreScanFile {
-    "path": string;
-    "observations": string[] | null;
-    "behaviors": string[] | null;
-    "followUp": string[] | null;
-}
-
-export interface ModAuditPreScanReport {
-    "model": string;
-    "reasoning": string;
-    "summary": string;
-    "files": ModAuditPreScanFile[] | null;
-    "raw": string;
-}
-
-export interface ModAuditSignal {
-    "severity": string;
-    "category": string;
-    "code": string;
-    "path": string;
-    "detail": string;
-    "evidence": string;
 }
 
 export interface ModPreset {
@@ -316,6 +212,13 @@ export interface ModProfile {
     "defaultPresetId": string;
     "presetCount": number;
     "modCount": number;
+}
+
+export interface ModSecurityMetadata {
+    "schemaVersion": number;
+    "entityId": string;
+    "updatedAt": string;
+    "securityScans": VirusScanStageReference[] | null;
 }
 
 export interface ModTag {
@@ -516,6 +419,59 @@ export interface UsageLimit {
     "unit": string;
     "resetsAt": number;
     "status": string;
+}
+
+export interface VirusScanProgress {
+    "scanId": string;
+    "entityId": string;
+    "mode": string;
+    "status": string;
+    "stage": string;
+    "stageIndex": number;
+    "stageTotal": number;
+    "message": string;
+    "error": string;
+}
+
+export interface VirusScanRun {
+    "id": string;
+    "entityId": string;
+    "artifactId": string;
+    "mode": string;
+    "status": string;
+    "currentStage": string;
+    "verdict": string;
+    "createdAt": string;
+    "updatedAt": string;
+    "error": string;
+    "stages": VirusScanStage[] | null;
+}
+
+export interface VirusScanStage {
+    "id": string;
+    "scanId": string;
+    "entityId": string;
+    "artifactId": string;
+    "stage": string;
+    "status": string;
+    "createdAt": string;
+    "completedAt": string;
+    "parameters": { [_ in string]?: string } | null;
+    "inputs": string[] | null;
+    "metadataFile": string;
+    "auditId": string;
+    "summary": string;
+    "error": string;
+}
+
+export interface VirusScanStageReference {
+    "id": string;
+    "scanId": string;
+    "artifactId": string;
+    "stage": string;
+    "createdAt": string;
+    "metadataFile": string;
+    "inputs": string[] | null;
 }
 
 export interface WorkspaceDetail {

@@ -145,7 +145,7 @@ func TestSettingsRoundTripProtectsAPIKey(t *testing.T) {
 		t.Fatalf("appearance settings did not round-trip: %#v", saved)
 	}
 	if saved.PreScanModel != "gpt-5.6-luna" || saved.PreScanReasoning != "medium" || saved.FullScanModel != "gpt-5.6-sol" || saved.FullScanReasoning != "xhigh" {
-		t.Fatalf("Mod Audit settings did not round-trip: %#v", saved)
+		t.Fatalf("Virus Scanner settings did not round-trip: %#v", saved)
 	}
 	launch, err := service.agentLaunchSettings(context.Background())
 	if err != nil {

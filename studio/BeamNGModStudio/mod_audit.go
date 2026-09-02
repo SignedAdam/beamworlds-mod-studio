@@ -182,7 +182,7 @@ var auditTextExtensions = map[string]bool{
 	".vbs": true, ".xml": true, ".yaml": true, ".yml": true,
 }
 
-func (service *AppService) GetModAudit(entityID string) (ModAudit, error) {
+func (service *AppService) getModAudit(entityID string) (ModAudit, error) {
 	ctx := context.Background()
 	item, err := service.store.GetLibraryItem(ctx, strings.TrimSpace(entityID))
 	if err != nil {
@@ -195,7 +195,7 @@ func (service *AppService) GetModAudit(entityID string) (ModAudit, error) {
 	return audit, err
 }
 
-func (service *AppService) RunModAuditLocal(entityID string) (ModAudit, error) {
+func (service *AppService) runModAuditLocal(entityID string) (ModAudit, error) {
 	service.auditMu.Lock()
 	defer service.auditMu.Unlock()
 	return service.runModAuditLocalLocked(context.Background(), strings.TrimSpace(entityID), true)
@@ -207,7 +207,7 @@ func (service *AppService) runModAuditLocalLocked(ctx context.Context, entityID 
 		return ModAudit{}, err
 	}
 	if !item.Linked || strings.TrimSpace(item.ArchivePath) == "" {
-		return ModAudit{}, errors.New("Mod Audit requires a linked source archive")
+		return ModAudit{}, errors.New("Virus Scanner requires an available source archive")
 	}
 	if !force {
 		if audit, loadErr := service.store.latestModAudit(ctx, item.EntityID, item.ArtifactID); loadErr == nil && audit.Deterministic.ScannedEntries > 0 {
@@ -265,7 +265,7 @@ func (service *AppService) learnModAuditBaseline(ctx context.Context) (auditBase
 func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAuditLocalReport, ModAuditAttackSurface, []modAuditArtifactRecord, error) {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
-		return ModAuditLocalReport{}, ModAuditAttackSurface{}, nil, fmt.Errorf("open source archive for Mod Audit: %w", err)
+		return ModAuditLocalReport{}, ModAuditAttackSurface{}, nil, fmt.Errorf("open source archive for Virus Scanner: %w", err)
 	}
 	defer reader.Close()
 
@@ -689,7 +689,7 @@ func (store *Store) modAuditByID(ctx context.Context, auditID string) (ModAudit,
 	} {
 		if strings.TrimSpace(target.encoded) != "" && target.encoded != "{}" {
 			if err := json.Unmarshal([]byte(target.encoded), target.value); err != nil {
-				return ModAudit{}, fmt.Errorf("decode Mod Audit record: %w", err)
+				return ModAudit{}, fmt.Errorf("decode Virus Scanner record: %w", err)
 			}
 		}
 	}

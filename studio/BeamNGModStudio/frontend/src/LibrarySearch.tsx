@@ -29,6 +29,7 @@ const scopes: Array<{ scope: string; label: string; description: string; icon: I
   { scope: 'collection', label: 'Collections', description: 'Search optional single-home groups', icon: 'folder' },
   { scope: 'name', label: 'Names', description: 'Search only mod names', icon: 'archive' },
   { scope: 'path', label: 'Paths', description: 'Search source archive paths', icon: 'link' },
+  { scope: 'source', label: 'Source availability', description: 'Available or missing source archives', icon: 'link' },
 ]
 
 const kinds = ['vehicle', 'map', 'ui', 'script', 'mixed', 'unknown']
@@ -126,7 +127,7 @@ function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryF
   const statusMatch = trimmed.match(/(?:^|\s)is:([a-z]*)$/i)
   if (statusMatch) return statusSuggestions(value, statusMatch[1])
 
-  const activeScopeMatch = trimmed.match(/(?:^|\s)in:(tag|kind|author|collection|name|path)\s+([^\s"]*|"[^"]*)$/i)
+  const activeScopeMatch = trimmed.match(/(?:^|\s)in:(tag|kind|author|collection|name|path|source)\s+([^\s"]*|"[^"]*)$/i)
   if (activeScopeMatch) {
     const scope = activeScopeMatch[1].toLowerCase()
     const fragment = activeScopeMatch[2].replace(/^"/, '').toLowerCase()
@@ -137,7 +138,7 @@ function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryF
   if (!fragment) return []
   const suggestions: SearchSuggestion[] = []
   suggestions.push(...statusSuggestions(value, fragment).filter(suggestion => suggestion.label.toLowerCase().includes(fragment) || suggestion.detail.includes(fragment)))
-  for (const scope of ['tag', 'kind', 'author', 'collection', 'name'] as const) {
+  for (const scope of ['tag', 'kind', 'author', 'collection', 'name', 'source'] as const) {
     suggestions.push(...valueSuggestions(scope, fragment, value, items, folders, tags))
   }
   return dedupeSuggestions(suggestions).slice(0, 10)
@@ -145,8 +146,12 @@ function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryF
 
 function statusSuggestions(value: string, fragment: string): SearchSuggestion[] {
   const options = [
-    { key: 'linked', label: 'Available source', description: 'The archive currently exists in a configured mod folder', icon: 'link' as IconName },
-    { key: 'missing', label: 'Missing source', description: 'A known mod whose archive is no longer present', icon: 'unlink' as IconName },
+    { key: 'safe', label: 'Safe', description: 'Latest scan found no threat signals', icon: 'check' as IconName },
+    { key: 'review', label: 'Review needed', description: 'Latest scan found items that need review', icon: 'warning' as IconName },
+    { key: 'threat', label: 'Threat found', description: 'Latest scan found a high-risk threat', icon: 'error' as IconName },
+    { key: 'broken', label: 'Broken', description: 'Structural errors prevent clean loading', icon: 'error' as IconName },
+    { key: 'unscanned', label: 'Not scanned', description: 'No virus scan has completed for this artifact', icon: 'shield' as IconName },
+    { key: 'scan_failed', label: 'Scan failed', description: 'The latest virus scan did not complete', icon: 'error' as IconName },
   ]
   const normalized = fragment.toLowerCase()
   return options.filter(option => !normalized || option.key.startsWith(normalized) || option.label.toLowerCase().includes(normalized)).map(option => ({
@@ -173,6 +178,11 @@ function valueSuggestions(scope: string, fragment: string, value: string, items:
     values = uniqueValues(items.map(item => item.displayName)).map(name => ({ value: name, description: 'Mod name', icon: 'archive' }))
   } else if (scope === 'path') {
     values = uniqueValues(items.map(item => item.archivePath)).map(path => ({ value: path, description: 'Source archive path', icon: 'link' }))
+  } else if (scope === 'source') {
+    values = [
+      { value: 'available', label: 'Available source', description: 'Archive exists in a configured mod folder', icon: 'link' },
+      { value: 'missing', label: 'Missing source', description: 'Source archive is no longer present', icon: 'unlink' },
+    ]
   }
   return values
     .filter(option => !fragment || option.value.toLowerCase().includes(fragment) || option.label?.toLowerCase().includes(fragment))

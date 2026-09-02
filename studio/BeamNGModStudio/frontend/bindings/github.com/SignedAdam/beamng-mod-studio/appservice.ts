@@ -97,20 +97,12 @@ export function ExportWorkspace(workspaceID: string, label: string): $Cancellabl
     return $Call.ByID(2564207477, workspaceID, label);
 }
 
-export function FollowUpModAudit(entityID: string, paths: string[] | null, question: string): $CancellablePromise<$models.ModAudit> {
-    return $Call.ByID(3975895313, entityID, paths, question);
-}
-
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(2226382837, entityID);
 }
 
 export function GetKnowledge(entityID: string): $CancellablePromise<$models.KnowledgeDocument[] | null> {
     return $Call.ByID(1016561506, entityID);
-}
-
-export function GetModAudit(entityID: string): $CancellablePromise<$models.ModAudit> {
-    return $Call.ByID(3934379141, entityID);
 }
 
 export function GetPreset(presetID: string): $CancellablePromise<$models.PresetDetail> {
@@ -157,8 +149,12 @@ export function ListAgentRuns(workspaceID: string): $CancellablePromise<$models.
     return $Call.ByID(2006466853, workspaceID);
 }
 
-export function ListLibrary(status: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[] | null> {
-    return $Call.ByID(621180473, status, kind, query, folderID);
+export function ListLibrary(health: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[] | null> {
+    return $Call.ByID(621180473, health, kind, query, folderID);
+}
+
+export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[] | null> {
+    return $Call.ByID(652516587, entityID);
 }
 
 export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[] | null> {
@@ -213,16 +209,8 @@ export function RevealWorkspacePath(workspaceID: string, relativePath: string): 
     return $Call.ByID(878556355, workspaceID, relativePath);
 }
 
-export function RunModAuditFull(entityID: string): $CancellablePromise<$models.ModAudit> {
-    return $Call.ByID(1445065873, entityID);
-}
-
-export function RunModAuditLocal(entityID: string): $CancellablePromise<$models.ModAudit> {
-    return $Call.ByID(487750775, entityID);
-}
-
-export function RunModAuditPreScan(entityID: string): $CancellablePromise<$models.ModAudit> {
-    return $Call.ByID(1673988696, entityID);
+export function RunVirusScan(entityID: string, mode: string): $CancellablePromise<$models.VirusScanRun> {
+    return $Call.ByID(692703645, entityID, mode);
 }
 
 export function SaveSettings(update: $models.SettingsUpdate): $CancellablePromise<$models.AppSettings> {
@@ -287,6 +275,10 @@ export function UpdatePreset(presetID: string, name: string, description: string
 
 export function ValidateWorkspace(workspaceID: string): $CancellablePromise<modkit$0.ValidationResult> {
     return $Call.ByID(1665736785, workspaceID);
+}
+
+export function VirusScanMetadata(entityID: string): $CancellablePromise<$models.ModSecurityMetadata> {
+    return $Call.ByID(983667179, entityID);
 }
 
 export function WorkspaceDiff(workspaceID: string): $CancellablePromise<modkit$0.WorkspaceChange[] | null> {

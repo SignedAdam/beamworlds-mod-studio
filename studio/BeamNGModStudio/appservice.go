@@ -21,6 +21,7 @@ type AppService struct {
 	emit         func(string, any)
 	profileMu    sync.Mutex
 	auditMu      sync.Mutex
+	virusMu      sync.Mutex
 	auditAI      auditAIRunner
 	startProcess func(string, []string, string) (ProcessLaunch, error)
 	gameRunning  func() (bool, error)
@@ -70,8 +71,8 @@ func (service *AppService) Dashboard() (Dashboard, error) {
 	return service.store.Dashboard(context.Background(), service.config.DatabasePath)
 }
 
-func (service *AppService) ListLibrary(status, kind, query, folderID string) ([]LibraryItem, error) {
-	return service.store.ListLibrary(context.Background(), status, kind, query, folderID)
+func (service *AppService) ListLibrary(health, kind, query, folderID string) ([]LibraryItem, error) {
+	return service.store.ListLibrary(context.Background(), health, kind, query, folderID)
 }
 
 func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {

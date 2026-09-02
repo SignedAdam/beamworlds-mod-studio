@@ -16,6 +16,7 @@ declare module "@wailsio/runtime" {
             "library:item": main$0.LibraryItem;
             "library:scan": main$0.ScanProgress;
             "profile:progress": main$0.ProfileProgress;
+            "virus:scan": main$0.VirusScanProgress;
         }
     }
 }

@@ -1,0 +1,176 @@
+.code-mirror-host {
+  --cm-editor-canvas: #0d1117;
+  --cm-editor-fg: #e6edf3;
+  --cm-comment: #8b949e;
+  --cm-keyword: #ff7b72;
+  --cm-string: #a5d6ff;
+  --cm-constant: #79c0ff;
+  --cm-function: #d2a8ff;
+  --cm-type: #7ee787;
+  --cm-declaration: #ffa657;
+  --cm-property: #79c0ff;
+  --cm-invalid: #ffa198;
+  --cm-selection-bg: rgba(47, 129, 247, 0.20);
+  --cm-selection-fg: #e6edf3;
+  --cm-selection-boundary: #2f81f7;
+  --cm-bracket-bg: rgba(63, 185, 80, 0.25);
+  --cm-bracket-border: #3fb950;
+  --cm-bracket-fg: #e6edf3;
+  --cm-current-line-bg: #161b22;
+  --cm-current-line-marker: #8b949e;
+  --cm-caret: #2f81f7;
+  --cm-gutter-bg: #0d1117;
+  --cm-gutter-fg: #6e7681;
+  --cm-gutter-border: #30363d;
+  --cm-panel-bg: #161b22;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--cm-editor-canvas);
+  color: var(--cm-editor-fg);
+}
+
+html[data-theme="light"] .code-mirror-host {
+  --cm-editor-canvas: #ffffff;
+  --cm-editor-fg: #1f2328;
+  --cm-comment: #6e7781;
+  --cm-keyword: #cf222e;
+  --cm-string: #0a3069;
+  --cm-constant: #0550ae;
+  --cm-function: #8250df;
+  --cm-type: #1a7f37;
+  --cm-declaration: #953800;
+  --cm-property: #0550ae;
+  --cm-invalid: #82071e;
+  --cm-selection-bg: rgba(9, 105, 218, 0.20);
+  --cm-selection-fg: #1f2328;
+  --cm-selection-boundary: #0969da;
+  --cm-bracket-bg: rgba(74, 194, 107, 0.25);
+  --cm-bracket-border: #1a7f37;
+  --cm-bracket-fg: #1f2328;
+  --cm-current-line-bg: #ffffff;
+  --cm-current-line-marker: #6e7781;
+  --cm-caret: #0969da;
+  --cm-gutter-bg: #ffffff;
+  --cm-gutter-fg: #8c959f;
+  --cm-gutter-border: #d0d7de;
+  --cm-panel-bg: #f6f8fa;
+}
+
+.code-mirror-host .cm-editor {
+  height: 100%;
+  background: var(--cm-editor-canvas);
+  color: var(--cm-editor-fg);
+}
+
+.code-mirror-host .cm-editor .cm-content {
+  padding-top: 0;
+}
+
+.code-mirror-host .cm-editor .cm-gutters {
+  background: var(--cm-gutter-bg);
+  color: var(--cm-gutter-fg);
+  border-right-color: var(--cm-gutter-border);
+}
+
+.code-mirror-host .cm-editor .cm-activeLine {
+  background: var(--cm-current-line-bg);
+}
+
+.code-mirror-host .cm-editor .cm-activeLineGutter {
+  background: transparent;
+  border-right: 1px solid var(--cm-current-line-marker);
+}
+
+.code-mirror-host .cm-editor .cm-selectionBackground,
+.code-mirror-host .cm-editor.cm-focused .cm-selectionBackground {
+  background: var(--cm-selection-bg) !important;
+  box-shadow: inset 0 0 0 1px var(--cm-selection-boundary);
+}
+
+.code-mirror-host .cm-editor .cm-github-function,
+.code-mirror-host .cm-editor .cm-github-function * {
+  color: var(--cm-function) !important;
+}
+
+.code-mirror-host .cm-editor .cm-github-declaration,
+.code-mirror-host .cm-editor .cm-github-declaration * {
+  color: var(--cm-declaration) !important;
+}
+
+.code-mirror-host .cm-editor .cm-github-invalid,
+.code-mirror-host .cm-editor .cm-github-invalid * {
+  color: var(--cm-invalid) !important;
+  font-style: italic !important;
+}
+
+.code-mirror-host .cm-editor .cm-github-selected,
+.code-mirror-host .cm-editor .cm-github-selected * {
+  color: var(--cm-selection-fg) !important;
+}
+
+.code-mirror-host .cm-editor .cm-matchingBracket,
+.code-mirror-host .cm-editor .cm-matchingBracket * {
+  background: var(--cm-bracket-bg);
+  border: 1px solid var(--cm-bracket-border);
+  border-radius: 2px;
+  color: var(--cm-bracket-fg) !important;
+}
+
+.code-mirror-host .cm-editor .cm-content ::selection {
+  background: var(--cm-selection-bg);
+  color: var(--cm-selection-fg);
+}
+
+.code-mirror-host .cm-editor.cm-focused {
+  outline: 1px solid var(--cm-caret);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .code-mirror-host {
+    --cm-selection-bg: #142744;
+    --cm-bracket-bg: #1a3b25;
+  }
+
+  html[data-theme="light"] .code-mirror-host {
+    --cm-selection-bg: #cee1f8;
+    --cm-bracket-bg: #d2f0da;
+  }
+}
+
+@media (forced-colors: active) {
+  .code-mirror-host {
+    forced-color-adjust: auto;
+    --cm-editor-canvas: Canvas;
+    --cm-editor-fg: CanvasText;
+    --cm-comment: CanvasText;
+    --cm-keyword: CanvasText;
+    --cm-string: CanvasText;
+    --cm-constant: CanvasText;
+    --cm-function: CanvasText;
+    --cm-type: CanvasText;
+    --cm-declaration: CanvasText;
+    --cm-property: CanvasText;
+    --cm-invalid: CanvasText;
+    --cm-selection-bg: Highlight;
+    --cm-selection-fg: HighlightText;
+    --cm-selection-boundary: HighlightText;
+    --cm-bracket-bg: Canvas;
+    --cm-bracket-border: ButtonText;
+    --cm-bracket-fg: CanvasText;
+    --cm-current-line-bg: Canvas;
+    --cm-current-line-marker: ButtonText;
+    --cm-caret: ButtonText;
+    --cm-gutter-bg: Canvas;
+    --cm-gutter-fg: CanvasText;
+    --cm-gutter-border: ButtonText;
+    --cm-panel-bg: Canvas;
+  }
+
+  .code-mirror-host .cm-editor .cm-selectionBackground,
+  .code-mirror-host .cm-editor.cm-focused .cm-selectionBackground {
+    background: Highlight !important;
+  }
+}

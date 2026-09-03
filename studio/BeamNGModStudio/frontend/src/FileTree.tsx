@@ -21,6 +21,8 @@ interface FileTreeProps {
   onRename: (selection: TreeSelection) => void
   onDelete: (selection: TreeSelection) => void
   onReveal: (selection: TreeSelection) => void
+  revealLabel: string | null
+  revealLabelError?: string
 }
 
 interface TreeNode {
@@ -40,8 +42,7 @@ export function countMatchingFiles(files: FileSnapshot[], query: string): number
   }
   return count
 }
-
-export function FileTree({ files, directories, query, selected, showSizes, severityByPath = {}, onSelectFile, onMove, onRename, onDelete, onReveal }: FileTreeProps) {
+export function FileTree({ files, directories, query, selected, showSizes, severityByPath = {}, onSelectFile, onMove, onRename, onDelete, onReveal, revealLabel, revealLabelError }: FileTreeProps) {
   const roots = useMemo(() => buildTree(files, directories), [files, directories])
   const normalizedQuery = query.trim().toLowerCase()
   const visible = useMemo(() => normalizedQuery ? filterTree(roots, normalizedQuery) : roots, [roots, normalizedQuery])
@@ -109,7 +110,7 @@ export function FileTree({ files, directories, query, selected, showSizes, sever
     {visible.length === 0 ? <p className="project-tree__empty">No matching workspace paths.</p> : visible.map(node => <TreeRow key={`${node.kind}-${node.path}`} node={node} depth={0} expanded={expanded} selected={selected} queryActive={Boolean(normalizedQuery)} showSizes={showSizes} severityByPath={severityByPath} onToggle={toggle} onSelectFile={onSelectFile} onDrop={dropInto} onContextMenu={showContextMenu}/>)}
     {contextMenu && <div className="context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={event => event.stopPropagation()}>
       <button role="menuitem" onClick={() => runContextAction(onRename)}><Icon name="edit" size={15}/>Rename</button>
-      <button role="menuitem" onClick={() => runContextAction(onReveal)}><Icon name="folder" size={15}/>Reveal in file manager</button>
+      {revealLabel ? <button role="menuitem" onClick={() => runContextAction(onReveal)}><Icon name="folder" size={15}/>{revealLabel}</button> : <button role="menuitem" disabled title={revealLabelError || "File manager action is still loading."}><Icon name="folder" size={15}/>File manager action unavailable</button>}
       <span/>
       <button className="context-menu__danger" role="menuitem" onClick={() => runContextAction(onDelete)}><Icon name="trash" size={15}/>Delete</button>
     </div>}

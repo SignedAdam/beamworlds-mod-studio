@@ -6,7 +6,7 @@ export {
     AppService
 };
 
-export {
+export type {
     AIConnectionEvent,
     AIConnectionStart,
     AIConnectionState,
@@ -25,7 +25,28 @@ export {
     EventRecord,
     ExportRecord,
     ExportResponse,
+    GitBranch,
+    GitCommitResult,
+    GitDiff,
+    GitDiscardFailure,
+    GitDiscardResult,
+    GitHubPublishAuthSession,
+    GitHubPublishConfiguration,
+    GitHubPublishDraft,
+    GitHubPublishLocalState,
+    GitHubPublishOperation,
+    GitHubPublishPartialState,
+    GitHubPublishPreflight,
+    GitHubPublishRemote,
+    GitHubPublishStartRequest,
+    GitHubPublishStep,
+    GitHubPublishTarget,
     GitInitializationResult,
+    GitOperationResult,
+    GitOperationStep,
+    GitRemote,
+    GitStatus,
+    GitStatusEntry,
     KnowledgeDocument,
     LibraryFolder,
     LibraryItem,

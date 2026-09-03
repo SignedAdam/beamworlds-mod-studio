@@ -18,7 +18,6 @@ import type {
   WorkspaceRecord,
   WorkspaceSearchMatch,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
-import type { WorkspaceChange } from "../bindings/github.com/SignedAdam/beamworlds-modkit/models.js";
 import {
   CodeEditor,
   canFormatSource,
@@ -37,6 +36,10 @@ import { IndexCardTabs, type IndexCardTabItem } from "./IndexCardTabs";
 import { Icon } from "./icons";
 import { Badge, Button, Spinner, formatBytes, kindIcon, kindLabel } from "./ui";
 import { ProjectBrowser } from "./ProjectBrowser";
+import {
+  SourceControlView,
+  type SourceControlWorkingTreeChange,
+} from "./SourceControlView";
 import { VirgilChoiceDialog, VirgilSessionView } from "./VirgilSessionView";
 import { ReplaceableUIPlaceholder } from "./replaceableUi";
 import { WorkspaceStatusBar } from "./WorkspaceStatusBar";
@@ -44,6 +47,7 @@ import {
   WorkspaceUtilityPanel,
   type WorkspaceTool,
 } from "./WorkspaceUtilityPanel";
+import "./ModMaker.css";
 
 interface EditorDocument {
   path: string;
@@ -296,7 +300,7 @@ const workspaceTools: Array<{
   icon: Parameters<typeof Icon>[0]["name"];
   label: string;
 }> = [
-  { key: "changes", icon: "diff", label: "Changes" },
+  { key: "source", icon: "diff", label: "Source Control" },
   { key: "build", icon: "check", label: "Build" },
   { key: "context", icon: "book", label: "Context" },
   { key: "game", icon: "terminal", label: "Game test" },
@@ -571,16 +575,17 @@ export function ModMaker({
     useState<CodeEditorSelection | null>(null);
   const [pendingEditorReveal, setPendingEditorReveal] =
     useState<PendingEditorReveal | null>(null);
-  const [changes, setChanges] = useState<WorkspaceChange[]>([]);
-  const [diffLoading, setDiffLoading] = useState(false);
+  const [utility, setUtility] = useState<WorkspaceTool | null>(null);
+  const [sourceBusy, setSourceBusy] = useState(false);
   const [busy, setBusy] = useState("");
   const [exportLabel, setExportLabel] = useState("");
   const [runtime, setRuntime] = useState<RuntimeReport | null>(null);
-  const [utility, setUtility] = useState<WorkspaceTool | null>(null);
   const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [newModOpen, setNewModOpen] = useState(false);
   const [sourceSaveToast, setSourceSaveToast] = useState("");
   const [sourceSaveToastTone, setSourceSaveToastTone] = useState<'success' | 'error' | 'warning'>('success');
+  const [fileManagerLabel, setFileManagerLabel] = useState<string | null>(null);
+  const [fileManagerLabelError, setFileManagerLabelError] = useState("");
   const initializedWorkspace = useRef("");
   const draftTimer = useRef<number | undefined>(undefined);
   const [fileSeverity, setFileSeverity] = useState<Record<string, TreeSeverity>>({});
@@ -588,6 +593,8 @@ export function ModMaker({
   const documentRevisions = useRef<Record<string, number>>({});
   const diagnosticsByPath = useRef<Record<string, CodeEditorDiagnostic[]>>({});
   const formatTimers = useRef(new Map<string, number>());
+  const workingTreeChangeVersion = useRef(0);
+  const formatRequestVersion = useRef(0);
   const formatGeneration = useRef(0);
   const externalReadVersion = useRef<Record<string, number>>({});
   const sessionTabsRef = useRef<SessionTab[]>([]);
@@ -647,8 +654,16 @@ export function ModMaker({
   };
   const cancelFormatTasks = () => {
     formatGeneration.current += 1;
+    const cancelledRequestVersion = formatRequestVersion.current;
+    formatRequestVersion.current += 1;
     for (const timer of formatTimers.current.values()) window.clearTimeout(timer);
     formatTimers.current.clear();
+    setBusy((current) =>
+      current === "format" &&
+      formatRequestVersion.current === cancelledRequestVersion + 1
+        ? ""
+        : current,
+    );
   };
   const bumpDocumentRevision = (path: string) => {
     const next = (documentRevisions.current[path] ?? 0) + 1;
@@ -666,6 +681,40 @@ export function ModMaker({
     };
   }, [selectedID]);
 
+  useEffect(() => {
+    let active = true;
+    const unavailable =
+      "File manager action unavailable; reload this workspace to try again.";
+    const labelAPI = API as typeof API & {
+      FileManagerActionLabel?: () => Promise<string>;
+    };
+    if (typeof labelAPI.FileManagerActionLabel !== "function") {
+      setFileManagerLabelError(unavailable);
+      return () => {
+        active = false;
+      };
+    }
+    void labelAPI.FileManagerActionLabel()
+      .then((label) => {
+        if (
+          label === "Open in Explorer" ||
+          label === "Reveal in Finder" ||
+          label === "Open in File Manager"
+        ) {
+          setFileManagerLabel(label);
+          setFileManagerLabelError("");
+        } else {
+          setFileManagerLabelError(unavailable);
+        }
+      })
+      .catch(() => {
+        if (active) setFileManagerLabelError(unavailable);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const searchReturnFocus = useRef<HTMLElement | null>(null);
   activeWorkspaceIDRef.current = selectedID;
   activeTabRef.current = activeTab;
@@ -682,6 +731,15 @@ export function ModMaker({
       : undefined;
   const dirty = documents.some(
     (document) => document.content !== document.savedContent,
+  );
+  const dirtyPaths = useMemo(
+    () =>
+      new Set(
+        documents
+          .filter((document) => document.content !== document.savedContent)
+          .map((document) => document.path),
+      ),
+    [documents],
   );
   const activeSizeBytes = useMemo(
     () =>
@@ -841,6 +899,7 @@ export function ModMaker({
     sessionTabsWorkspace.current = "";
     sessionTabsHydrationPending.current = "";
     fileOpenVersion.current += 1;
+    workingTreeChangeVersion.current += 1;
     editorInteractionVersion.current += 1;
     preferenceRequestVersion.current += 1;
     transientSequence.current = 0;
@@ -869,12 +928,11 @@ export function ModMaker({
     setEditorSelection(null);
     setPendingEditorReveal(null);
     searchReturnFocus.current = null;
-    setChanges([]);
-    setDiffLoading(false);
     setBusy("");
     setExportLabel("");
     setPreferenceBusy(false);
     setRuntime(null);
+    setSourceBusy(false);
     setUtility(null);
   }, [selectedID, workspace?.id]);
 
@@ -1129,6 +1187,195 @@ export function ModMaker({
   useEffect(() => {
     sessionTabsRef.current = sessionTabs;
   }, [sessionTabs]);
+  const reconcileWorkingTree = async (
+    change: SourceControlWorkingTreeChange,
+  ) => {
+    const currentWorkspace = workspace;
+    if (
+      !currentWorkspace ||
+      currentWorkspace.id !== selectedID ||
+      staleRef.current
+    )
+      return;
+
+    const workspaceID = currentWorkspace.id;
+    const requestVersion = ++workingTreeChangeVersion.current;
+    const isCurrentRequest = () =>
+      requestVersion === workingTreeChangeVersion.current &&
+      activeWorkspaceIDRef.current === workspaceID &&
+      !staleRef.current;
+    const normalizePath = (path: string) =>
+      path.replace(/\\/g, "/").replace(/^\.\/+/, "").toLowerCase();
+    const changedPaths =
+      change.paths && change.paths.length > 0
+        ? new Set(change.paths.map(normalizePath))
+        : null;
+    const targets = documentsRef.current.filter(
+      (document) =>
+        !changedPaths || changedPaths.has(normalizePath(document.path)),
+    );
+    const readVersions = new Map<string, number>();
+    for (const document of targets) {
+      const request = (externalReadVersion.current[document.path] ?? 0) + 1;
+      externalReadVersion.current[document.path] = request;
+      readVersions.set(document.path, request);
+    }
+
+    const reads = await Promise.all(
+      targets.map(async (document) => {
+        try {
+          return {
+            path: document.path,
+            file: await API.ReadWorkspaceFile(workspaceID, document.path),
+          };
+        } catch (error) {
+          return { path: document.path, error };
+        }
+      }),
+    );
+    if (!isCurrentRequest()) return;
+
+    const updates = new Map<string, EditorDocument>();
+    const missingPaths = new Set<string>();
+    const isMissingWorkspaceFile = (error: unknown) => {
+      if (error && typeof error === "object" && "code" in error) {
+        const code = error.code;
+        if (code === "ENOENT" || code === "NOT_FOUND") return true;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return /not[\s_-]*found|does not exist|no such file|cannot find|could not find|missing|deleted|removed/i.test(
+        message,
+      );
+    };
+
+    for (const result of reads) {
+      const currentDocument = documentsRef.current.find(
+        (document) => document.path === result.path,
+      );
+      if (!currentDocument) continue;
+      if (
+        readVersions.get(currentDocument.path) !==
+        externalReadVersion.current[currentDocument.path]
+      )
+        continue;
+      if ("file" in result) {
+        const file = result.file;
+        if (!file) {
+          onError(
+            new Error(
+              `Git ${change.reason} changed ${result.path}, but the workspace file could not be read.`,
+            ),
+          );
+          continue;
+        }
+        const dirtyBuffer =
+          currentDocument.content !== currentDocument.savedContent;
+        bumpDocumentRevision(currentDocument.path);
+        updates.set(
+          currentDocument.path,
+          dirtyBuffer
+            ? file.sha256 === currentDocument.savedSHA256
+              ? {
+                  ...currentDocument,
+                  externalContent: undefined,
+                  externalSHA256: undefined,
+                }
+              : {
+                  ...currentDocument,
+                  externalContent: file.content,
+                  externalSHA256: file.sha256,
+                }
+            : {
+                ...currentDocument,
+                content: file.content,
+                savedContent: file.content,
+                savedSHA256: file.sha256,
+                restored: false,
+                externalContent: undefined,
+                externalSHA256: undefined,
+              },
+        );
+        continue;
+      }
+
+      if (!isMissingWorkspaceFile(result.error)) {
+        onError(result.error);
+        continue;
+      }
+      bumpDocumentRevision(currentDocument.path);
+      if (
+        currentDocument.content !== currentDocument.savedContent
+      ) {
+        updates.set(currentDocument.path, {
+          ...currentDocument,
+          externalContent: "",
+          externalSHA256: "",
+        });
+      } else {
+        missingPaths.add(currentDocument.path);
+      }
+    }
+
+    if (updates.size) {
+      const next = documentsRef.current.map(
+        (document) => updates.get(document.path) ?? document,
+      );
+      documentsRef.current = next;
+      setDocuments(next);
+    }
+
+    try {
+      await onReload();
+    } catch (error) {
+      if (isCurrentRequest()) onError(error);
+      return;
+    }
+    if (!isCurrentRequest() || missingPaths.size === 0) return;
+
+    const removablePaths = new Set(
+      documentsRef.current
+        .filter(
+          (document) =>
+            missingPaths.has(document.path) &&
+            readVersions.get(document.path) ===
+              externalReadVersion.current[document.path] &&
+            document.content === document.savedContent,
+        )
+        .map((document) => document.path),
+    );
+    if (removablePaths.size === 0) return;
+
+    for (const path of removablePaths) {
+      clearFormatTimer(path);
+      delete documentRevisions.current[path];
+      delete diagnosticsByPath.current[path];
+      externalReadVersion.current[path] =
+        (externalReadVersion.current[path] ?? 0) + 1;
+    }
+    const next = documentsRef.current.filter(
+      (document) => !removablePaths.has(document.path),
+    );
+    documentsRef.current = next;
+    setDocuments(next);
+
+    const activeTabAtRemoval = activeTabRef.current;
+    if (
+      activeTabAtRemoval?.kind === "file" &&
+      removablePaths.has(activeTabAtRemoval.path)
+    ) {
+      const replacement = next[0];
+      const nextActiveTab = replacement
+        ? { kind: "file" as const, path: replacement.path }
+        : null;
+      activeTabRef.current = nextActiveTab;
+      setActiveTab(nextActiveTab);
+      setActivePath(replacement?.path ?? "");
+      setTreeSelection(
+        replacement ? { path: replacement.path, kind: "file" } : null,
+      );
+    }
+  };
+
 
   useEffect(() => {
     if (!workspace) return;
@@ -1285,22 +1532,6 @@ export function ModMaker({
     };
   }, [documents, stale, writeBlocked, workspace?.id]);
 
-  const refreshDiff = async () => {
-    if (staleRef.current) return;
-    if (!workspace) return;
-    setDiffLoading(true);
-    try {
-      setChanges((await API.WorkspaceDiff(workspace.id)) ?? []);
-    } catch (error) {
-      onError(error);
-    } finally {
-      setDiffLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (utility === "changes" && workspace) void refreshDiff();
-  }, [utility, workspace?.id]);
 
   const selectFile = async (
     path: string,
@@ -1393,6 +1624,58 @@ export function ModMaker({
     }, clampAutoFormatDelay(autoFormatDelayMs))
     formatTimers.current.set(snapshot.path, timer)
   }
+  const formatDocument = async () => {
+    if (mutationBlocked() || !workspace || !activeDocument || busy !== "") return;
+    const workspaceID = workspace.id;
+    const path = activeDocument.path;
+    if (!canFormatSource(path)) return;
+    const source = activeDocument.content;
+    const requestVersion = ++formatRequestVersion.current;
+    clearFormatTimer(path);
+    formatGeneration.current += 1;
+    setBusy("format");
+    try {
+      const formatted = await formatSource(path, source);
+      if (
+        requestVersion !== formatRequestVersion.current ||
+        activeWorkspaceIDRef.current !== workspaceID ||
+        activeEditorPathRef.current !== path ||
+        mutationBlocked()
+      ) {
+        return;
+      }
+      const latest = documentsRef.current.find((document) => document.path === path);
+      if (!latest || latest.content !== source) return;
+      if (formatted !== source) {
+        bumpDocumentRevision(path);
+        const next = documentsRef.current.map((document) =>
+          document.path === path
+            ? { ...document, content: formatted, restored: false }
+            : document,
+        );
+        documentsRef.current = next;
+        setDocuments(next);
+      }
+      showSourceSaveToast(
+        formatted === source ? `${path}: Already formatted` : `${path}: Formatted`,
+        "success",
+      );
+    } catch (error) {
+      if (
+        requestVersion !== formatRequestVersion.current ||
+        activeWorkspaceIDRef.current !== workspaceID ||
+        activeEditorPathRef.current !== path
+      ) {
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : String(error);
+      showSourceSaveToast(`${path}: Formatting failed — ${message}`, "error");
+    } finally {
+      if (requestVersion === formatRequestVersion.current) setBusy("");
+    }
+  };
+
 
   const updateDocument = (content: string) => {
     const path = activeEditorPathRef.current || activePath
@@ -1442,7 +1725,7 @@ export function ModMaker({
         const expectedSHA256 = latest.externalContent !== undefined ? (latest.externalSHA256 ?? latest.savedSHA256) : latest.savedSHA256;
         if (mutationBlocked()) return;
         if (latest.externalContent !== undefined) {
-          if (!window.confirm(`Virgil changed ${path} on disk. Save your version and overwrite Virgil's change?`)) return;
+          if (!window.confirm(`The file ${path} changed on disk. Save your version and overwrite the external version?`)) return;
           await yieldToQueuedWork();
           if (mutationBlocked()) return;
         }
@@ -1513,7 +1796,7 @@ export function ModMaker({
     if (
       activeDocument.content !== activeDocument.savedContent &&
       !window.confirm(
-        `Discard your unsaved changes to ${activeDocument.path} and load Virgil's version?`,
+        `Discard your unsaved changes to ${activeDocument.path} and load the external version?`,
       )
     )
       return;
@@ -1537,7 +1820,7 @@ export function ModMaker({
           : document,
       ),
     );
-    onNotify(`Loaded Virgil's version of ${activeDocument.path}`, "info");
+    onNotify(`Loaded the external version of ${activeDocument.path}`, "info");
   };
 
   const closeDocument = (path: string) => {
@@ -2440,6 +2723,16 @@ export function ModMaker({
   };
 
   const toggleUtility = (tool: WorkspaceTool) => {
+    if (sourceBusy) {
+      if (utility !== "source") setUtility("source");
+      onNotify(
+        tool === "source"
+          ? "Source Control is busy. Cancel the Git operation before closing it."
+          : "Source Control is busy. Cancel the Git operation before switching utilities.",
+        "info",
+      );
+      return;
+    }
     setUtility((current) => (current === tool ? null : tool));
   };
 
@@ -2568,74 +2861,6 @@ export function ModMaker({
       />
     ) : activeDocument ? (
       <>
-        <header className="source-editor__header">
-          <div>
-            <code>{activeDocument.path}</code>
-            {activeDocument.restored && (
-              <Badge tone="cyan">Draft restored</Badge>
-            )}
-            {activeDocument.content !== activeDocument.savedContent && (
-              <Badge tone="warning">Unsaved</Badge>
-            )}
-            {activeDocument.externalContent !== undefined && (
-              <Badge tone="warning">Changed by Virgil</Badge>
-            )}
-          </div>
-          <div>
-            {activePath.toLowerCase().endsWith(".pc") && (
-              <Button
-                tone="quiet"
-                disabled={mutationBlocked()}
-                icon="copy"
-                onClick={() => void cloneSelectedVariant()}
-              >
-                Clone variant
-              </Button>
-            )}
-            {activeDocument.externalContent !== undefined && (
-              <Button
-                tone="quiet"
-                icon="refresh"
-                onClick={reloadExternalChange}
-              >
-                Reload
-              </Button>
-            )}
-            <Button
-              className={
-                activeDocument.content === activeDocument.savedContent &&
-                busy !== "save"
-                  ? "source-save-button--saved"
-                  : ""
-              }
-              tone={
-                activeDocument.content !== activeDocument.savedContent
-                  ? "primary"
-                  : "default"
-              }
-              icon="save"
-              disabled={
-                mutationBlocked() ||
-                activeDocument.content === activeDocument.savedContent ||
-                busy !== ""
-              }
-              aria-label={
-                busy === "save"
-                  ? "Saving…"
-                  : activeDocument.content !== activeDocument.savedContent
-                    ? "Save"
-                    : "Saved"
-              }
-              onClick={() => void saveFile()}
-            >
-              {busy === "save"
-                ? "Saving…"
-                : activeDocument.content !== activeDocument.savedContent
-                  ? "Save"
-                  : "Saved"}
-            </Button>
-          </div>
-        </header>
         {sourceSaveToast && (
           <div
             className={`source-save-toast source-save-toast--${sourceSaveToastTone}`}
@@ -2682,6 +2907,13 @@ export function ModMaker({
     label: (
       <>
         {document.path.split("/").pop()}
+        {document.restored && (
+          <i
+            className="modmaker-tab__restored"
+            aria-label="Draft restored"
+            title="Draft restored"
+          />
+        )}
         {document.content !== document.savedContent && (
           <i className="modmaker-tab__dirty" aria-label="Unsaved" />
         )}
@@ -2705,6 +2937,82 @@ export function ModMaker({
       title: activeTab.path,
     });
   }
+  const editorActions =
+    !activeSession && activeDocument ? (
+      <div className="modmaker-editor-actions" role="group" aria-label="Editor actions">
+        <button
+          type="button"
+          className={`modmaker-editor-action modmaker-editor-action--icon${busy === "save" ? " is-loading" : ""}`}
+          title="Save"
+          aria-label="Save"
+          aria-busy={busy === "save"}
+          disabled={
+            mutationBlocked() ||
+            activeDocument.content === activeDocument.savedContent ||
+            busy !== ""
+          }
+          onClick={() => void saveFile()}
+        >
+          {busy === "save" ? <Spinner small /> : <Icon name="save" size={16} />}
+        </button>
+        <button
+          type="button"
+          className={`modmaker-editor-action modmaker-editor-action--icon${busy === "format" ? " is-loading" : ""}`}
+          title="Format document"
+          aria-label="Format document"
+          aria-busy={busy === "format"}
+          disabled={
+            mutationBlocked() ||
+            busy !== "" ||
+            !canFormatSource(activeDocument.path)
+          }
+          onClick={() => void formatDocument()}
+        >
+          {busy === "format" ? <Spinner small /> : <Icon name="code" size={16} />}
+        </button>
+        {activeDocument.path.toLowerCase().endsWith(".pc") && (
+          <Button
+            className="modmaker-editor-action modmaker-editor-action--secondary"
+            tone="quiet"
+            disabled={mutationBlocked() || busy !== ""}
+            icon="copy"
+            onClick={() => void cloneSelectedVariant()}
+          >
+            Clone variant
+          </Button>
+        )}
+        {activeDocument.externalContent !== undefined && (
+          <Button
+            className="modmaker-editor-action modmaker-editor-action--secondary"
+            tone="quiet"
+            disabled={busy !== ""}
+            icon="refresh"
+            onClick={reloadExternalChange}
+          >
+            Reload
+          </Button>
+        )}
+        <Button
+          type="button"
+          className="modmaker-editor-action modmaker-editor-action--secondary"
+          icon="plus"
+          disabled={preferenceBusy || busy !== "" || mutationBlocked()}
+          onClick={openNewSession}
+        >
+          New Virgil Session
+        </Button>
+      </div>
+    ) : (
+      <Button
+        type="button"
+        icon="plus"
+        disabled={preferenceBusy || busy !== "" || mutationBlocked()}
+        onClick={openNewSession}
+      >
+        New Virgil Session
+      </Button>
+    );
+
   const tabItems: IndexCardTabItem[] = [
     ...fileTabItems,
     ...sessionTabs.map((tab) => {
@@ -2801,6 +3109,12 @@ export function ModMaker({
               key={tool.key}
               className={utility === tool.key ? "is-active" : ""}
               aria-pressed={utility === tool.key}
+              disabled={sourceBusy && tool.key !== "source"}
+              title={
+                sourceBusy && tool.key !== "source"
+                  ? "Source Control is busy; cancel the Git operation first."
+                  : undefined
+              }
               onClick={() => toggleUtility(tool.key)}
             >
               <Icon name={tool.icon} size={14} />
@@ -2809,7 +3123,7 @@ export function ModMaker({
           ))}
         </nav>
 
-        <div className={`maker-content${utility ? " has-utility" : ""}`}>
+        <div className={`maker-content${utility ? " has-utility" : ""}${utility === "source" ? " has-source-utility" : ""}`}>
           <div className="ide-workspace">
             <div
               className={`editor-layout${fileBrowserResizing ? " is-resizing" : ""}`}
@@ -2863,6 +3177,8 @@ export function ModMaker({
                   onRename={renamePath}
                   onDelete={(selection) => void deletePath(selection)}
                   onReveal={revealPath}
+                  revealLabel={fileManagerLabel}
+                  revealLabelError={fileManagerLabelError}
                 />
               </aside>
               <div
@@ -2908,18 +3224,7 @@ export function ModMaker({
                   }}
                   ariaLabel="Open workspace files and Virgil sessions"
                   compact
-                  actions={
-                    <Button
-                      type="button"
-                      icon="plus"
-                      disabled={
-                        preferenceBusy || busy !== "" || mutationBlocked()
-                      }
-                      onClick={openNewSession}
-                    >
-                      New Virgil Session
-                    </Button>
-                  }
+                  actions={editorActions}
                   mountInactivePanels={false}
                   emptyPanel={emptySurface}
                   className="modmaker-tabs"
@@ -3193,22 +3498,60 @@ export function ModMaker({
             </div>
           )}
 
-          {utility && (
-            <div className="workspace-utility-drawer">
+          <div className="workspace-utility-drawer">
+            <div
+              className="source-control-utility"
+              hidden={utility !== "source"}
+              aria-hidden={utility !== "source"}
+            >
+              <SourceControlView
+                key={loadedWorkspace.id}
+                workspaceID={loadedWorkspace.id}
+                active={utility === "source"}
+                dirtyPaths={dirtyPaths}
+                writeBlocked={mutationBlocked()}
+                onOpenFile={(path) => {
+                  if (sourceBusy) {
+                    onNotify(
+                      "Source Control is busy. Cancel the Git operation before opening an editor file.",
+                      "info",
+                    );
+                    return;
+                  }
+                  setUtility(null);
+                  void selectFile(path);
+                }}
+                onWorkingTreeChanged={reconcileWorkingTree}
+                onBusyChange={(busyState) => {
+                  setSourceBusy(busyState);
+                  if (busyState && utility !== "source") setUtility("source");
+                }}
+                onNotify={(message, tone) =>
+                  onNotify(message, tone === "warning" ? "info" : tone)
+                }
+                onError={onError}
+              />
+            </div>
+            {utility && utility !== "source" && (
               <WorkspaceUtilityPanel
                 active={utility}
                 detail={loadedDetail}
-                changes={changes}
-                diffLoading={diffLoading}
                 runtime={runtime}
                 exportLabel={exportLabel}
                 busy={mutationBlocked() ? "blocked" : busy}
-                onClose={() => setUtility(null)}
+                onClose={() => {
+                  if (sourceBusy) {
+                    setUtility("source");
+                    onNotify(
+                      "Source Control is busy. Cancel the Git operation before closing it.",
+                      "info",
+                    );
+                    return;
+                  }
+                  setUtility(null);
+                }}
                 onExportLabelChange={(value) => {
                   if (!staleRef.current) setExportLabel(value);
-                }}
-                onRefreshDiff={() => {
-                  if (!staleRef.current) void refreshDiff();
                 }}
                 onValidate={validate}
                 onExport={exportWorkspace}
@@ -3217,8 +3560,8 @@ export function ModMaker({
                 onLaunch={launchGame}
                 onAnalyze={analyzeRuntime}
               />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </main>
 

@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Create } from "@wailsio/runtime";
+import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -14,123 +14,121 @@ import * as modkit$0 from "../beamworlds-modkit/models.js";
 import * as $models from "./models.js";
 
 export function AIConnections(): $CancellablePromise<$models.AIConnectionState> {
-    return $Call.ByID(3088172393).then(($result: any) => {
-        return $$createType0($result);
-    });
+    return $Call.ByID(3088172393);
 }
 
 export function AIUsage(): $CancellablePromise<$models.AIUsage> {
-    return $Call.ByID(1900328351).then(($result: any) => {
-        return $$createType1($result);
-    });
+    return $Call.ByID(1900328351);
 }
 
 export function ActivateProfile(profileID: string): $CancellablePromise<$models.ProfileActivation> {
-    return $Call.ByID(3464844020, profileID).then(($result: any) => {
-        return $$createType2($result);
-    });
+    return $Call.ByID(3464844020, profileID);
 }
 
 export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models.RuntimeReport> {
-    return $Call.ByID(2967954498, workspaceID).then(($result: any) => {
-        return $$createType3($result);
-    });
+    return $Call.ByID(2967954498, workspaceID);
 }
 
 export function CancelAIConnection(loginID: string): $CancellablePromise<void> {
     return $Call.ByID(1418849106, loginID);
 }
 
+/**
+ * CancelGitHubPublish cancels without waiting for the workspace mutation
+ * mutex, allowing a blocked or transferring operation to observe cancellation.
+ */
+export function CancelGitHubPublish(operationID: string): $CancellablePromise<$models.GitHubPublishOperation> {
+    return $Call.ByID(383093918, operationID);
+}
+
+/**
+ * CancelGitHubPublishAuth cancels the device flow and wipes transient secrets.
+ */
+export function CancelGitHubPublishAuth(sessionID: string): $CancellablePromise<$models.GitHubPublishAuthSession> {
+    return $Call.ByID(1641969844, sessionID);
+}
+
 export function CancelScan(): $CancellablePromise<boolean> {
     return $Call.ByID(2524160225);
 }
 
-export function CloneVehicleVariant(workspaceID: string, sourceConfigPath: string, newBaseName: string, displayName: string): $CancellablePromise<string[]> {
-    return $Call.ByID(362672790, workspaceID, sourceConfigPath, newBaseName, displayName).then(($result: any) => {
-        return $$createType4($result);
-    });
+export function CancelWorkspaceGitOperation(workspaceID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(2670872, workspaceID);
+}
+
+/**
+ * ClearGitHubPublishSession wipes the in-memory authentication/session state.
+ */
+export function ClearGitHubPublishSession(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(3989810141, sessionID);
+}
+
+export function CloneVehicleVariant(workspaceID: string, sourceConfigPath: string, newBaseName: string, displayName: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(362672790, workspaceID, sourceConfigPath, newBaseName, displayName);
+}
+
+export function CommitWorkspaceGit(workspaceID: string, message: string, amend: boolean, expectedFingerprint: string): $CancellablePromise<$models.GitCommitResult> {
+    return $Call.ByID(896073316, workspaceID, message, amend, expectedFingerprint);
 }
 
 export function Config(): $CancellablePromise<$models.AppConfig> {
-    return $Call.ByID(91484996).then(($result: any) => {
-        return $$createType5($result);
-    });
+    return $Call.ByID(91484996);
 }
 
 export function ConfigureWorkspaceVirgil(workspaceID: string, enabled: boolean): $CancellablePromise<$models.WorkspaceDetail> {
-    return $Call.ByID(1209241224, workspaceID, enabled).then(($result: any) => {
-        return $$createType6($result);
-    });
+    return $Call.ByID(1209241224, workspaceID, enabled);
 }
 
 export function CreateLibraryFolder(name: string, parentID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(3930565201, name, parentID).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(3930565201, name, parentID);
 }
 
 export function CreateModTag(name: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1759538554, name, color, icon).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1759538554, name, color, icon);
 }
 
 export function CreateNewMod(request: $models.NewModRequest): $CancellablePromise<$models.WorkspaceDetail> {
-    return $Call.ByID(3533916892, request).then(($result: any) => {
-        return $$createType6($result);
-    });
+    return $Call.ByID(3533916892, request);
 }
 
 export function CreatePreset(name: string, description: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2670900301, name, description).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(2670900301, name, description);
 }
 
 export function CreateProfile(name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1028333027, name).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1028333027, name);
 }
 
 export function CreateWorkspace(entityID: string): $CancellablePromise<$models.WorkspaceDetail> {
-    return $Call.ByID(771272559, entityID).then(($result: any) => {
-        return $$createType6($result);
-    });
+    return $Call.ByID(771272559, entityID);
 }
 
 export function CreateWorkspaceDirectory(workspaceID: string, relativePath: string): $CancellablePromise<void> {
     return $Call.ByID(1435817446, workspaceID, relativePath);
 }
 
+export function CreateWorkspaceGitBranch(workspaceID: string, name: string, startPoint: string, expectedFingerprint: string): $CancellablePromise<$models.GitStatus> {
+    return $Call.ByID(3841605845, workspaceID, name, startPoint, expectedFingerprint);
+}
+
 export function Dashboard(): $CancellablePromise<$models.Dashboard> {
-    return $Call.ByID(2982594826).then(($result: any) => {
-        return $$createType8($result);
-    });
+    return $Call.ByID(2982594826);
 }
 
 export function DeleteLibraryFolder(folderID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1596845892, folderID).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1596845892, folderID);
 }
 
 export function DeleteModTag(tagID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1455379505, tagID).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1455379505, tagID);
 }
 
 export function DeletePreset(presetID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(4039770734, presetID).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(4039770734, presetID);
 }
 
 export function DeleteProfile(profileID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1212961758, profileID).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1212961758, profileID);
 }
 
 export function DeleteWorkspaceDraft(workspaceID: string, relativePath: string): $CancellablePromise<void> {
@@ -141,14 +139,24 @@ export function DeleteWorkspacePath(workspaceID: string, relativePath: string): 
     return $Call.ByID(1820792685, workspaceID, relativePath);
 }
 
+export function DiscardWorkspaceGitPaths(workspaceID: string, paths: string[] | null, expectedFingerprint: string): $CancellablePromise<$models.GitDiscardResult> {
+    return $Call.ByID(1065278057, workspaceID, paths, expectedFingerprint);
+}
+
 export function ExportWorkspace(workspaceID: string, label: string): $CancellablePromise<$models.ExportResponse> {
-    return $Call.ByID(2564207477, workspaceID, label).then(($result: any) => {
-        return $$createType9($result);
-    });
+    return $Call.ByID(2564207477, workspaceID, label);
 }
 
 export function ExtractLibraryArchiveMember(entityID: string, memberPath: string): $CancellablePromise<string> {
     return $Call.ByID(3883547530, entityID, memberPath);
+}
+
+export function FetchWorkspaceGit(workspaceID: string): $CancellablePromise<$models.GitOperationResult> {
+    return $Call.ByID(1377658117, workspaceID);
+}
+
+export function FileManagerActionLabel(): $CancellablePromise<string> {
+    return $Call.ByID(3849000745);
 }
 
 export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void> {
@@ -156,39 +164,49 @@ export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void
 }
 
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
-    return $Call.ByID(2226382837, entityID).then(($result: any) => {
-        return $$createType10($result);
-    });
+    return $Call.ByID(2226382837, entityID);
 }
 
-export function GetKnowledge(entityID: string): $CancellablePromise<$models.KnowledgeDocument[]> {
-    return $Call.ByID(1016561506, entityID).then(($result: any) => {
-        return $$createType12($result);
-    });
+/**
+ * GetGitHubPublishOperation polls an asynchronous operation/result.
+ */
+export function GetGitHubPublishOperation(operationID: string): $CancellablePromise<$models.GitHubPublishOperation> {
+    return $Call.ByID(1287636273, operationID);
+}
+
+export function GetKnowledge(entityID: string): $CancellablePromise<$models.KnowledgeDocument[] | null> {
+    return $Call.ByID(1016561506, entityID);
 }
 
 export function GetPreset(presetID: string): $CancellablePromise<$models.PresetDetail> {
-    return $Call.ByID(1199600373, presetID).then(($result: any) => {
-        return $$createType13($result);
-    });
+    return $Call.ByID(1199600373, presetID);
 }
 
 export function GetProfile(profileID: string): $CancellablePromise<$models.ProfileDetail> {
-    return $Call.ByID(3217990731, profileID).then(($result: any) => {
-        return $$createType14($result);
-    });
+    return $Call.ByID(3217990731, profileID);
 }
 
 export function GetSetupState(): $CancellablePromise<$models.SetupState> {
-    return $Call.ByID(2012181732).then(($result: any) => {
-        return $$createType15($result);
-    });
+    return $Call.ByID(2012181732);
 }
 
 export function GetWorkspace(workspaceID: string): $CancellablePromise<$models.WorkspaceDetail> {
-    return $Call.ByID(1349316807, workspaceID).then(($result: any) => {
-        return $$createType6($result);
-    });
+    return $Call.ByID(1349316807, workspaceID);
+}
+
+export function GetWorkspaceGitDiff(workspaceID: string, relativePath: string, comparison: string): $CancellablePromise<$models.GitDiff> {
+    return $Call.ByID(1165261618, workspaceID, relativePath, comparison);
+}
+
+export function GetWorkspaceGitStatus(workspaceID: string): $CancellablePromise<$models.GitStatus> {
+    return $Call.ByID(1546873591, workspaceID);
+}
+
+/**
+ * GitHubPublishConfiguration reports non-secret OAuth App setup.
+ */
+export function GitHubPublishConfiguration(): $CancellablePromise<$models.GitHubPublishConfiguration> {
+    return $Call.ByID(2877149206);
 }
 
 export function HasAppliedModProfile(): $CancellablePromise<boolean> {
@@ -196,51 +214,39 @@ export function HasAppliedModProfile(): $CancellablePromise<boolean> {
 }
 
 export function InstallExportForTest(workspaceID: string, exportID: string): $CancellablePromise<$models.TestInstallRecord> {
-    return $Call.ByID(2477417930, workspaceID, exportID).then(($result: any) => {
-        return $$createType16($result);
-    });
+    return $Call.ByID(2477417930, workspaceID, exportID);
 }
 
 export function LaunchBeamNG(workspaceID: string): $CancellablePromise<$models.ProcessLaunch> {
-    return $Call.ByID(4029943113, workspaceID).then(($result: any) => {
-        return $$createType17($result);
-    });
+    return $Call.ByID(4029943113, workspaceID);
 }
 
 export function LaunchProfile(profileID: string): $CancellablePromise<$models.ProfileLaunch> {
-    return $Call.ByID(2498686646, profileID).then(($result: any) => {
-        return $$createType18($result);
-    });
+    return $Call.ByID(2498686646, profileID);
 }
 
-export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[]> {
-    return $Call.ByID(2949754262, runID).then(($result: any) => {
-        return $$createType20($result);
-    });
+export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[] | null> {
+    return $Call.ByID(2949754262, runID);
 }
 
-export function ListAgentModels(): $CancellablePromise<$models.AgentModelOption[]> {
-    return $Call.ByID(1394913177).then(($result: any) => {
-        return $$createType22($result);
-    });
+export function ListAgentModels(): $CancellablePromise<$models.AgentModelOption[] | null> {
+    return $Call.ByID(1394913177);
 }
 
-export function ListLibrary(health: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[]> {
-    return $Call.ByID(621180473, health, kind, query, folderID).then(($result: any) => {
-        return $$createType24($result);
-    });
+export function ListLibrary(health: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[] | null> {
+    return $Call.ByID(621180473, health, kind, query, folderID);
 }
 
-export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[]> {
-    return $Call.ByID(652516587, entityID).then(($result: any) => {
-        return $$createType26($result);
-    });
+export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[] | null> {
+    return $Call.ByID(652516587, entityID);
 }
 
-export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[]> {
-    return $Call.ByID(350918204).then(($result: any) => {
-        return $$createType28($result);
-    });
+export function ListWorkspaceGitBranches(workspaceID: string): $CancellablePromise<$models.GitBranch[] | null> {
+    return $Call.ByID(1681566641, workspaceID);
+}
+
+export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[] | null> {
+    return $Call.ByID(350918204);
 }
 
 export function MoveLibraryItem(entityID: string, folderID: string): $CancellablePromise<void> {
@@ -252,49 +258,58 @@ export function OpenGameDirectory(): $CancellablePromise<void> {
 }
 
 export function Organization(): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(3433886317).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(3433886317);
 }
 
 export function PickDirectory(title: string, initialDirectory: string): $CancellablePromise<string> {
     return $Call.ByID(4292351642, title, initialDirectory);
 }
 
+/**
+ * PollGitHubPublishAuth performs at most one protocol-compliant device poll.
+ */
+export function PollGitHubPublishAuth(sessionID: string): $CancellablePromise<$models.GitHubPublishAuthSession> {
+    return $Call.ByID(567328013, sessionID);
+}
+
+/**
+ * PreflightGitHubPublish validates local Git and reads the GitHub target. It
+ * performs no repository creation or local remote mutation.
+ */
+export function PreflightGitHubPublish(workspaceID: string, draft: $models.GitHubPublishDraft): $CancellablePromise<$models.GitHubPublishPreflight> {
+    return $Call.ByID(2335916509, workspaceID, draft);
+}
+
 export function PreviewLibraryArchiveMember(entityID: string, memberPath: string): $CancellablePromise<$models.ArchiveMemberPreview | null> {
-    return $Call.ByID(1766868719, entityID, memberPath).then(($result: any) => {
-        return $$createType30($result);
-    });
+    return $Call.ByID(1766868719, entityID, memberPath);
+}
+
+export function PullWorkspaceGit(workspaceID: string, expectedFingerprint: string): $CancellablePromise<$models.GitOperationResult> {
+    return $Call.ByID(2006851778, workspaceID, expectedFingerprint);
+}
+
+export function PushWorkspaceGit(workspaceID: string): $CancellablePromise<$models.GitOperationResult> {
+    return $Call.ByID(4282287097, workspaceID);
 }
 
 export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $CancellablePromise<$models.WorkspaceTextFile> {
-    return $Call.ByID(3870910925, workspaceID, relativePath).then(($result: any) => {
-        return $$createType31($result);
-    });
+    return $Call.ByID(3870910925, workspaceID, relativePath);
 }
 
 export function RenameLibraryFolder(folderID: string, name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2740790923, folderID, name).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(2740790923, folderID, name);
 }
 
 export function RenameModTag(tagID: string, name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(3546457432, tagID, name).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(3546457432, tagID, name);
 }
 
 export function RenameProfile(profileID: string, name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1831808545, profileID, name).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(1831808545, profileID, name);
 }
 
 export function RenameVirgilSession(sessionID: string, title: string): $CancellablePromise<$models.VirgilSessionRecord> {
-    return $Call.ByID(466550229, sessionID, title).then(($result: any) => {
-        return $$createType32($result);
-    });
+    return $Call.ByID(466550229, sessionID, title);
 }
 
 export function RenameWorkspacePath(workspaceID: string, oldPath: string, newPath: string): $CancellablePromise<void> {
@@ -310,9 +325,7 @@ export function RestoreNormalModSelection(): $CancellablePromise<void> {
 }
 
 export function ResumeVirgilSession(sessionID: string): $CancellablePromise<$models.VirgilSessionRecord> {
-    return $Call.ByID(2325737482, sessionID).then(($result: any) => {
-        return $$createType32($result);
-    });
+    return $Call.ByID(2325737482, sessionID);
 }
 
 export function RevealLibraryArchive(entityID: string): $CancellablePromise<void> {
@@ -324,21 +337,15 @@ export function RevealWorkspacePath(workspaceID: string, relativePath: string): 
 }
 
 export function RunVirusScan(entityID: string, mode: string): $CancellablePromise<$models.VirusScanRun> {
-    return $Call.ByID(692703645, entityID, mode).then(($result: any) => {
-        return $$createType25($result);
-    });
+    return $Call.ByID(692703645, entityID, mode);
 }
 
 export function SaveSettings(update: $models.SettingsUpdate): $CancellablePromise<$models.AppSettings> {
-    return $Call.ByID(3784651466, update).then(($result: any) => {
-        return $$createType33($result);
-    });
+    return $Call.ByID(3784651466, update);
 }
 
 export function SaveSetup(input: $models.SetupInput): $CancellablePromise<$models.SetupResult> {
-    return $Call.ByID(654217000, input).then(($result: any) => {
-        return $$createType34($result);
-    });
+    return $Call.ByID(654217000, input);
 }
 
 export function SaveWorkspaceDraft(workspaceID: string, relativePath: string, content: string, baseSHA256: string): $CancellablePromise<void> {
@@ -346,27 +353,19 @@ export function SaveWorkspaceDraft(workspaceID: string, relativePath: string, co
 }
 
 export function ScanLibrary(): $CancellablePromise<$models.ScanSummary> {
-    return $Call.ByID(1511987522).then(($result: any) => {
-        return $$createType35($result);
-    });
+    return $Call.ByID(1511987522);
 }
 
-export function SearchWorkspace(workspaceID: string, options: $models.WorkspaceSearchOptions, maxResults: number): $CancellablePromise<$models.WorkspaceSearchMatch[]> {
-    return $Call.ByID(2068548899, workspaceID, options, maxResults).then(($result: any) => {
-        return $$createType37($result);
-    });
+export function SearchWorkspace(workspaceID: string, options: $models.WorkspaceSearchOptions, maxResults: number): $CancellablePromise<$models.WorkspaceSearchMatch[] | null> {
+    return $Call.ByID(2068548899, workspaceID, options, maxResults);
 }
 
 export function SendVirgilMessage(sessionID: string, prompt: string, modelOverride: string): $CancellablePromise<$models.AgentRunRecord> {
-    return $Call.ByID(311073238, sessionID, prompt, modelOverride).then(($result: any) => {
-        return $$createType38($result);
-    });
+    return $Call.ByID(311073238, sessionID, prompt, modelOverride);
 }
 
-export function SetLibraryItemTags(entityID: string, tagIDs: string[]): $CancellablePromise<$models.LibraryItem> {
-    return $Call.ByID(91975591, entityID, tagIDs).then(($result: any) => {
-        return $$createType23($result);
-    });
+export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
+    return $Call.ByID(91975591, entityID, tagIDs);
 }
 
 export function SetPresetMod(presetID: string, entityID: string, included: boolean): $CancellablePromise<void> {
@@ -386,21 +385,34 @@ export function SetWorkspaceJSONValue(workspaceID: string, relativePath: string,
 }
 
 export function Settings(): $CancellablePromise<$models.AppSettings> {
-    return $Call.ByID(3630548879).then(($result: any) => {
-        return $$createType33($result);
-    });
+    return $Call.ByID(3630548879);
+}
+
+export function StageWorkspaceGitPaths(workspaceID: string, paths: string[] | null, expectedFingerprint: string): $CancellablePromise<$models.GitStatus> {
+    return $Call.ByID(1771313425, workspaceID, paths, expectedFingerprint);
 }
 
 export function StartAIConnection(providerID: string): $CancellablePromise<$models.AIConnectionStart> {
-    return $Call.ByID(2091354552, providerID).then(($result: any) => {
-        return $$createType39($result);
-    });
+    return $Call.ByID(2091354552, providerID);
+}
+
+/**
+ * StartGitHubPublish starts the confirmed create/connect, remote, push, and
+ * verification operation asynchronously.
+ */
+export function StartGitHubPublish(request: $models.GitHubPublishStartRequest): $CancellablePromise<$models.GitHubPublishOperation> {
+    return $Call.ByID(1298198628, request);
+}
+
+/**
+ * StartGitHubPublishAuth starts a fresh GitHub OAuth App device flow.
+ */
+export function StartGitHubPublishAuth(): $CancellablePromise<$models.GitHubPublishAuthSession> {
+    return $Call.ByID(1739550690);
 }
 
 export function StartVirgilSession(workspaceID: string, prompt: string, modelOverride: string, userTitle: string): $CancellablePromise<$models.VirgilSessionRecord> {
-    return $Call.ByID(1890900807, workspaceID, prompt, modelOverride, userTitle).then(($result: any) => {
-        return $$createType32($result);
-    });
+    return $Call.ByID(1890900807, workspaceID, prompt, modelOverride, userTitle);
 }
 
 export function StopAgent(runID: string): $CancellablePromise<boolean> {
@@ -411,98 +423,50 @@ export function SubmitAIConnection(loginID: string, requestID: string, value: st
     return $Call.ByID(987952920, loginID, requestID, value);
 }
 
+export function SwitchWorkspaceGitBranch(workspaceID: string, name: string, expectedFingerprint: string): $CancellablePromise<$models.GitStatus> {
+    return $Call.ByID(1476270185, workspaceID, name, expectedFingerprint);
+}
+
+export function SyncWorkspaceGit(workspaceID: string, expectedFingerprint: string): $CancellablePromise<$models.GitOperationResult> {
+    return $Call.ByID(908040546, workspaceID, expectedFingerprint);
+}
+
 export function UninstallTest(workspaceID: string): $CancellablePromise<void> {
     return $Call.ByID(3380044888, workspaceID);
 }
 
+export function UnstageWorkspaceGitPaths(workspaceID: string, paths: string[] | null, expectedFingerprint: string): $CancellablePromise<$models.GitStatus> {
+    return $Call.ByID(2788470166, workspaceID, paths, expectedFingerprint);
+}
+
 export function UpdateLibraryItemDetails(entityID: string, update: $models.LibraryItemDetailsUpdate): $CancellablePromise<$models.EntityDetail> {
-    return $Call.ByID(3924468085, entityID, update).then(($result: any) => {
-        return $$createType10($result);
-    });
+    return $Call.ByID(3924468085, entityID, update);
 }
 
 export function UpdateLibraryVariant(entityID: string, update: $models.LibraryVariantUpdate): $CancellablePromise<$models.EntityDetail> {
-    return $Call.ByID(2339916167, entityID, update).then(($result: any) => {
-        return $$createType10($result);
-    });
+    return $Call.ByID(2339916167, entityID, update);
 }
 
 export function UpdateModTagVisual(tagID: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(719045307, tagID, color, icon).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(719045307, tagID, color, icon);
 }
 
 export function UpdatePreset(presetID: string, name: string, description: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2558523108, presetID, name, description).then(($result: any) => {
-        return $$createType7($result);
-    });
+    return $Call.ByID(2558523108, presetID, name, description);
 }
 
 export function ValidateWorkspace(workspaceID: string): $CancellablePromise<modkit$0.ValidationResult> {
-    return $Call.ByID(1665736785, workspaceID).then(($result: any) => {
-        return $$createType40($result);
-    });
+    return $Call.ByID(1665736785, workspaceID);
 }
 
 export function VirusScanMetadata(entityID: string): $CancellablePromise<$models.ModSecurityMetadata> {
-    return $Call.ByID(983667179, entityID).then(($result: any) => {
-        return $$createType41($result);
-    });
+    return $Call.ByID(983667179, entityID);
 }
 
-export function WorkspaceDiff(workspaceID: string): $CancellablePromise<modkit$0.WorkspaceChange[]> {
-    return $Call.ByID(1837507304, workspaceID).then(($result: any) => {
-        return $$createType43($result);
-    });
+export function WorkspaceDiff(workspaceID: string): $CancellablePromise<modkit$0.WorkspaceChange[] | null> {
+    return $Call.ByID(1837507304, workspaceID);
 }
 
 export function WriteWorkspaceFile(workspaceID: string, relativePath: string, content: string, expectedSHA256: string): $CancellablePromise<void> {
     return $Call.ByID(1515493856, workspaceID, relativePath, content, expectedSHA256);
 }
-
-// Private type creation functions
-const $$createType0 = $models.AIConnectionState.createFrom;
-const $$createType1 = $models.AIUsage.createFrom;
-const $$createType2 = $models.ProfileActivation.createFrom;
-const $$createType3 = $models.RuntimeReport.createFrom;
-const $$createType4 = $Create.Array($Create.Any);
-const $$createType5 = $models.AppConfig.createFrom;
-const $$createType6 = $models.WorkspaceDetail.createFrom;
-const $$createType7 = $models.OrganizationState.createFrom;
-const $$createType8 = $models.Dashboard.createFrom;
-const $$createType9 = $models.ExportResponse.createFrom;
-const $$createType10 = $models.EntityDetail.createFrom;
-const $$createType11 = $models.KnowledgeDocument.createFrom;
-const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = $models.PresetDetail.createFrom;
-const $$createType14 = $models.ProfileDetail.createFrom;
-const $$createType15 = $models.SetupState.createFrom;
-const $$createType16 = $models.TestInstallRecord.createFrom;
-const $$createType17 = $models.ProcessLaunch.createFrom;
-const $$createType18 = $models.ProfileLaunch.createFrom;
-const $$createType19 = $models.AgentEventRecord.createFrom;
-const $$createType20 = $Create.Array($$createType19);
-const $$createType21 = $models.AgentModelOption.createFrom;
-const $$createType22 = $Create.Array($$createType21);
-const $$createType23 = $models.LibraryItem.createFrom;
-const $$createType24 = $Create.Array($$createType23);
-const $$createType25 = $models.VirusScanRun.createFrom;
-const $$createType26 = $Create.Array($$createType25);
-const $$createType27 = $models.WorkspaceRecord.createFrom;
-const $$createType28 = $Create.Array($$createType27);
-const $$createType29 = $models.ArchiveMemberPreview.createFrom;
-const $$createType30 = $Create.Nullable($$createType29);
-const $$createType31 = $models.WorkspaceTextFile.createFrom;
-const $$createType32 = $models.VirgilSessionRecord.createFrom;
-const $$createType33 = $models.AppSettings.createFrom;
-const $$createType34 = $models.SetupResult.createFrom;
-const $$createType35 = $models.ScanSummary.createFrom;
-const $$createType36 = $models.WorkspaceSearchMatch.createFrom;
-const $$createType37 = $Create.Array($$createType36);
-const $$createType38 = $models.AgentRunRecord.createFrom;
-const $$createType39 = $models.AIConnectionStart.createFrom;
-const $$createType40 = modkit$0.ValidationResult.createFrom;
-const $$createType41 = $models.ModSecurityMetadata.createFrom;
-const $$createType42 = modkit$0.WorkspaceChange.createFrom;
-const $$createType43 = $Create.Array($$createType42);

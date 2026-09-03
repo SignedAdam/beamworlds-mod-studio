@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { LibraryItem, VirusScanProgress, VirusScanRun } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
@@ -6,6 +6,7 @@ import { Icon } from './icons'
 import { IndexCardTabs } from './IndexCardTabs'
 import { ModTable } from './ModTable'
 import { Page, Spinner, formatDate } from './ui'
+import './VirusScannerView.css'
 
 type ScanMode = 'signature' | 'full'
 type ScannerTab = 'scan' | 'history'
@@ -36,6 +37,119 @@ interface QueueEntry {
   error: string
 }
 
+const SCANNER_FOCUS_FALLBACK = '#155E91'
+const SCANNER_LIGHT_SURFACES = [
+  '#F6FBFF',
+  '#FFFFFF',
+  '#EAF4FF',
+  '#F0F8FF',
+  '#DDEEFF',
+  '#D3E8FF',
+] as const
+
+interface ScannerRGB {
+  red: number
+  green: number
+  blue: number
+  alpha: number
+}
+
+function parseScannerChannel(value: string, max: number): number | null {
+  const normalized = value.trim()
+  const amount = Number.parseFloat(normalized)
+  if (!Number.isFinite(amount)) return null
+  return Math.min(max, Math.max(0, normalized.endsWith('%') ? amount * max / 100 : amount))
+}
+
+function parseScannerAlpha(value: string): number | null {
+  const normalized = value.trim()
+  const amount = Number.parseFloat(normalized)
+  if (!Number.isFinite(amount)) return null
+  return Math.min(1, Math.max(0, normalized.endsWith('%') ? amount / 100 : amount))
+}
+
+function parseScannerColor(value: string): ScannerRGB | null {
+  const normalized = value.trim()
+  const hex = normalized.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
+  if (hex) {
+    const digits = hex[1]
+    const expanded = digits.length <= 4 ? digits.split('').map(digit => digit + digit).join('') : digits
+    return {
+      red: Number.parseInt(expanded.slice(0, 2), 16),
+      green: Number.parseInt(expanded.slice(2, 4), 16),
+      blue: Number.parseInt(expanded.slice(4, 6), 16),
+      alpha: expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1,
+    }
+  }
+
+  const rgb = normalized.match(/^rgba?\((.*)\)$/i)
+  if (!rgb) return null
+  const components = rgb[1].replace(/\s*\/\s*/, ',').split(/[\s,]+/).filter(Boolean)
+  if (components.length < 3) return null
+  const red = parseScannerChannel(components[0], 255)
+  const green = parseScannerChannel(components[1], 255)
+  const blue = parseScannerChannel(components[2], 255)
+  const alpha = components.length > 3 ? parseScannerAlpha(components[3]) : 1
+  if (red === null || green === null || blue === null || alpha === null) return null
+  return { red, green, blue, alpha }
+}
+
+function resolveScannerColor(value: string): ScannerRGB | null {
+  const direct = parseScannerColor(value)
+  if (direct) return direct
+  if (typeof document === 'undefined' || !document.body) return null
+
+  const probe = document.createElement('span')
+  probe.style.color = value
+  if (!probe.style.color) return null
+  probe.style.position = 'fixed'
+  probe.style.visibility = 'hidden'
+  probe.style.pointerEvents = 'none'
+  document.body.append(probe)
+  const computed = getComputedStyle(probe).color
+  probe.remove()
+  return parseScannerColor(computed)
+}
+
+function scannerChannelLuminance(value: number): number {
+  const normalized = value / 255
+  return normalized <= 0.03928
+    ? normalized / 12.92
+    : ((normalized + 0.055) / 1.055) ** 2.4
+}
+
+function scannerLuminance(color: ScannerRGB): number {
+  return 0.2126 * scannerChannelLuminance(color.red)
+    + 0.7152 * scannerChannelLuminance(color.green)
+    + 0.0722 * scannerChannelLuminance(color.blue)
+}
+
+function compositeScannerColor(foreground: ScannerRGB, background: ScannerRGB): ScannerRGB {
+  return {
+    red: foreground.red * foreground.alpha + background.red * (1 - foreground.alpha),
+    green: foreground.green * foreground.alpha + background.green * (1 - foreground.alpha),
+    blue: foreground.blue * foreground.alpha + background.blue * (1 - foreground.alpha),
+    alpha: 1,
+  }
+}
+
+function scannerContrastRatio(first: ScannerRGB, second: ScannerRGB): number {
+  const firstLuminance = scannerLuminance(first)
+  const secondLuminance = scannerLuminance(second)
+  const lighter = Math.max(firstLuminance, secondLuminance)
+  const darker = Math.min(firstLuminance, secondLuminance)
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function scannerFocusIsAccessible(value: string): boolean {
+  const focus = resolveScannerColor(value)
+  if (!focus || focus.alpha <= 0) return false
+  return SCANNER_LIGHT_SURFACES.every(surfaceValue => {
+    const surface = parseScannerColor(surfaceValue)
+    return surface !== null && scannerContrastRatio(compositeScannerColor(focus, surface), surface) >= 3
+  })
+}
+
 export function VirusScannerView({ items, request, onLibraryChange, onNotify, onError }: VirusScannerProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<ScannerTab>('scan')
@@ -45,6 +159,34 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
   const [historyLoading, setHistoryLoading] = useState(true)
   const [runs, setRuns] = useState<VirusScanRun[]>([])
   const [queue, setQueue] = useState<Record<string, QueueEntry>>({})
+
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    const scanner = document.querySelector<HTMLElement>('.virus-scanner')
+    if (!scanner) return
+
+    const updateFocus = () => {
+      if (root.dataset.theme !== 'light') {
+        scanner.style.removeProperty('--scanner-focus')
+        return
+      }
+      const configured = getComputedStyle(root).getPropertyValue('--user-emphasis').trim()
+      const focus = scannerFocusIsAccessible(configured) ? configured : SCANNER_FOCUS_FALLBACK
+      scanner.style.setProperty('--scanner-focus', focus)
+    }
+
+    updateFocus()
+    const observer = typeof MutationObserver === 'undefined' ? null : new MutationObserver(records => {
+      if (records.some(record => record.attributeName === 'data-theme' || record.attributeName === 'style')) {
+        updateFocus()
+      }
+    })
+    observer?.observe(root, { attributes: true, attributeFilter: ['data-theme', 'style'] })
+    return () => {
+      observer?.disconnect()
+      scanner.style.removeProperty('--scanner-focus')
+    }
+  }, [])
 
   const visibleItems = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -224,7 +366,7 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
           panel: <>
             <section className="scan-history">
               <header><h2>Scan history</h2><button onClick={() => void loadHistory()} disabled={historyLoading} aria-label="Refresh scan history"><Icon name="refresh" size={15}/></button></header>
-              {historyLoading && runs.length === 0 ? <div className="scanner-loading"><Spinner/><span>Loading scan history</span></div> : runs.length === 0 ? <p className="scan-history__empty">No virus scans have run yet.</p> : <div className="scan-history__rows">{runs.map(run => <article key={run.id}>
+              {historyLoading && runs.length === 0 ? <div className="scanner-loading"><Spinner/><span>Loading scan history</span></div> : runs.length === 0 ? <p className="scan-history__empty">No virus scans have run yet.</p> : <div className="scan-history__rows">{runs.map(run => <article className={`scan-history__row scan-history__row--${run.status === 'failed' ? 'scan_failed' : run.verdict || 'unscanned'}`} key={run.id}>
                 <Icon name={run.status === 'failed' ? 'error' : healthIcon(run.verdict)} size={16}/>
                 <div><strong>{itemsByID.get(run.entityId)?.displayName || 'Unknown mod'}</strong><span>{run.mode === 'full' ? 'Full Virgil scan' : 'Signature-based scan'} · {(run.stages?.length ?? 0).toLocaleString()} {(run.stages?.length ?? 0) === 1 ? 'stage' : 'stages'}</span></div>
                 <time>{formatDate(run.createdAt)}</time>

@@ -1,95 +1,194 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import type {
   ArchiveMemberPreview,
   EntityDetail,
-  EventRecord,
-  LibraryFolder,
   LibraryItem,
   LibraryItemDetailsUpdate,
   LibraryVariantUpdate,
   ModTag,
 } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import type { ArchiveMember, Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
+import type { Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
 import { Icon } from './icons'
 import { IndexCardTabs, type IndexCardTabItem } from './IndexCardTabs'
+import InlineEditableField from './InlineEditableField'
+import { MetaPanel, HistoryPanel, StructuralIssuesPanel } from './InspectorPanels'
 import { TagEditor } from './TagEditor'
-import { Badge, Button, EmptyState, Spinner, formatBytes, formatDate, issueTone, kindIcon, kindLabel } from './ui'
+import { Button, Spinner, formatBytes, formatDate, kindIcon, kindLabel } from './ui'
 
-type InspectorTab = 'overview' | 'variants' | 'issues' | 'structure' | 'files' | 'history'
+type InspectorTab = 'overview' | 'variants' | 'issues' | 'meta' | 'history'
+type DirtyReporter = (field: string, dirty: boolean) => void
 
 interface InspectorProps {
   item: LibraryItem
   detail: EntityDetail | null
-  folders: LibraryFolder[]
   tags: ModTag[]
   loading: boolean
   creatingWorkspace: boolean
   stale: boolean
   writeBlocked: boolean
+  inspectorWidth: number
+  inspectorMinWidth: number
+  inspectorMaxWidth: number
+  inspectorResizeDisabled?: boolean
+  onResizeCommit: (width: number) => void
+  onResetWidth: () => void
   onClose: () => void
-  onMoveFolder: (folderID: string) => void
-  onSetTags: (tagIDs: string[]) => Promise<void>
+  onSetTags: (tagIDs: string[]) => Promise<ModTag[]>
   onCreateTag: (name: string, color: string, icon: string) => Promise<ModTag | null>
   onUpdateTagVisual: (tagID: string, color: string, icon: string) => Promise<void>
-  onRenameTag: (tagID: string, name: string) => Promise<void>
   onDeleteTag: (tagID: string) => Promise<void>
   onCreateWorkspace: () => void
   onVirusScan: (item: LibraryItem) => void
   onSaveDetails: (update: LibraryItemDetailsUpdate) => Promise<void>
   onSaveVariant: (update: LibraryVariantUpdate) => Promise<void>
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
-  onExtractMember: (memberPath: string) => Promise<void>
-  onRevealArchive: () => Promise<void>
   onError: (error: unknown) => void
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 export function Inspector({
   item,
   detail,
-  folders,
   tags,
   loading,
   creatingWorkspace,
   stale,
   writeBlocked,
+  inspectorWidth,
+  inspectorMinWidth,
+  inspectorMaxWidth,
+  inspectorResizeDisabled = false,
+  onResizeCommit,
+  onResetWidth,
   onClose,
-  onMoveFolder,
   onSetTags,
   onCreateTag,
   onUpdateTagVisual,
-  onRenameTag,
   onDeleteTag,
   onCreateWorkspace,
   onVirusScan,
   onSaveDetails,
   onSaveVariant,
   onPreviewMember,
-  onExtractMember,
-  onRevealArchive,
   onError,
+  onDirtyChange,
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
-  const [fileFilter, setFileFilter] = useState('')
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null)
+  const dirtyFieldsRef = useRef(new Set<string>())
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  onDirtyChangeRef.current = onDirtyChange
+  const reportDirty = useCallback<DirtyReporter>((field, dirty) => {
+    if (dirty) dirtyFieldsRef.current.add(field)
+    else dirtyFieldsRef.current.delete(field)
+    onDirtyChangeRef.current?.(dirtyFieldsRef.current.size > 0)
+  }, [])
 
   useEffect(() => {
     setTab('overview')
-    setFileFilter('')
     setSelectedVariant(null)
+    dirtyFieldsRef.current.clear()
+    onDirtyChangeRef.current?.(false)
   }, [item.entityId])
 
   const currentDetail = detail?.item.entityId === item.entityId ? detail : null
   const manifest = currentDetail?.item.manifest ?? item.manifest
-  const variantCount = (manifest?.variants ?? []).length
+  const variants = manifest?.variants ?? []
   const issueCount = (manifest?.issues ?? []).length
-  const historyCount = currentDetail?.history?.length ?? 0
-  const members = useMemo(() => {
-    const query = fileFilter.toLowerCase().trim()
-    const filtered = (manifest?.members ?? []).filter(member => !query || member.path.toLowerCase().includes(query))
-    return { total: filtered.length, visible: filtered.slice(0, 500) }
-  }, [manifest, fileFilter])
+  const historyCount = historyTotal(currentDetail)
+  const validTabs: InspectorTab[] = ['overview', 'issues', 'meta', 'history']
+  if (String(item.kind) === 'vehicle' && variants.length > 0) validTabs.splice(1, 0, 'variants')
 
-  return <aside className={`inspector${stale ? ' is-stale' : ''}`} aria-label="Mod inspector">
+  useEffect(() => {
+    if (!validTabs.includes(tab)) setTab('overview')
+  }, [tab, variants.length, item.kind])
+
+  const tabs: IndexCardTabItem[] = useMemo(() => {
+    const items: IndexCardTabItem[] = [
+      {
+        id: 'overview',
+        label: 'Overview',
+        panel: <Overview
+          key={item.entityId}
+          item={item}
+          manifest={manifest}
+          tags={tags}
+          stale={stale}
+          writeBlocked={writeBlocked}
+          onSetTags={onSetTags}
+          onCreateTag={onCreateTag}
+          onUpdateTagVisual={onUpdateTagVisual}
+          onDeleteTag={onDeleteTag}
+          onSaveDetails={onSaveDetails}
+          reportDirty={reportDirty}
+          onError={onError}
+        />,
+      },
+    ]
+    if (String(item.kind) === 'vehicle' && variants.length > 0) {
+      items.push({
+        id: 'variants',
+        label: 'Variants',
+        count: variants.length,
+        panel: <Variants
+          key={`${item.entityId}-variants`}
+          variants={variants}
+          selected={selectedVariant}
+          stale={stale}
+          writeBlocked={writeBlocked}
+          onSelect={setSelectedVariant}
+          onPreviewMember={onPreviewMember}
+          onSaveVariant={onSaveVariant}
+          reportDirty={reportDirty}
+        />,
+      })
+    }
+    items.push(
+      {
+        id: 'issues',
+        label: 'Issues',
+        count: issueCount,
+        panel: <StructuralIssuesPanel issues={manifest?.issues ?? []} />,
+      },
+      {
+        id: 'meta',
+        label: 'Meta',
+        panel: <MetaPanel kind={String(item.kind)} manifest={manifest} />,
+      },
+      {
+        id: 'history',
+        label: `History (${historyCount})`,
+        panel: <HistoryTab history={currentDetail?.history ?? null} loading={loading} total={historyCount} />,
+      },
+    )
+    return items
+  }, [currentDetail?.history, historyCount, issueCount, item, loading, manifest, onCreateTag, onDeleteTag, onError, onPreviewMember, onSaveDetails, onSaveVariant, onSetTags, onUpdateTagVisual, reportDirty, selectedVariant, stale, tags, variants, writeBlocked])
+
+  const scanState = securityScanState(item)
+  const scanLabel = securityScanStatus(item, scanState)
+
+  return <aside
+    className={`inspector${stale ? ' is-stale' : ''}`}
+    aria-label="Mod inspector"
+    style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}
+  >
+    <InspectorResizer
+      width={inspectorWidth}
+      minWidth={inspectorMinWidth}
+      maxWidth={inspectorMaxWidth}
+      disabled={inspectorResizeDisabled}
+      onCommit={onResizeCommit}
+      onReset={onResetWidth}
+    />
     <header className="inspector__header">
       <div className="inspector__identity">
         <Icon name={kindIcon(String(item.kind))} size={19}/>
@@ -98,67 +197,36 @@ export function Inspector({
           <span>{kindLabel(String(item.kind))}{!item.linked && ' · Source unavailable'}</span>
         </div>
       </div>
-      <button className="icon-button" onClick={onClose} aria-label="Close inspector"><Icon name="close" size={16}/></button>
+      <button type="button" className="inspector-button inspector-button--quiet icon-button" onClick={onClose} aria-label="Close inspector" title="Close inspector"><Icon name="close" size={16}/></button>
     </header>
     {stale && <div className="inspector-stale-warning" role="alert" aria-live="assertive"><Icon name="warning" size={18}/><strong>Changed. Please close and reopen this mod&apos;s details.</strong></div>}
     <div className="inspector__actions">
-      <Button className="inspector__maker" icon="workspace" tone="quiet" disabled={stale || writeBlocked || !item.linked || creatingWorkspace} onClick={onCreateWorkspace}>
-        {creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}
-      </Button>
-      <button type="button" className={`inspector__scan-control inspector__scan-control--${item.healthStatus || 'unscanned'}`} disabled={stale || writeBlocked || !item.linked} onClick={() => onVirusScan(item)}>
-        <span className="inspector__scan-action"><Icon name="shield" size={14}/><strong>Scan for threats</strong></span>
-        <span className="inspector__scan-status" aria-live="polite">
-          <Icon name={scanStatusIcon(item.healthStatus)} size={13}/>
-          <span>{securityScanStatus(item)}</span>
-          {item.securityScanChanged && <em>Scan again?</em>}
-        </span>
-      </button>
-      <label className="inspector-folder">
-        <span>Collection</span>
-        <select value={item.folderId || ''} disabled={stale || writeBlocked} onChange={event => onMoveFolder(event.target.value)}>
-          <option value="">Unfiled</option>
-          {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-        </select>
-      </label>
+      <div className="inspector-action-region inspector-action-region--edit">
+        <Button
+          className="inspector-button inspector-button--primary"
+          icon="workspace"
+          disabled={stale || writeBlocked || !item.linked || creatingWorkspace}
+          aria-busy={creatingWorkspace}
+          onClick={onCreateWorkspace}
+        >
+          {creatingWorkspace ? <><Spinner small/>Creating…</> : 'Edit in Mod Maker'}
+        </Button>
+      </div>
+      <div className="inspector-action-region inspector-action-region--security">
+        <button
+          type="button"
+          className={`inspector-button inspector-button--secondary inspector-scan-button inspector-scan-button--${scanState}`}
+          disabled={stale || writeBlocked || !item.linked}
+          onClick={() => onVirusScan(item)}
+        >
+          <Icon name="shield" size={16}/><strong>Scan mod</strong>
+        </button>
+        <div className="inspector-scan-status" role="status" aria-live="polite"><Icon name={scanStatusIcon(scanState)} size={16}/><span title={scanLabel}>{scanLabel}</span></div>
+      </div>
     </div>
-
     <div className="inspector__body">
       {loading && !currentDetail ? <div className="center-loader"><Spinner/><span>Loading artifact detail</span></div> : <IndexCardTabs
-        items={[
-          {
-            id: 'overview',
-            panel: <Overview item={item} detail={currentDetail} tags={tags} stale={stale} writeBlocked={writeBlocked} onSetTags={onSetTags} onCreateTag={onCreateTag} onUpdateTagVisual={onUpdateTagVisual} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag} onSaveDetails={onSaveDetails} onError={onError}/>,
-            label: 'Overview',
-          },
-          ...(String(item.kind) === 'vehicle' && variantCount > 0 ? [{
-            id: 'variants',
-            label: 'Variants',
-            panel: <Variants key={item.entityId} variants={manifest?.variants ?? []} selected={selectedVariant} stale={stale} writeBlocked={writeBlocked} onSelect={setSelectedVariant} onPreviewMember={onPreviewMember} onSaveVariant={onSaveVariant} onError={onError}/>,
-            count: variantCount,
-          }] : []),
-          {
-            id: 'issues',
-            label: 'Structural Issues',
-            count: issueCount,
-            panel: <StructuralIssues item={item} detail={currentDetail}/>,
-          },
-          {
-            id: 'structure',
-            label: 'Structure',
-            panel: <Structure item={item} detail={currentDetail}/>,
-          },
-          {
-            id: 'files',
-            panel: <Files key={item.entityId} item={item} members={members} query={fileFilter} stale={stale} writeBlocked={writeBlocked} onQuery={setFileFilter} onPreviewMember={onPreviewMember} onExtractMember={onExtractMember} onRevealArchive={onRevealArchive} onCreateWorkspace={onCreateWorkspace} creatingWorkspace={creatingWorkspace} onError={onError}/>,
-            label: 'Files',
-          },
-          {
-            id: 'history',
-            label: 'History',
-            count: historyCount,
-            panel: <History detail={currentDetail}/>,
-          },
-        ] satisfies IndexCardTabItem[]}
+        items={tabs}
         value={tab}
         onValueChange={value => setTab(value as InspectorTab)}
         activationMode="manual"
@@ -168,143 +236,267 @@ export function Inspector({
     </div>
   </aside>
 }
+function previewInspectorWidth(element: HTMLElement, width: number) {
+  const value = `${width}px`
+  element.parentElement?.style.setProperty('--inspector-width', value)
+  element.closest<HTMLElement>('.app-shell')?.style.setProperty('--inspector-width', value)
+}
+
+function InspectorResizer({
+  width,
+  minWidth,
+  maxWidth,
+  disabled,
+  onCommit,
+  onReset,
+}: {
+  width: number
+  minWidth: number
+  maxWidth: number
+  disabled: boolean
+  onCommit: (width: number) => void
+  onReset: () => void
+}) {
+  const [liveWidth, setLiveWidth] = useState(width)
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef<{
+    pointerID: number
+    startX: number
+    startWidth: number
+    lastWidth: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!dragRef.current) setLiveWidth(width)
+  }, [width])
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (disabled) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerID: event.pointerId,
+      startX: event.clientX,
+      startWidth: liveWidth,
+      lastWidth: liveWidth,
+    }
+    setDragging(true)
+  }
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerID !== event.pointerId) return
+    const next = Math.max(
+      minWidth,
+      Math.min(maxWidth, drag.startWidth - (event.clientX - drag.startX)),
+    )
+    drag.lastWidth = next
+    setLiveWidth(next)
+    previewInspectorWidth(event.currentTarget, next)
+  }
+  const finishPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerID !== event.pointerId) return
+    dragRef.current = null
+    setDragging(false)
+    onCommit(drag.lastWidth)
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const handleLostPointerCapture = () => {
+    const drag = dragRef.current
+    if (!drag) return
+    dragRef.current = null
+    setDragging(false)
+    onCommit(drag.lastWidth)
+  }
+  const commitKeyboardResize = (element: HTMLElement, next: number) => {
+    const clamped = Math.max(minWidth, Math.min(maxWidth, next))
+    setLiveWidth(clamped)
+    previewInspectorWidth(element, clamped)
+    onCommit(clamped)
+  }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      onReset()
+      return
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault()
+      const amount = event.shiftKey ? 64 : 16
+      commitKeyboardResize(
+        event.currentTarget,
+        liveWidth + (event.key === 'ArrowLeft' ? amount : -amount),
+      )
+      return
+    }
+    if (event.key === 'Home') {
+      event.preventDefault()
+      commitKeyboardResize(event.currentTarget, minWidth)
+      return
+    }
+    if (event.key === 'End') {
+      event.preventDefault()
+      commitKeyboardResize(event.currentTarget, maxWidth)
+    }
+  }
+  return <div
+    className={`inspector-resizer${dragging ? ' is-dragging' : ''}`}
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize inspector"
+    aria-valuemin={minWidth}
+    aria-valuemax={maxWidth}
+    aria-valuenow={liveWidth}
+    aria-valuetext={`${liveWidth} pixels`}
+    aria-disabled={disabled || undefined}
+    tabIndex={disabled ? -1 : 0}
+    onPointerDown={handlePointerDown}
+    onPointerMove={handlePointerMove}
+    onPointerUp={finishPointer}
+    onPointerCancel={finishPointer}
+    onLostPointerCapture={handleLostPointerCapture}
+    onDoubleClick={() => { if (!disabled) onReset() }}
+    onKeyDown={handleKeyDown}
+    title={disabled ? 'Inspector resizing is unavailable at this width' : 'Drag to resize · Enter or double-click to reset'}
+  />
+}
 
 function Overview({
   item,
-  detail,
+  manifest,
   tags,
   stale,
   writeBlocked,
   onSetTags,
   onCreateTag,
   onUpdateTagVisual,
-  onRenameTag,
   onDeleteTag,
   onSaveDetails,
+  reportDirty,
   onError,
 }: {
   item: LibraryItem
-  detail: EntityDetail | null
+  manifest: LibraryItem['manifest']
   tags: ModTag[]
   stale: boolean
   writeBlocked: boolean
-  onSetTags: (tagIDs: string[]) => Promise<void>
+  onSetTags: (tagIDs: string[]) => Promise<ModTag[]>
   onCreateTag: (name: string, color: string, icon: string) => Promise<ModTag | null>
   onUpdateTagVisual: (tagID: string, color: string, icon: string) => Promise<void>
-  onRenameTag: (tagID: string, name: string) => Promise<void>
   onDeleteTag: (tagID: string) => Promise<void>
   onSaveDetails: (update: LibraryItemDetailsUpdate) => Promise<void>
+  reportDirty: DirtyReporter
   onError: (error: unknown) => void
 }) {
-  const manifest = detail?.item.manifest ?? item.manifest
   return <div className="inspector-section-stack">
-    <Details item={item} manifest={manifest} stale={stale} writeBlocked={writeBlocked} onSave={onSaveDetails} onError={onError}/>
+    <Details item={item} manifest={manifest} stale={stale} writeBlocked={writeBlocked} onSave={onSaveDetails} reportDirty={reportDirty}/>
     <fieldset className="inspector-fieldset inspector-tags">
       <legend>Tags</legend>
       <TagEditor
         assigned={item.tags ?? []}
         tags={tags}
+        selectionKey={item.entityId}
         locked={stale || writeBlocked}
         onSet={onSetTags}
         onCreate={onCreateTag}
         onUpdateVisual={onUpdateTagVisual}
-        onRename={onRenameTag}
         onDelete={onDeleteTag}
         onError={onError}
       />
     </fieldset>
   </div>
 }
+
+type DetailFieldKey = 'description' | 'author' | 'version'
+const detailFields: { key: DetailFieldKey; label: string; multiline?: boolean }[] = [
+  { key: 'description', label: 'Description', multiline: true },
+  { key: 'author', label: 'Author' },
+  { key: 'version', label: 'Version' },
+]
+
 function Details({
   item,
   manifest,
   stale,
-  onSave,
   writeBlocked,
-  onError,
+  onSave,
+  reportDirty,
 }: {
   item: LibraryItem
   manifest: LibraryItem['manifest']
   stale: boolean
   writeBlocked: boolean
   onSave: (update: LibraryItemDetailsUpdate) => Promise<void>
-  onError: (error: unknown) => void
+  reportDirty: DirtyReporter
 }) {
-  const initialDraft = {
+  const values: Record<DetailFieldKey, string> = {
     description: manifest.description ?? '',
     author: manifest.author ?? '',
     version: manifest.version ?? '',
   }
-  const [draft, setDraft] = useState(initialDraft)
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setDraft(initialDraft)
-    setEditing(false)
-    setSaving(false)
-  }, [item.entityId, manifest.description, manifest.author, manifest.version])
-
-  const cancel = () => {
-    setDraft(initialDraft)
-    setEditing(false)
-  }
-  const save = async () => {
-    if (stale || writeBlocked || saving) return
-    setSaving(true)
-    try {
-      await onSave(draft)
-      setEditing(false)
-    } catch (error) {
-      onError(error)
-    } finally {
-      setSaving(false)
-    }
-  }
+  const saveField = (key: DetailFieldKey, value: string) => onSave({
+    description: key === 'description' ? value : values.description,
+    author: key === 'author' ? value : values.author,
+    version: key === 'version' ? value : values.version,
+  })
 
   return <fieldset className="inspector-fieldset inspector-details">
     <legend>Details</legend>
-    <div className="inspector-details__header">
-      <span>Identity and presentation metadata for this library item.</span>
-      {!editing && <Button icon="edit" tone="quiet" disabled={stale || writeBlocked} onClick={() => setEditing(true)}>Edit</Button>}
+    <div className="inspector-details__fields">
+      {detailFields.map(field => <InlineEditableField<string>
+        key={`${item.entityId}-${field.key}`}
+        id={`inspector-${item.entityId}-${field.key}`}
+        className={`inspector-detail-field inspector-detail-field--${field.key}`}
+        label={field.label}
+        value={values[field.key]}
+        multiline={field.multiline}
+        locked={stale || writeBlocked}
+        onDirtyChange={dirty => reportDirty(`details:${field.key}`, dirty)}
+        onSave={value => saveField(field.key, value)}
+        renderDisplay={value => <span className="inspector-inline-value">{displayDetailValue(field.key, value)}</span>}
+        renderEditor={({ draft, onChange, id, labelId, describedBy, disabled, autoFocus, onKeyDown }) => field.multiline ? <textarea
+          id={id}
+          value={draft}
+          maxLength={2000}
+          rows={4}
+          placeholder="Describe what this mod adds to BeamNG."
+          aria-describedby={describedBy}
+          aria-labelledby={labelId}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          onChange={event => onChange(event.target.value)}
+          onKeyDown={onKeyDown}
+        /> : <input
+          id={id}
+          value={draft}
+          maxLength={field.key === 'author' ? 120 : 80}
+          placeholder="Not declared"
+          aria-describedby={describedBy}
+          aria-labelledby={labelId}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          onChange={event => onChange(event.target.value)}
+          onKeyDown={onKeyDown}
+        />}
+      />)}
     </div>
-    {editing ? <div className="inspector-edit-form">
-      <label><span>Description</span><textarea value={draft.description} maxLength={2000} rows={4} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))} placeholder="Describe what this mod adds to BeamNG."/></label>
-      <label><span>Author</span><input value={draft.author} maxLength={120} onChange={event => setDraft(current => ({ ...current, author: event.target.value }))} placeholder="Not declared"/></label>
-      <label><span>Version</span><input value={draft.version} maxLength={80} onChange={event => setDraft(current => ({ ...current, version: event.target.value }))} placeholder="Not declared"/></label>
-      <div className="inspector-form-actions">
-        <Button tone="quiet" disabled={saving} onClick={cancel}>Cancel</Button>
-        <Button icon="save" tone="primary" disabled={stale || writeBlocked || saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
-      </div>
-    </div> : <dl className="inspector-details__list">
-      <div className="inspector-details__description"><dt>Description</dt><dd>{draft.description.trim() || 'No description provided.'}</dd></div>
-      <div><dt>Author</dt><dd>{draft.author.trim() || 'Unknown'}</dd></div>
-      <div><dt>Version</dt><dd>{draft.version.trim() || 'Not declared'}</dd></div>
+    <dl className="inspector-details__facts">
       <div><dt>Archive size</dt><dd>{formatBytes(item.sizeBytes)}</dd></div>
-      <div><dt>Files</dt><dd>{(manifest.entryCount ?? item.memberCount).toLocaleString()}</dd></div>
+      <div><dt>Entries</dt><dd>{(manifest.entryCount ?? item.memberCount).toLocaleString()}</dd></div>
       <div><dt>Updated</dt><dd>{formatDate(manifest.analyzedAt)}</dd></div>
-    </dl>}
+    </dl>
     {!item.linked && <p className="source-note"><Icon name="unlink" size={16}/><span>The source archive is unavailable. Analysis details remain available from the latest recorded artifact.</span></p>}
   </fieldset>
 }
 
-function StructuralIssues({ item, detail }: { item: LibraryItem; detail: EntityDetail | null }) {
-  const issues = (detail?.item.manifest ?? item.manifest).issues ?? []
-  return <div className="inspector-section-stack inspector-issues">
-    {issues.length === 0 ? <EmptyState icon="check" title="No structural issues" detail="The analyzer did not find path, archive, or category integration problems."/> : <section className="inspector-issues__section">
-      <header className="inspector-subsection-header"><div><h3>Structural Issues</h3><p>Problems that may keep this content from loading cleanly in BeamNG.</p></div><Badge tone={issues.some(issue => issue.severity === 'error') ? 'danger' : 'warning'}>{issues.length.toLocaleString()}</Badge></header>
-      <div className="issue-list">
-        {issues.map((issue, index) => <article className={`issue issue--${String(issue.severity)}`} key={`${issue.code}-${index}`}>
-          <Icon name={issue.severity === 'error' ? 'error' : issue.severity === 'warning' ? 'warning' : 'activity'} size={17}/>
-          <div className="issue__content">
-            <div className="issue__heading"><Badge tone={issueTone(String(issue.severity))}>{String(issue.severity)}</Badge><strong>{issue.code}</strong></div>
-            <p>{issue.message}</p>
-            {issue.path && <code>{issue.path}</code>}
-          </div>
-        </article>)}
-      </div>
-    </section>}
-  </div>
+function displayDetailValue(key: DetailFieldKey, value: string): string {
+  const trimmed = value.trim()
+  if (trimmed) return trimmed
+  if (key === 'description') return 'No description provided.'
+  if (key === 'author') return 'Unknown'
+  return 'Not declared'
 }
 
 interface VariantDraft {
@@ -323,8 +515,9 @@ interface VariantDraft {
   topSpeed: string
 }
 
-const variantFields: { key: keyof VariantDraft; label: string; multiline?: boolean }[] = [
-  { key: 'configuration', label: 'Name' },
+type VariantFieldKey = Exclude<keyof VariantDraft, 'configuration'>
+const variantFields: { key: VariantFieldKey; label: string; multiline?: boolean }[] = [
+  { key: 'description', label: 'Description', multiline: true },
   { key: 'configType', label: 'Config type' },
   { key: 'bodyStyle', label: 'Body style' },
   { key: 'drivetrain', label: 'Drivetrain' },
@@ -336,7 +529,6 @@ const variantFields: { key: keyof VariantDraft; label: string; multiline?: boole
   { key: 'weight', label: 'Weight' },
   { key: 'value', label: 'Value' },
   { key: 'topSpeed', label: 'Top speed' },
-  { key: 'description', label: 'Description', multiline: true },
 ]
 
 function Variants({
@@ -347,7 +539,7 @@ function Variants({
   onSelect,
   onPreviewMember,
   onSaveVariant,
-  onError,
+  reportDirty,
 }: {
   variants: Variant[]
   selected: Variant | null
@@ -356,95 +548,166 @@ function Variants({
   onSelect: (variant: Variant | null) => void
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   onSaveVariant: (update: LibraryVariantUpdate) => Promise<void>
-  onError: (error: unknown) => void
+  reportDirty: DirtyReporter
 }) {
+  const variantCardRefs = useRef(new Map<string, HTMLButtonElement>())
   const [overrides, setOverrides] = useState<Record<string, Partial<Variant>>>({})
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [draft, setDraft] = useState<VariantDraft | null>(null)
-
+  const dirtyFieldsRef = useRef(new Set<string>())
   const activeSource = selected ? variants.find(variant => variant.configPath === selected.configPath) ?? null : null
   const active = activeSource ? { ...activeSource, ...(overrides[activeSource.configPath] ?? {}) } : null
   const activeKey = active?.configPath ?? ''
-  useEffect(() => {
-    setEditing(false)
-    setSaving(false)
-    setDraft(active ? variantDraft(active) : null)
-  }, [activeKey])
+  const activeDraft = active ? variantDraft(active) : null
 
-  const beginEdit = () => {
-    if (stale || writeBlocked || !active) return
-    setDraft(variantDraft(active))
-    setEditing(true)
+  useEffect(() => {
+    setOverrides(current => {
+      const available = new Set(variants.map(variant => variant.configPath))
+      const next = Object.fromEntries(Object.entries(current).filter(([key]) => available.has(key)))
+      return Object.keys(next).length === Object.keys(current).length ? current : next
+    })
+  }, [variants])
+
+  const discardDirty = () => {
+    for (const field of dirtyFieldsRef.current) reportDirty(field, false)
+    dirtyFieldsRef.current.clear()
   }
-  const save = async () => {
-    if (stale || writeBlocked || !active || !draft || saving) return
-    setSaving(true)
-    try {
-      await onSaveVariant(variantUpdate(active, draft))
-      setOverrides(current => ({ ...current, [active.configPath]: variantOverride(draft) }))
-      setEditing(false)
-    } catch (error) {
-      onError(error)
-    } finally {
-      setSaving(false)
+  const guardedSelect = (next: Variant | null) => {
+    if (dirtyFieldsRef.current.size > 0 && !window.confirm('Discard unsaved variant changes?')) return
+    const returnFocusKey = next === null ? activeKey : ''
+    discardDirty()
+    onSelect(next)
+    if (returnFocusKey) {
+      window.requestAnimationFrame(() => {
+        variantCardRefs.current.get(returnFocusKey)?.focus({ preventScroll: true })
+      })
     }
+  }
+
+  const saveVariantField = async (key: VariantFieldKey, value: string) => {
+    if (!active || !activeDraft) return
+    const draft = { ...activeDraft, [key]: value }
+    await onSaveVariant(variantUpdate(active, draft))
+    setOverrides(current => ({ ...current, [active.configPath]: variantOverride(draft) }))
+  }
+
+  const identitySave = async (value: string) => {
+    if (!active || !activeDraft) return
+    const draft = { ...activeDraft, configuration: value }
+    await onSaveVariant(variantUpdate(active, draft))
+    setOverrides(current => ({ ...current, [active.configPath]: variantOverride(draft) }))
   }
 
   return <div className="variant-layout">
     <div className="variant-gallery" aria-label="Vehicle variants">
-      {variants.map(variant => {
-        const isSelected = active?.configPath === variant.configPath
-        return <VariantCard key={variant.configPath} variant={variant} selected={isSelected} onSelect={() => onSelect(isSelected ? null : variant)} onPreviewMember={onPreviewMember}/>
-      })}
+      {variants.map(variant => <button
+        key={variant.configPath}
+        type="button"
+        ref={element => {
+          if (element) variantCardRefs.current.set(variant.configPath, element)
+          else variantCardRefs.current.delete(variant.configPath)
+        }}
+        className={`variant-card${active?.configPath === variant.configPath ? ' is-selected' : ''}`}
+        aria-pressed={active?.configPath === variant.configPath}
+        onClick={() => guardedSelect(active?.configPath === variant.configPath ? null : variant)}
+      >
+        <VariantThumbnail variant={variant} onPreviewMember={onPreviewMember} className="variant-card__thumb"/>
+        <span className="variant-card__name">{variant.configuration || variant.baseName || 'Unnamed variant'}</span>
+        <span className="variant-card__parent">{variant.namespace || 'Vehicle configuration'}</span>
+      </button>)}
     </div>
 
     <section className={`variant-selection-panel${active ? ' is-open' : ''}`} aria-hidden={!active}>
-      {active && <div className="variant-selection-panel__inner">
-        <header>
-          <div><span className="variant-selection-panel__eyebrow">Selected variant</span><h3>Selected variant details</h3><p>{active.namespace || 'Vehicle configuration'}</p></div>
-          <button type="button" className="icon-button" onClick={() => onSelect(null)} aria-label="Close selected variant details"><Icon name="close" size={15}/></button>
-        </header>
-        {editing && draft ? <div className="variant-edit-form">
-          {variantFields.map(field => <label key={field.key}><span>{field.label}</span>{field.multiline ? <textarea rows={3} value={draft[field.key]} onChange={event => setDraft(current => current ? { ...current, [field.key]: event.target.value } : current)}/> : <input value={draft[field.key]} onChange={event => setDraft(current => current ? { ...current, [field.key]: event.target.value } : current)}/>}</label>)}
-          <div className="inspector-form-actions">
-            <Button tone="quiet" disabled={saving} onClick={() => { setDraft(active ? variantDraft(active) : null); setEditing(false) }}>Cancel</Button>
-            <Button icon="save" tone="primary" disabled={stale || writeBlocked || saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
+      {active && activeDraft && <div className="variant-selection-panel__inner">
+        <div className="variant-identity-row">
+          <VariantThumbnail variant={active} onPreviewMember={onPreviewMember} className="variant-identity-row__thumb"/>
+          <div className="variant-identity-row__copy">
+            <InlineEditableField<string>
+              id={`variant-${active.configPath}-name`}
+              className="variant-identity-row__name"
+              label="Name"
+              value={activeDraft.configuration}
+              locked={stale || writeBlocked}
+              onDirtyChange={dirty => {
+                const key = `variant:${activeKey}:configuration`
+                if (dirty) dirtyFieldsRef.current.add(key)
+                else dirtyFieldsRef.current.delete(key)
+                reportDirty(key, dirty)
+              }}
+              onSave={identitySave}
+              renderDisplay={value => <h3>{value.trim() || 'Unnamed variant'}</h3>}
+              renderEditor={({ draft, onChange, id, labelId, describedBy, disabled, autoFocus, onKeyDown }) => <input
+                id={id}
+                value={draft}
+                maxLength={160}
+                placeholder="Unnamed variant"
+                aria-describedby={describedBy}
+                aria-labelledby={labelId}
+                disabled={disabled}
+                autoFocus={autoFocus}
+                onChange={event => onChange(event.target.value)}
+                onKeyDown={onKeyDown}
+              />}
+            />
+            <span className="variant-identity-row__parent">Parent: {active.namespace || active.baseName || 'Vehicle configuration'}</span>
           </div>
-        </div> : <div className="variant-detail-view">
-          <div className="variant-detail-view__heading"><div><h4>{active.configuration || active.baseName || 'Unnamed variant'}</h4><span>{(active.configType ?? '').trim().toLowerCase() === 'factory' ? 'Factory' : 'Custom'}</span></div><Button icon="edit" tone="quiet" disabled={stale || writeBlocked} onClick={beginEdit}>Edit</Button></div>
-          <p className="variant-description">{active.description?.trim() || 'No description provided.'}</p>
-          <dl className="variant-facts">
-            <div><dt>Body style</dt><dd>{active.bodyStyle || '—'}</dd></div>
-            <div><dt>Drivetrain</dt><dd>{active.drivetrain || '—'}</dd></div>
-            <div><dt>Transmission</dt><dd>{active.transmission || '—'}</dd></div>
-            <div><dt>Fuel type</dt><dd>{active.fuelType || '—'}</dd></div>
-            <div><dt>Propulsion</dt><dd>{active.propulsion || '—'}</dd></div>
-            <div><dt>Power</dt><dd>{displayVariantNumber(active.power)}</dd></div>
-            <div><dt>Torque</dt><dd>{displayVariantNumber(active.torque)}</dd></div>
-            <div><dt>Weight</dt><dd>{displayVariantNumber(active.weight)}</dd></div>
-            <div><dt>Value</dt><dd>{displayVariantNumber(active.value)}</dd></div>
-            <div><dt>Top speed</dt><dd>{displayVariantNumber(active.topSpeed)}</dd></div>
-          </dl>
-        </div>}
+          <button type="button" className="inspector-button inspector-button--quiet icon-button" onClick={() => guardedSelect(null)} aria-label="Close variant details" title="Close variant details"><Icon name="close" size={16}/></button>
+        </div>
+        <div className="variant-fields">
+          {variantFields.map(field => <InlineEditableField<string>
+            key={`${activeKey}-${field.key}`}
+            id={`variant-${activeKey}-${field.key}`}
+            className={`variant-field variant-field--${field.key}`}
+            label={field.label}
+            value={activeDraft[field.key]}
+            multiline={field.multiline}
+            locked={stale || writeBlocked}
+            onDirtyChange={dirty => {
+              const key = `variant:${activeKey}:${field.key}`
+              if (dirty) dirtyFieldsRef.current.add(key)
+              else dirtyFieldsRef.current.delete(key)
+              reportDirty(key, dirty)
+            }}
+            onSave={value => saveVariantField(field.key, value)}
+            renderDisplay={value => <span className="inspector-inline-value">{displayVariantValue(field.key, value)}</span>}
+            renderEditor={({ draft, onChange, id, labelId, describedBy, disabled, autoFocus, onKeyDown }) => field.multiline ? <textarea
+              id={id}
+              value={draft}
+              rows={4}
+              maxLength={2000}
+              aria-describedby={describedBy}
+              aria-labelledby={labelId}
+              disabled={disabled}
+              autoFocus={autoFocus}
+              onChange={event => onChange(event.target.value)}
+              onKeyDown={onKeyDown}
+            /> : <input
+              id={id}
+              value={draft}
+              maxLength={160}
+              aria-describedby={describedBy}
+              aria-labelledby={labelId}
+              disabled={disabled}
+              autoFocus={autoFocus}
+              onChange={event => onChange(event.target.value)}
+              onKeyDown={onKeyDown}
+            />}
+          />)}
+        </div>
       </div>}
     </section>
   </div>
 }
 
-function VariantCard({
+function VariantThumbnail({
   variant,
-  selected,
-  onSelect,
   onPreviewMember,
+  className,
 }: {
   variant: Variant
-  selected: boolean
-  onSelect: () => void
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
+  className: string
 }) {
   const [thumbnail, setThumbnail] = useState('')
-  const cardRef = useRef<HTMLButtonElement>(null)
+  const thumbRef = useRef<HTMLSpanElement>(null)
   const previewRef = useRef(onPreviewMember)
   previewRef.current = onPreviewMember
   const thumbnailPath = variant.thumbnailPath ?? ''
@@ -463,8 +726,8 @@ function VariantCard({
         if (!cancelled) setThumbnail('')
       })
     }
-    const card = cardRef.current
-    if (!card || typeof IntersectionObserver === 'undefined') {
+    const element = thumbRef.current
+    if (!element || typeof IntersectionObserver === 'undefined') {
       load()
       return () => { cancelled = true }
     }
@@ -472,22 +735,17 @@ function VariantCard({
       if (!entries.some(entry => entry.isIntersecting)) return
       observer.disconnect()
       load()
-    }, { root: card.closest('.inspector__body'), rootMargin: '180px 0px' })
-    observer.observe(card)
+    }, { root: element.closest('.inspector__body'), rootMargin: '180px 0px' })
+    observer.observe(element)
     return () => {
       cancelled = true
       observer.disconnect()
     }
   }, [thumbnailPath])
 
-  const isFactory = (variant.configType ?? '').trim().toLowerCase() === 'factory'
-  return <button ref={cardRef} type="button" className={`variant-card${selected ? ' is-selected' : ''}`} aria-pressed={selected} onClick={onSelect}>
-    <span className="variant-card__thumb">
-      {thumbnail ? <img src={thumbnail} alt="" loading="lazy"/> : <Icon name="vehicle" size={26}/>}
-    </span>
-    <span className="variant-card__name">{variant.configuration || variant.baseName || variant.namespace}</span>
-    <span className={`variant-card__type variant-card__type--${isFactory ? 'factory' : 'custom'}`}>{isFactory ? 'Factory' : 'Custom'}</span>
-  </button>
+  return <span ref={thumbRef} className={className}>
+    {thumbnail ? <img src={thumbnail} alt="" loading="lazy"/> : <Icon name="vehicle" size={26}/>}
+  </span>
 }
 
 function variantDraft(variant: Variant): VariantDraft {
@@ -545,6 +803,13 @@ function variantOverride(draft: VariantDraft): Partial<Variant> {
   }
 }
 
+function displayVariantValue(key: VariantFieldKey, value: string): string {
+  const trimmed = value.trim()
+  if (trimmed) return trimmed
+  if (key === 'description') return 'No description provided.'
+  return '—'
+}
+
 function displayVariantNumber(value?: number, dash = true): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return dash ? '—' : ''
   return String(value)
@@ -557,295 +822,68 @@ function parseVariantNumber(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function Structure({ item, detail }: { item: LibraryItem; detail: EntityDetail | null }) {
-  const manifest = detail?.item.manifest ?? item.manifest
-  const namespaceEntries = Object.entries(manifest.namespaces ?? {}).filter(([, values]) => (values ?? []).length > 0) as [string, string[]][]
-  const jbeam = manifest.jbeam
-  const map = manifest.map
-  const ui = manifest.ui
-  const levelIDs = map.levelIds ?? []
-  const controllers = jbeam.controllers ?? []
-  const metadataDocuments = manifest.metadataDocuments ?? []
-  const hasVehicle = jbeam.files > 0 || controllers.length > 0
-  const hasWorld = levelIDs.length > 0 || map.terrainFiles + map.levelObjectFiles + map.forestFiles + map.facilityFiles + map.spawnPoints > 0
-  const hasAssets = map.materialFiles + map.modelFiles + map.textureFiles > 0
-  const hasInterface = (ui.appRoots?.length ?? 0) > 0 || ui.htmlFiles + ui.cssFiles + ui.javaScriptFiles + ui.luaFiles + ui.settingsFiles + ui.scriptFiles > 0
-
-  return <div className="inspector-section-stack inspector-structure">
-    {namespaceEntries.length > 0 && <section className="structure-group">
-      <header><Icon name="archive" size={17}/><div><h3>Package roots</h3><p>Namespaces show where BeamNG resolves this content inside the archive.</p></div></header>
-      <div className="structure-roots">{namespaceEntries.map(([root, values]) => <div key={root}><strong>{root}</strong><span>{values.map(value => <code key={value}>{value}</code>)}</span></div>)}</div>
-    </section>}
-    {hasVehicle && <section className="structure-group">
-      <header><Icon name="vehicle" size={17}/><div><h3>Vehicle integration</h3><p>JBeam definitions provide the parts and physics that BeamNG assembles into a vehicle.</p></div></header>
-      <p className="structure-summary">{jbeam.files.toLocaleString()} JBeam files · {jbeam.parsedFiles.toLocaleString()} parsed · {jbeam.declaredNodes.toLocaleString()} nodes · {jbeam.declaredBeams.toLocaleString()} beams · {jbeam.declaredSlots.toLocaleString()} slots</p>
-      {controllers.length > 0 && <div className="structure-reference"><span>Controller references</span><div>{controllers.map(value => <code key={value}>{value}</code>)}</div></div>}
-    </section>}
-    {hasWorld && <section className="structure-group">
-      <header><Icon name="map" size={17}/><div><h3>World integration</h3><p>Levels, terrain, scene objects, facilities, and spawn points describe how BeamNG loads a world.</p></div></header>
-      <p className="structure-summary">{levelIDs.length.toLocaleString()} level{levelIDs.length === 1 ? '' : 's'} · {map.terrainFiles.toLocaleString()} terrain · {map.levelObjectFiles.toLocaleString()} object groups · {map.forestFiles.toLocaleString()} forest · {map.facilityFiles.toLocaleString()} facilities · {map.spawnPoints.toLocaleString()} spawn points</p>
-      {levelIDs.length > 0 && <div className="structure-reference"><span>Level IDs</span><div>{levelIDs.map(value => <code key={value}>{value}</code>)}</div></div>}
-    </section>}
-    {hasAssets && <section className="structure-group">
-      <header><Icon name="files" size={17}/><div><h3>Shared assets</h3><p>Materials, models, and textures provide the reusable visual resources referenced by this package.</p></div></header>
-      <p className="structure-summary">{map.materialFiles.toLocaleString()} material files · {map.modelFiles.toLocaleString()} model files · {map.textureFiles.toLocaleString()} texture files</p>
-    </section>}
-    {hasInterface && <section className="structure-group">
-      <header><Icon name="code" size={17}/><div><h3>Interface and scripting</h3><p>UI roots and scripts are the entry points BeamNG can load for menus, settings, and behavior.</p></div></header>
-      <p className="structure-summary">{(ui.appRoots?.length ?? 0).toLocaleString()} app roots · {ui.htmlFiles.toLocaleString()} HTML · {ui.cssFiles.toLocaleString()} CSS · {ui.javaScriptFiles.toLocaleString()} JavaScript · {ui.luaFiles.toLocaleString()} Lua scripts</p>
-      {ui.appRoots && ui.appRoots.length > 0 && <div className="structure-reference"><span>App roots</span><div>{ui.appRoots.map(value => <code key={value}>{value}</code>)}</div></div>}
-    </section>}
-    {metadataDocuments.length > 0 && <section className="structure-group">
-      <header><Icon name="files" size={17}/><div><h3>Manifest documents</h3><p>Analyzed metadata documents provide the titles, configurations, and integration hints used above.</p></div></header>
-      <div className="structure-document-list">{metadataDocuments.map(document => <span key={document.path}><Icon name="files" size={13}/>{document.path}</span>)}</div>
-    </section>}
-    {namespaceEntries.length === 0 && !hasVehicle && !hasWorld && !hasAssets && !hasInterface && metadataDocuments.length === 0 && <EmptyState icon="archive" title="No integration groups detected" detail="The manifest does not expose recognized BeamNG content roots yet."/>}
-  </div>
-}
-
-function Files({
-  item,
-  members,
-  query,
-  stale,
-  onQuery,
-  writeBlocked,
-  onPreviewMember,
-  onExtractMember,
-  onRevealArchive,
-  onCreateWorkspace,
-  creatingWorkspace,
-  onError,
+function HistoryTab({
+  history,
+  loading,
+  total,
 }: {
-  item: LibraryItem
-  members: { total: number; visible: ArchiveMember[] }
-  query: string
-  stale: boolean
-  onQuery: (value: string) => void
-  writeBlocked: boolean
-  onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
-  onExtractMember: (memberPath: string) => Promise<void>
-  onRevealArchive: () => Promise<void>
-  onCreateWorkspace: () => void
-  creatingWorkspace: boolean
-  onError: (error: unknown) => void
+  history: EntityDetail['history'] | null
+  loading: boolean
+  total: number
 }) {
-  const [selectedPath, setSelectedPath] = useState('')
-  const [preview, setPreview] = useState<ArchiveMemberPreview | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [actionBusy, setActionBusy] = useState('')
-  const previewRef = useRef(onPreviewMember)
-  previewRef.current = onPreviewMember
-  const selected = members.visible.find(member => member.path === selectedPath) ?? null
-
-  useEffect(() => {
-    if (selectedPath && !members.visible.some(member => member.path === selectedPath)) setSelectedPath('')
-  }, [members.visible, selectedPath])
-
-  useEffect(() => {
-    let cancelled = false
-    setCopied(false)
-    setPreview(null)
-    if (!selected || selected.directory) {
-      setPreviewLoading(false)
-      return () => { cancelled = true }
-    }
-    setPreviewLoading(true)
-    void previewRef.current(selected.path).then(result => {
-      if (!cancelled) setPreview(result)
-    }).catch(error => {
-      if (!cancelled) onError(error)
-    }).finally(() => {
-      if (!cancelled) setPreviewLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [selected?.path, selected?.directory, selected?.crc32])
-
-  const copyPath = async () => {
-    if (!selected) return
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(selected.path)
-      } else {
-        const fallback = document.createElement('textarea')
-        fallback.value = selected.path
-        fallback.setAttribute('readonly', '')
-        fallback.style.position = 'fixed'
-        fallback.style.opacity = '0'
-        document.body.appendChild(fallback)
-        fallback.select()
-        const copiedByFallback = document.execCommand('copy')
-        fallback.remove()
-        if (!copiedByFallback) throw new Error('Clipboard is unavailable')
-      }
-      setCopied(true)
-    } catch (error) {
-      onError(error)
-    }
-  }
-  const extract = async () => {
-    if (stale || writeBlocked || !selected || selected.directory || actionBusy) return
-    setActionBusy('extract')
-    try {
-      await onExtractMember(selected.path)
-    } catch (error) {
-      onError(error)
-    } finally {
-      setActionBusy('')
-    }
-  }
-  const reveal = async () => {
-    if (stale || writeBlocked || actionBusy) return
-    setActionBusy('reveal')
-    try {
-      await onRevealArchive()
-    } catch (error) {
-      onError(error)
-    } finally {
-      setActionBusy('')
-    }
-  }
-
-  return <div className="file-inventory">
-    <label className="search-box search-box--wide"><Icon name="search" size={15}/><input value={query} onChange={event => onQuery(event.target.value)} placeholder="Filter archive members"/></label>
-    <p className="inventory-count">Showing {members.visible.length.toLocaleString()} of {members.total.toLocaleString()} matching entries</p>
-    <div className="inventory-table">
-      <div className="inventory-table__head"><span>Path</span><span>Expanded</span><span>Method</span></div>
-      <div className="inventory-table__rows" role="listbox" aria-label="Archive files">
-        {members.visible.map(member => <button type="button" role="option" aria-selected={selectedPath === member.path} className={`inventory-table__row${selectedPath === member.path ? ' is-selected' : ''}`} key={member.path} onClick={() => setSelectedPath(member.path)}>
-          <span title={member.path}><Icon name={member.directory ? 'folder' : 'files'} size={13}/>{member.path}</span>
-          <span>{member.directory ? '—' : formatBytes(member.uncompressedBytes)}</span>
-          <span>{member.directory ? 'Directory' : member.method === 0 ? 'Store' : member.method === 8 ? 'Deflate' : String(member.method)}</span>
-        </button>)}
-      </div>
-      {selected && <section className="file-preview-panel" aria-label="Selected file preview">
-        <header><div><span>Selected file</span><strong title={selected.path}>{selected.path}</strong></div><Badge tone={selected.directory ? 'neutral' : 'accent'}>{selected.directory ? 'Directory' : 'File'}</Badge></header>
-        <div className="file-preview-panel__actions">
-          <Button icon="copy" tone="quiet" onClick={() => void copyPath()}>{copied ? 'Copied' : 'Copy path'}</Button>
-          <Button icon="export" tone="quiet" disabled={stale || writeBlocked || selected.directory || !item.linked || actionBusy !== ''} onClick={() => void extract()}>{actionBusy === 'extract' ? 'Extracting' : 'Extract'}</Button>
-          <Button icon="archive" tone="quiet" disabled={stale || writeBlocked || !item.linked || actionBusy !== ''} onClick={() => void reveal()}>{actionBusy === 'reveal' ? 'Opening' : 'Reveal archive'}</Button>
-          <Button icon="workspace" tone="quiet" disabled={stale || writeBlocked || !item.linked || creatingWorkspace} onClick={onCreateWorkspace}>{creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}</Button>
-        </div>
-        {selected.directory ? <div className="file-preview-panel__metadata"><strong>Directory</strong><span>This entry groups files in the archive and has no file content to preview.</span></div> : previewLoading ? <div className="file-preview-panel__loading"><Spinner small/><span>Loading preview</span></div> : preview ? <FilePreview preview={preview} member={selected}/> : <div className="file-preview-panel__metadata"><strong>Preview unavailable</strong><span>This file can be selected and extracted, but its contents are not supported for inline preview.</span></div>}
-      </section>}
-    </div>
+  const visible = history?.length ?? 0
+  const capped = !loading && history !== null && total > visible
+  return <div className="inspector-history-tab">
+    <HistoryPanel history={history} loading={loading} />
+    {capped && <p className="inspector-history-tab__cap" role="note">
+      Showing latest {visible.toLocaleString()} of {total.toLocaleString()} history events.
+    </p>}
   </div>
 }
 
-function FilePreview({ preview, member }: { preview: ArchiveMemberPreview; member: ArchiveMember }) {
-  const mime = (preview.mime ?? '').toLowerCase()
-  const isImage = Boolean(preview.dataUrl && mime.startsWith('image/'))
-  const text = typeof preview.text === 'string' ? preview.text : ''
-  const isText = preview.kind === 'text' || mime.startsWith('text/') || /json|xml|javascript|css|yaml|toml/.test(mime)
-  if (isImage) return <div className="file-preview-panel__content file-preview-panel__content--image"><img src={preview.dataUrl} alt={`Preview of ${member.path}`}/>{preview.truncated && <small>Preview image was shortened for display.</small>}</div>
-  if (isText) return <div className="file-preview-panel__content file-preview-panel__content--text"><pre>{text || '(empty file)'}</pre>{preview.truncated && <small>Preview truncated for display. Extract the file for the complete content.</small>}</div>
-  return <div className="file-preview-panel__metadata">
-    <strong>Binary or unsupported preview</strong>
-    <dl><div><dt>Kind</dt><dd>{preview.kind || 'Unknown'}</dd></div><div><dt>MIME</dt><dd>{preview.mime || 'Not identified'}</dd></div><div><dt>Size</dt><dd>{formatBytes(preview.sizeBytes || member.uncompressedBytes)}</dd></div></dl>
-    <span>This file is not editable here. Extract it to inspect or change it with the appropriate tool.</span>
-  </div>
+
+function historyTotal(detail: EntityDetail | null): number {
+  if (!detail) return 0
+  const visible = detail.history?.length ?? 0
+  return Number.isFinite(detail.historyTotal) && detail.historyTotal >= 0
+    ? Math.max(detail.historyTotal, visible)
+    : visible
 }
 
-function History({ detail }: { detail: EntityDetail | null }) {
-  if (!detail) return <div className="center-loader"><Spinner/><span>Loading history</span></div>
-  const history = detail.history ?? []
-  return <section className="entity-history">
-    <header><h3>History</h3><span>{history.length.toLocaleString()} events</span></header>
-    {history.length === 0 ? <p className="muted">No activity recorded.</p> : <div className="history-list">{history.map(event => {
-      const detailText = historyEventDetail(event)
-      return <article key={event.id}><time>{formatDate(event.at)}</time><div><strong>{historyEventTitle(event.type)}</strong>{detailText && <p>{detailText}</p>}</div></article>
-    })}</div>}
-  </section>
+function normalizedScanVerdict(verdict: string): string {
+  const value = verdict.trim().toLowerCase()
+  return value || 'unscanned'
 }
 
-function securityScanStatus(item: LibraryItem): string {
-  const verdict = formatVerdict(item.lastSecurityScanVerdict || item.healthLabel)
-  const hasScan = Boolean(item.lastSecurityScanAt || item.lastSecurityScanVerdict)
-  if (!hasScan) return 'Not scanned'
-  return `${item.securityScanChanged ? 'Last scan' : 'Scanned'}: ${verdict}${!item.securityScanChanged && item.lastSecurityScanAt ? ` · ${formatDate(item.lastSecurityScanAt)}` : ''}`
+type SecurityScanState = 'unscanned' | 'scanning' | 'safe' | 'review' | 'threat' | 'scan_failed'
+
+function securityScanState(item: LibraryItem): SecurityScanState {
+  if (normalizedScanVerdict(item.healthStatus) === 'scanning') return 'scanning'
+  if (!item.lastSecurityScanAt.trim()) return 'unscanned'
+  const verdict = normalizedScanVerdict(item.lastSecurityScanVerdict)
+  if (verdict === 'safe') return 'safe'
+  if (verdict === 'review') return 'review'
+  if (verdict === 'threat') return 'threat'
+  if (verdict === 'broken' || verdict === 'error' || verdict === 'failed' || verdict === 'scan_failed') return 'scan_failed'
+  return 'unscanned'
 }
 
-function formatVerdict(value: string): string {
-  const normalized = value.trim().replace(/_/g, ' ')
-  if (!normalized) return 'Unknown verdict'
-  return normalized.replace(/^\w/, character => character.toUpperCase())
+function securityScanStatus(item: LibraryItem, state: SecurityScanState): string {
+  let label: string
+  if (state === 'scanning') label = 'Scanning…'
+  else if (state === 'safe') label = 'No threats found'
+  else if (state === 'review' || state === 'threat') label = 'Threats found'
+  else if (state === 'scan_failed') label = 'Scan failed'
+  else label = 'Not scanned'
+  return item.securityScanChanged && state !== 'scanning' && state !== 'unscanned'
+    ? `${label} · Archive changed`
+    : label
 }
 
-function scanStatusIcon(status: string): 'shield' | 'check' | 'warning' | 'error' | 'scan' {
+function scanStatusIcon(status: SecurityScanState): 'shield' | 'check' | 'warning' | 'error' | 'scan' {
   if (status === 'safe') return 'check'
-  if (status === 'review') return 'warning'
-  if (status === 'threat' || status === 'broken' || status === 'scan_failed') return 'error'
   if (status === 'scanning') return 'scan'
+  if (status === 'review') return 'warning'
+  if (status === 'threat' || status === 'scan_failed') return 'error'
   return 'shield'
-}
-
-function historyEventTitle(type: string) {
-  const titles: Record<string, string> = {
-    archive_discovered: 'Added to library',
-    archive_changed: 'Archive updated',
-    archive_unlinked: 'Source archive removed',
-    archive_relinked: 'Source archive restored',
-    workspace_created: 'ModMaker workspace created',
-    mod_project_created: 'Mod created in ModMaker',
-    workspace_exported: 'Build exported',
-    virus_scan_complete: 'Virus scan completed',
-    virus_scan_failed: 'Virus scan failed',
-    mod_audit_local: 'Signature scan completed',
-    mod_audit_pre_scan: 'Virgil file review completed',
-    mod_audit_full: 'Security assessment completed',
-    test_installed: 'Test build installed',
-    test_removed: 'Test build removed',
-    game_launched: 'BeamNG launched',
-    tag_added: 'Tag assigned',
-    tag_removed: 'Tag removed',
-    tag_visual_updated: 'Tag appearance updated',
-    library_item_details_updated: 'Details updated',
-    item_details_updated: 'Details updated',
-    metadata_updated: 'Details updated',
-    library_variant_updated: 'Variant updated',
-    variant_updated: 'Variant updated',
-    variant_details_updated: 'Variant updated',
-  }
-  return titles[type] ?? type.replace(/_/g, ' ').replace(/^\w/, value => value.toUpperCase())
-}
-
-function historyEventDetail(event: EventRecord) {
-  const data: Record<string, unknown> = event.data ?? {}
-  if (event.type === 'virus_scan_complete') {
-    const mode = data.mode === 'full' ? 'Full scan' : 'Signature-based scan'
-    const verdict = typeof data.verdict === 'string' ? data.verdict.replace(/_/g, ' ') : ''
-    return [mode, verdict].filter(Boolean).join(' · ')
-  }
-  if (event.type === 'tag_added' || event.type === 'tag_removed' || event.type === 'tag_visual_updated') {
-    const name = firstString(data, ['tagName', 'name']) || 'Unnamed tag'
-    const visual = [firstString(data, ['icon']) && `Icon ${firstString(data, ['icon'])}`, firstString(data, ['color'])].filter(Boolean)
-    return [name, ...visual].join(' · ')
-  }
-  if (event.type.includes('variant')) {
-    const name = firstString(data, ['configuration', 'variantName', 'name'])
-    const fields = stringArray(data.fields).join(', ')
-    return [name, fields ? `Updated ${fields}` : 'Variant presentation saved'].filter(Boolean).join(' · ')
-  }
-  if (event.type.includes('details') || event.type === 'metadata_updated') {
-    const fields = stringArray(data.fields)
-    return fields.length > 0 ? `Updated ${fields.join(', ')}` : firstString(data, ['summary', 'message', 'result'])
-  }
-  for (const key of ['summary', 'message', 'result']) {
-    if (typeof data[key] === 'string' && data[key].trim()) return data[key]
-  }
-  return ''
-}
-
-function firstString(data: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = data[key]
-    if (typeof value === 'string' && value.trim()) return value.trim()
-  }
-  return ''
-}
-
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0).map(entry => entry.trim())
 }

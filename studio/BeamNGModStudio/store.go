@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	modkit "github.com/SignedAdam/beamworlds-modkit"
@@ -16,7 +17,16 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	dbPath  string
+	writeMu sync.Mutex
+}
+
+// libraryQueryer is the smallest common read surface implemented by *sql.DB
+// and *sql.Tx. Keeping hydration and search on this interface prevents a
+// logical library read from accidentally escaping its transaction snapshot.
+type libraryQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 type LibraryItem struct {
@@ -26,6 +36,8 @@ type LibraryItem struct {
 	FolderID                string          `json:"folderId"`
 	DisplayName             string          `json:"displayName"`
 	Kind                    modkit.Kind     `json:"kind"`
+	SourceID                string          `json:"sourceId"`
+	Source                  string          `json:"source"`
 	ArchivePath             string          `json:"archivePath"`
 	RootPath                string          `json:"rootPath"`
 	Linked                  bool            `json:"linked"`
@@ -137,23 +149,68 @@ type AssetRecord struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
-func OpenStore(filename string) (*Store, error) {
+// ScanArchive is the immutable result of inspecting one archive during a
+// library scan. Reused entries intentionally carry no manifest: the existing
+// artifact row is the source of truth until a changed archive is inspected.
+type ScanArchive struct {
+	Root        string
+	ArchivePath string
+	SizeBytes   int64
+	Modified    time.Time
+	Manifest    modkit.Manifest
+	Asset       *AssetRecord
+	SourceClass string
+	Reused      bool
+}
+
+func OpenStore(filename string, legacyCatalogPath ...string) (*Store, error) {
+	if filename == "" {
+		return nil, errors.New("database path is required")
+	}
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", filename)
+	// _pragma parameters are applied by modernc.org/sqlite whenever it opens a
+	// physical connection, rather than only to the first connection in the
+	// pool. WAL keeps foreground snapshots available while the scan writer
+	// commits, and the busy timeout turns transient lock contention into a
+	// bounded, explicit error.
+	dsn := filename + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	store := &Store{db: db}
-	if err := store.migrate(context.Background()); err != nil {
+	// Reads must be able to use more than the single writer connection. All
+	// in-process writers are serialized with writeMu; SQLite still reports any
+	// external writer failure to its caller.
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
+	store := &Store{db: db, dbPath: filename}
+	fail := func(err error) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := store.migrate(context.Background()); err != nil {
+		return fail(err)
+	}
+	if err := store.recoverInterruptedScans(context.Background()); err != nil {
+		return fail(fmt.Errorf("recover interrupted scans: %w", err))
+	}
+	if err := store.verifyIntegrity(context.Background()); err != nil {
+		return fail(err)
+	}
+	if len(legacyCatalogPath) > 0 {
+		if path := strings.TrimSpace(legacyCatalogPath[0]); path != "" {
+			if err := store.importLegacyCatalogOnce(context.Background(), path); err != nil {
+				return fail(err)
+			}
+			if err := store.verifyIntegrity(context.Background()); err != nil {
+				return fail(err)
+			}
+		}
+	}
 	if err := store.RecoverInterruptedAgentRuns(context.Background()); err != nil {
-		_ = db.Close()
-		return nil, err
+		return fail(err)
 	}
 	return store, nil
 }
@@ -161,187 +218,29 @@ func OpenStore(filename string) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate(ctx context.Context) error {
-	statements := []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA foreign_keys=ON`,
-		`PRAGMA busy_timeout=5000`,
-		`CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL)`,
-		`INSERT INTO schema_meta(version) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_meta)`,
-		`CREATE TABLE IF NOT EXISTS entities (
-			id TEXT PRIMARY KEY, display_name TEXT NOT NULL, kind TEXT NOT NULL,
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS artifacts (
-			id TEXT PRIMARY KEY, central_fingerprint TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL DEFAULT '',
-			size_bytes INTEGER NOT NULL, manifest_json TEXT NOT NULL, analyzer_version TEXT NOT NULL,
-			analyzed_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS scans (
-			id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT NOT NULL DEFAULT '',
-			status TEXT NOT NULL, roots_json TEXT NOT NULL, discovered INTEGER NOT NULL DEFAULT 0,
-			analyzed INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS archive_links (
-			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
-			path TEXT NOT NULL COLLATE NOCASE UNIQUE, root_path TEXT NOT NULL COLLATE NOCASE,
-			active INTEGER NOT NULL, size_bytes INTEGER NOT NULL, modified_at TEXT NOT NULL,
-			discovered_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, last_scan_id TEXT NOT NULL,
-			basename_key TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS archive_links_entity_idx ON archive_links(entity_id, active, last_seen_at)`,
-		`CREATE INDEX IF NOT EXISTS archive_links_scan_idx ON archive_links(root_path, last_scan_id)`,
-		`CREATE TABLE IF NOT EXISTS assets (
-			sha256 TEXT PRIMARY KEY, path TEXT NOT NULL, mime TEXT NOT NULL, width INTEGER NOT NULL,
-			height INTEGER NOT NULL, size_bytes INTEGER NOT NULL, created_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS entity_assets (
-			entity_id TEXT NOT NULL REFERENCES entities(id), asset_sha256 TEXT NOT NULL REFERENCES assets(sha256),
-			role TEXT NOT NULL, ordinal INTEGER NOT NULL, PRIMARY KEY(entity_id, role, ordinal)
-		)`,
-		`CREATE TABLE IF NOT EXISTS events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, entity_id TEXT NOT NULL DEFAULT '',
-			type TEXT NOT NULL, data_json TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity_id, id DESC)`,
-		`CREATE TABLE IF NOT EXISTS workspaces (
-			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
-			root TEXT NOT NULL, files_root TEXT NOT NULL, source_path TEXT NOT NULL, source_sha256 TEXT NOT NULL,
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL, status TEXT NOT NULL,
-			last_validation_json TEXT NOT NULL DEFAULT '',
-			virgil_configured INTEGER NOT NULL DEFAULT 0,
-			virgil_enabled INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE INDEX IF NOT EXISTS workspaces_entity_idx ON workspaces(entity_id, updated_at DESC)`,
-		`CREATE TABLE IF NOT EXISTS virgil_sessions (
-			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-			profile TEXT NOT NULL DEFAULT '', omp_session_id TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT 'Virgil session',
-			omp_title TEXT NOT NULL DEFAULT '', user_title TEXT NOT NULL DEFAULT '',
-			status TEXT NOT NULL DEFAULT 'idle', last_error TEXT NOT NULL DEFAULT '',
-			tab_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS virgil_sessions_workspace_idx ON virgil_sessions(workspace_id, tab_order, created_at, id)`,
-		`CREATE TABLE IF NOT EXISTS exports (
-			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), artifact_id TEXT NOT NULL,
-			path TEXT NOT NULL, sha256 TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS agent_runs (
-			id TEXT PRIMARY KEY, session_id TEXT NOT NULL DEFAULT '', workspace_id TEXT NOT NULL REFERENCES workspaces(id), prompt TEXT NOT NULL,
-			status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT NOT NULL DEFAULT '',
-			final_text TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS agent_events (
-			id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES agent_runs(id),
-			at TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, data_json TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS agent_events_run_idx ON agent_events(run_id, id)`,
-		`CREATE TABLE IF NOT EXISTS mod_audits (
-			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
-			status TEXT NOT NULL, stage TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-			deterministic_json TEXT NOT NULL DEFAULT '{}', attack_surface_json TEXT NOT NULL DEFAULT '{}',
-			pre_scan_json TEXT NOT NULL DEFAULT '{}', final_json TEXT NOT NULL DEFAULT '{}',
-			follow_up_json TEXT NOT NULL DEFAULT '[]', error TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE INDEX IF NOT EXISTS mod_audits_entity_idx ON mod_audits(entity_id, artifact_id, updated_at DESC)`,
-		`CREATE TABLE IF NOT EXISTS mod_audit_files (
-			audit_id TEXT NOT NULL REFERENCES mod_audits(id) ON DELETE CASCADE, path TEXT NOT NULL,
-			fingerprint TEXT NOT NULL, size_bytes INTEGER NOT NULL, entrypoint_type TEXT NOT NULL,
-			signals_json TEXT NOT NULL, excerpt TEXT NOT NULL, pre_scan_json TEXT NOT NULL DEFAULT '{}',
-			PRIMARY KEY(audit_id, path)
-		)`,
-		`CREATE TABLE IF NOT EXISTS virus_scans (
-			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
-			file_sha256 TEXT NOT NULL DEFAULT '',
-			mode TEXT NOT NULL, status TEXT NOT NULL, current_stage TEXT NOT NULL, verdict TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL, error TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE INDEX IF NOT EXISTS virus_scans_entity_idx ON virus_scans(entity_id, artifact_id, updated_at DESC)`,
-		`CREATE TABLE IF NOT EXISTS virus_scan_stages (
-			id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES virus_scans(id) ON DELETE CASCADE,
-			entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
-			file_sha256 TEXT NOT NULL DEFAULT '',
-			stage TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT '',
-			parameters_json TEXT NOT NULL DEFAULT '{}', inputs_json TEXT NOT NULL DEFAULT '[]',
-			metadata_file TEXT NOT NULL, audit_id TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE INDEX IF NOT EXISTS virus_scan_stages_lineage_idx ON virus_scan_stages(entity_id, artifact_id, stage, completed_at DESC)`,
-		`CREATE TABLE IF NOT EXISTS test_installs (
-			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), export_id TEXT NOT NULL REFERENCES exports(id),
-			path TEXT NOT NULL, sha256 TEXT NOT NULL, installed_at TEXT NOT NULL, log_baseline_at TEXT NOT NULL,
-			log_path TEXT NOT NULL, log_offset INTEGER NOT NULL, active INTEGER NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS library_folders (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT REFERENCES library_folders(id) ON DELETE CASCADE,
-			position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS library_folder_entities (
-			entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-			folder_id TEXT NOT NULL REFERENCES library_folders(id) ON DELETE CASCADE,
-			position INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE INDEX IF NOT EXISTS library_folder_entities_folder_idx ON library_folder_entities(folder_id, position)`,
-		`CREATE TABLE IF NOT EXISTS mod_tags (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-			color TEXT NOT NULL DEFAULT '#7a8791', icon TEXT NOT NULL DEFAULT 'tag',
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_tag_entities (
-			tag_id TEXT NOT NULL REFERENCES mod_tags(id) ON DELETE CASCADE,
-			entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-			created_at TEXT NOT NULL, PRIMARY KEY(tag_id, entity_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS mod_tag_entities_entity_idx ON mod_tag_entities(entity_id, tag_id)`,
-		`CREATE TABLE IF NOT EXISTS mod_presets (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_preset_entities (
-			preset_id TEXT NOT NULL REFERENCES mod_presets(id) ON DELETE CASCADE,
-			entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-			position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(preset_id, entity_id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_profiles (
-			id TEXT PRIMARY KEY, name TEXT NOT NULL, default_preset_id TEXT NOT NULL REFERENCES mod_presets(id),
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_profile_presets (
-			profile_id TEXT NOT NULL REFERENCES mod_profiles(id) ON DELETE CASCADE,
-			preset_id TEXT NOT NULL REFERENCES mod_presets(id) ON DELETE CASCADE,
-			position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(profile_id, preset_id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS workspace_drafts (
-			workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-			path TEXT NOT NULL, content TEXT NOT NULL, base_sha256 TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
-			PRIMARY KEY(workspace_id, path)
-		)`,
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.migrateVersioned(ctx)
+}
+
+// recoverInterruptedScans turns scans left in the running state by a process
+// crash into an explicit recovery state. It deliberately does not touch
+// archive links: an incomplete batch is rolled back by SQLite.
+func (s *Store) recoverInterruptedScans(ctx context.Context) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	for _, statement := range statements {
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("database migration: %w", err)
-		}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE scans
+		SET finished_at=CASE WHEN finished_at='' THEN ? ELSE finished_at END,
+			status='interrupted'
+		WHERE status='running'`, nowUTC()); err != nil {
+		return err
 	}
-	if err := s.ensureModTagVisualColumns(ctx); err != nil {
-		return fmt.Errorf("migrate mod tag visuals: %w", err)
-	}
-	if err := s.ensureExampleModTags(ctx); err != nil {
-		return fmt.Errorf("seed example tags: %w", err)
-	}
-	if err := s.ensureVirusScanHashColumns(ctx); err != nil {
-		return fmt.Errorf("migrate virus scan hashes: %w", err)
-	}
-	if err := s.ensureWorkspaceVirgilColumns(ctx); err != nil {
-		return fmt.Errorf("migrate workspace virgil preferences: %w", err)
-	}
-	if err := s.ensureVirgilSessionSchema(ctx); err != nil {
-		return fmt.Errorf("migrate Virgil sessions: %w", err)
-	}
-	if err := s.ensureWorkspaceDraftBaseSHA(ctx); err != nil {
-		return fmt.Errorf("migrate workspace draft base hashes: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE schema_meta SET version=3 WHERE version<3`); err != nil {
-		return fmt.Errorf("record schema version: %w", err)
-	}
-	return nil
+	return tx.Commit()
 }
 func (s *Store) ensureWorkspaceVirgilColumns(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(workspaces)`)
@@ -520,181 +419,847 @@ func (s *Store) ensureVirgilSessionSchema(ctx context.Context) error {
 }
 
 func (s *Store) BeginScan(ctx context.Context, roots []string) (string, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	id, err := modkit.NewID()
 	if err != nil {
 		return "", err
 	}
-	encoded, _ := json.Marshal(roots)
-	_, err = s.db.ExecContext(ctx, `INSERT INTO scans(id, started_at, status, roots_json) VALUES(?, ?, 'running', ?)`, id, nowUTC(), string(encoded))
-	return id, err
+	encoded, err := json.Marshal(roots)
+	if err != nil {
+		return "", err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO scans(id, started_at, status, roots_json, error)
+		VALUES(?, ?, 'running', ?, '')`, id, nowUTC(), string(encoded))
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (s *Store) FinishScan(ctx context.Context, scanID string, roots []string, discovered, analyzed, failed int, scanErr error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+
 	status := "complete"
+	scanError := ""
 	if scanErr != nil {
 		status = "failed"
-	} else {
+		scanError = scanErr.Error()
+		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+			status = "interrupted"
+		}
+	}
+	removedEntities := map[string]struct{}{}
+	if scanErr == nil {
 		for _, root := range roots {
-			rows, queryErr := tx.QueryContext(ctx, `SELECT id, entity_id, path FROM archive_links WHERE root_path = ? COLLATE NOCASE AND active = 1 AND last_scan_id <> ?`, root, scanID)
+			rows, queryErr := tx.QueryContext(ctx, `SELECT id, entity_id, path
+				FROM archive_links
+				WHERE root_path = ? COLLATE NOCASE
+					AND active = 1
+					AND COALESCE(last_scan_id, '') <> ?`, root, scanID)
 			if queryErr != nil {
 				return queryErr
 			}
-			type missingLink struct{ id, entityID, path string }
-			missing := []missingLink{}
+			type missingLink struct {
+				id       string
+				entityID string
+				path     string
+			}
+			missing := make([]missingLink, 0)
 			for rows.Next() {
 				var link missingLink
 				if err := rows.Scan(&link.id, &link.entityID, &link.path); err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return err
 				}
 				missing = append(missing, link)
+			}
+			if err := rows.Err(); err != nil {
+				_ = rows.Close()
+				return err
 			}
 			if err := rows.Close(); err != nil {
 				return err
 			}
 			for _, link := range missing {
-				if _, err := tx.ExecContext(ctx, `UPDATE archive_links SET active = 0 WHERE id = ?`, link.id); err != nil {
+				result, err := tx.ExecContext(ctx, `UPDATE archive_links SET active = 0 WHERE id = ? AND active = 1`, link.id)
+				if err != nil {
 					return err
+				}
+				affected, err := result.RowsAffected()
+				if err != nil {
+					return err
+				}
+				if affected == 0 {
+					continue
 				}
 				if err := appendEventTx(ctx, tx, link.entityID, "archive_unlinked", map[string]any{"path": link.path}); err != nil {
 					return err
 				}
+				removedEntities[link.entityID] = struct{}{}
 			}
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE scans SET finished_at = ?, status = ?, discovered = ?, analyzed = ?, failed = ? WHERE id = ?`, nowUTC(), status, discovered, analyzed, failed, scanID)
+	for entityID := range removedEntities {
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return err
+		}
+	}
+	if len(removedEntities) > 0 {
+		if err := markLibraryIndexFreshTx(ctx, tx); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE scans
+		SET finished_at = ?, status = ?, discovered = ?, analyzed = ?, failed = ?, error = ?
+		WHERE id = ?`, nowUTC(), status, discovered, analyzed, failed, scanError, scanID)
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
 	}
 	return tx.Commit()
 }
 
-func (s *Store) ReuseArchiveAnalysis(ctx context.Context, scanID, root, archivePath string, size int64, modified time.Time) (LibraryItem, bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return LibraryItem{}, false, err
-	}
-	defer tx.Rollback()
-	var linkID, entityID string
-	var wasActive int
+// LookupArchiveAnalysis is intentionally read-only. The scan worker uses it
+// before opening an archive; the corresponding freshness update is deferred
+// to ApplyScanBatch so a lookup cannot make an interrupted scan look complete.
+// A path match is returned even when its analysis is stale, allowing callers
+// to preserve the retained source while reporting reusable=false.
+func (s *Store) LookupArchiveAnalysis(ctx context.Context, root, archivePath string, size int64, modified time.Time) (LibraryItem, bool, error) {
 	modifiedAt := modified.UTC().Format(time.RFC3339Nano)
-	err = tx.QueryRowContext(ctx, `
-		SELECT l.id,l.entity_id,l.active
-		FROM archive_links l JOIN artifacts a ON a.id=l.artifact_id
-		WHERE l.path=? COLLATE NOCASE AND l.size_bytes=? AND l.modified_at=? AND a.analyzer_version=?`,
-		archivePath, size, modifiedAt, modkit.AnalyzerVersion,
-	).Scan(&linkID, &entityID, &wasActive)
+	var entityID string
+	var reusable int
+	err := s.db.QueryRowContext(ctx, `SELECT l.entity_id,
+			CASE WHEN l.size_bytes = ? AND l.modified_at = ? AND a.analyzer_version = ? THEN 1 ELSE 0 END
+		FROM archive_links l
+		JOIN artifacts a ON a.id = l.artifact_id
+		WHERE l.path = ? COLLATE NOCASE
+		ORDER BY l.active DESC, l.last_seen_at DESC, l.id DESC
+		LIMIT 1`, size, modifiedAt, modkit.AnalyzerVersion, archivePath).Scan(&entityID, &reusable)
 	if errors.Is(err, sql.ErrNoRows) {
 		return LibraryItem{}, false, nil
 	}
 	if err != nil {
 		return LibraryItem{}, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE archive_links SET root_path=?,active=1,last_seen_at=?,last_scan_id=? WHERE id=?`, root, nowUTC(), scanID, linkID); err != nil {
+	item, err := s.GetLibraryItem(ctx, entityID)
+	if err != nil {
 		return LibraryItem{}, false, err
 	}
-	if wasActive == 0 {
-		if err := appendEventTx(ctx, tx, entityID, "archive_relinked", map[string]any{"path": archivePath}); err != nil {
-			return LibraryItem{}, false, err
-		}
+	return item, reusable == 1, nil
+}
+
+func (s *Store) ReuseArchiveAnalysis(ctx context.Context, scanID, root, archivePath string, size int64, modified time.Time) (LibraryItem, bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return LibraryItem{}, false, err
+	}
+	defer tx.Rollback()
+	modifiedAt := modified.UTC().Format(time.RFC3339Nano)
+	var found int
+	err = tx.QueryRowContext(ctx, `SELECT 1
+		FROM archive_links l
+		JOIN artifacts a ON a.id = l.artifact_id
+		WHERE l.path = ? COLLATE NOCASE
+			AND l.size_bytes = ?
+			AND l.modified_at = ?
+			AND a.analyzer_version = ?
+		LIMIT 1`, archivePath, size, modifiedAt, modkit.AnalyzerVersion).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return LibraryItem{}, false, nil
+	}
+	if err != nil {
+		return LibraryItem{}, false, err
+	}
+	entityID, err := s.applyScanArchiveTx(ctx, tx, scanID, ScanArchive{
+		Root: root, ArchivePath: archivePath, SizeBytes: size, Modified: modified, Reused: true,
+	})
+	if err != nil {
+		return LibraryItem{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return LibraryItem{}, false, err
 	}
 	item, err := s.GetLibraryItem(ctx, entityID)
-	return item, err == nil, err
+	if err != nil {
+		return LibraryItem{}, false, err
+	}
+	return item, true, nil
 }
 
 func (s *Store) UpsertArchive(ctx context.Context, scanID, root, archivePath string, size int64, modified time.Time, manifest modkit.Manifest, asset *AssetRecord) (LibraryItem, error) {
+	s.writeMu.Lock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		s.writeMu.Unlock()
 		return LibraryItem{}, err
 	}
 	defer tx.Rollback()
-	now := nowUTC()
-	manifestJSON, err := json.Marshal(manifest)
+	entityID, err := s.applyScanArchiveTx(ctx, tx, scanID, ScanArchive{
+		Root: root, ArchivePath: archivePath, SizeBytes: size, Modified: modified, Manifest: manifest, Asset: asset,
+	})
 	if err != nil {
-		return LibraryItem{}, err
-	}
-	var artifactID string
-	err = tx.QueryRowContext(ctx, `SELECT id FROM artifacts WHERE central_fingerprint = ?`, manifest.CentralFingerprint).Scan(&artifactID)
-	if errors.Is(err, sql.ErrNoRows) {
-		artifactID, err = modkit.NewID()
-		if err != nil {
-			return LibraryItem{}, err
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO artifacts(id, central_fingerprint, sha256, size_bytes, manifest_json, analyzer_version, analyzed_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, artifactID, manifest.CentralFingerprint, manifest.FullSHA256, size, string(manifestJSON), modkit.AnalyzerVersion, now)
-	} else if err == nil {
-		_, err = tx.ExecContext(ctx, `UPDATE artifacts SET sha256 = CASE WHEN ? <> '' THEN ? ELSE sha256 END, size_bytes = ?, manifest_json = ?, analyzer_version = ?, analyzed_at = ? WHERE id = ?`, manifest.FullSHA256, manifest.FullSHA256, size, string(manifestJSON), modkit.AnalyzerVersion, now, artifactID)
-	}
-	if err != nil {
-		return LibraryItem{}, err
-	}
-	basenameKey := strings.ToLower(filepath.Base(archivePath)) + "\x00" + manifest.CentralFingerprint
-	var linkID, entityID, previousArtifact string
-	var wasActive int
-	err = tx.QueryRowContext(ctx, `SELECT id, entity_id, artifact_id, active FROM archive_links WHERE path = ? COLLATE NOCASE`, archivePath).Scan(&linkID, &entityID, &previousArtifact, &wasActive)
-	newLink := false
-	if errors.Is(err, sql.ErrNoRows) {
-		err = tx.QueryRowContext(ctx, `SELECT entity_id FROM archive_links WHERE basename_key = ? ORDER BY active DESC, last_seen_at DESC LIMIT 1`, basenameKey).Scan(&entityID)
-		if errors.Is(err, sql.ErrNoRows) {
-			entityID, err = modkit.NewID()
-			if err != nil {
-				return LibraryItem{}, err
-			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO entities(id, display_name, kind, created_at, updated_at) VALUES(?, ?, ?, ?, ?)`, entityID, displayName(manifest, archivePath), manifest.Kind, now, now)
-		}
-		if err != nil {
-			return LibraryItem{}, err
-		}
-		linkID, err = modkit.NewID()
-		if err != nil {
-			return LibraryItem{}, err
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO archive_links(id, entity_id, artifact_id, path, root_path, active, size_bytes, modified_at, discovered_at, last_seen_at, last_scan_id, basename_key) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`, linkID, entityID, artifactID, archivePath, root, size, modified.UTC().Format(time.RFC3339Nano), now, now, scanID, basenameKey)
-		newLink = true
-	} else if err == nil {
-		_, err = tx.ExecContext(ctx, `UPDATE archive_links SET artifact_id = ?, root_path = ?, active = 1, size_bytes = ?, modified_at = ?, last_seen_at = ?, last_scan_id = ?, basename_key = ? WHERE id = ?`, artifactID, root, size, modified.UTC().Format(time.RFC3339Nano), now, scanID, basenameKey, linkID)
-	}
-	if err != nil {
-		return LibraryItem{}, err
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE entities SET display_name = ?, kind = ?, updated_at = ? WHERE id = ?`, displayName(manifest, archivePath), manifest.Kind, now, entityID)
-	if err != nil {
-		return LibraryItem{}, err
-	}
-	if asset != nil {
-		_, err = tx.ExecContext(ctx, `INSERT INTO assets(sha256, path, mime, width, height, size_bytes, created_at) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(sha256) DO UPDATE SET path=excluded.path, mime=excluded.mime, width=excluded.width, height=excluded.height, size_bytes=excluded.size_bytes`, asset.SHA256, asset.Path, asset.MIME, asset.Width, asset.Height, asset.SizeBytes, now)
-		if err != nil {
-			return LibraryItem{}, err
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO entity_assets(entity_id, asset_sha256, role, ordinal) VALUES(?, ?, 'thumbnail', 0) ON CONFLICT(entity_id, role, ordinal) DO UPDATE SET asset_sha256=excluded.asset_sha256`, entityID, asset.SHA256)
-		if err != nil {
-			return LibraryItem{}, err
-		}
-	}
-	if newLink {
-		err = appendEventTx(ctx, tx, entityID, "archive_discovered", map[string]any{"path": archivePath, "artifactId": artifactID})
-	} else {
-		if previousArtifact != artifactID {
-			err = appendEventTx(ctx, tx, entityID, "archive_changed", map[string]any{"path": archivePath, "fromArtifactId": previousArtifact, "artifactId": artifactID})
-		}
-		if err == nil && wasActive == 0 {
-			err = appendEventTx(ctx, tx, entityID, "archive_relinked", map[string]any{"path": archivePath})
-		}
-	}
-	if err != nil {
+		s.writeMu.Unlock()
 		return LibraryItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
+		s.writeMu.Unlock()
 		return LibraryItem{}, err
 	}
+	s.writeMu.Unlock()
 	return s.GetLibraryItem(ctx, entityID)
+}
+
+// ApplyScanBatch applies the complete scan snapshot and marks its scan row
+// complete in the same transaction. A caller sees either the previous
+// snapshot or this one; returned items are hydrated before the transaction
+// commits, so a hydration error can only roll the batch back.
+func (s *Store) ApplyScanBatch(ctx context.Context, scanID string, roots []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
+	if strings.TrimSpace(scanID) == "" {
+		return nil, errors.New("scan ID is required")
+	}
+	if failed > 0 {
+		return nil, fmt.Errorf("scan batch contains %d analysis failures; refusing to reconcile the scan", failed)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.applyScanBatchTx(ctx, scanID, roots, archives, discovered, analyzed, failed)
+}
+
+func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var scanStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM scans WHERE id = ?`, scanID).Scan(&scanStatus); err != nil {
+		return nil, err
+	}
+	if scanStatus != "running" {
+		return nil, fmt.Errorf("scan %q is not running", scanID)
+	}
+
+	entityIDs := make([]string, 0, len(archives))
+	seenEntities := make(map[string]struct{}, len(archives))
+	allReused := true
+	for _, archive := range archives {
+		if !archive.Reused {
+			allReused = false
+			break
+		}
+	}
+	if allReused {
+		entityIDs, err = s.applyReusedScanArchivesTx(ctx, tx, scanID, archives)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		for _, archive := range archives {
+			entityID, err := s.applyScanArchiveTx(ctx, tx, scanID, archive)
+			if err != nil {
+				return nil, err
+			}
+			if _, seen := seenEntities[entityID]; !seen {
+				seenEntities[entityID] = struct{}{}
+				entityIDs = append(entityIDs, entityID)
+			}
+		}
+	}
+
+	removedEntities := map[string]struct{}{}
+	var rootScanStmt, deactivateStmt, eventStmt *sql.Stmt
+	if len(roots) > 0 {
+		rootScanStmt, err = tx.PrepareContext(ctx, `SELECT id, entity_id, path
+			FROM archive_links
+			WHERE root_path = ? COLLATE NOCASE
+				AND active = 1
+				AND COALESCE(last_scan_id, '') <> ?`)
+		if err != nil {
+			return nil, err
+		}
+		defer rootScanStmt.Close()
+		deactivateStmt, err = tx.PrepareContext(ctx, `UPDATE archive_links SET active = 0 WHERE id = ? AND active = 1`)
+		if err != nil {
+			return nil, err
+		}
+		defer deactivateStmt.Close()
+		eventStmt, err = tx.PrepareContext(ctx, `INSERT INTO events(at,entity_id,type,data_json) VALUES(?,?,?,?)`)
+		if err != nil {
+			return nil, err
+		}
+		defer eventStmt.Close()
+	}
+	for _, root := range roots {
+		rows, err := rootScanStmt.QueryContext(ctx, root, scanID)
+		if err != nil {
+			return nil, err
+		}
+		type missingLink struct {
+			id       string
+			entityID string
+			path     string
+		}
+		missing := make([]missingLink, 0)
+		for rows.Next() {
+			var link missingLink
+			if err := rows.Scan(&link.id, &link.entityID, &link.path); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			missing = append(missing, link)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		for _, link := range missing {
+			result, err := deactivateStmt.ExecContext(ctx, link.id)
+			if err != nil {
+				return nil, err
+			}
+			affected, err := result.RowsAffected()
+			if err != nil {
+				return nil, err
+			}
+			if affected == 0 {
+				continue
+			}
+			if err := appendEventStmtTx(ctx, eventStmt, link.entityID, "archive_unlinked", map[string]any{"path": link.path}); err != nil {
+				return nil, err
+			}
+			removedEntities[link.entityID] = struct{}{}
+		}
+	}
+	for entityID := range removedEntities {
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return nil, err
+		}
+	}
+	if len(removedEntities) > 0 || len(entityIDs) > 0 {
+		if err := markLibraryIndexFreshTx(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE scans
+		SET finished_at = ?, status = 'complete', discovered = ?, analyzed = ?, failed = ?, error = ''
+		WHERE id = ? AND status = 'running'`, nowUTC(), discovered, analyzed, failed, scanID)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, sql.ErrNoRows
+	}
+	hydrated, err := s.listItemsByIDsTx(ctx, tx, entityIDs)
+	if err != nil {
+		return nil, err
+	}
+	byEntity := make(map[string]int, len(hydrated))
+	for index := range hydrated {
+		byEntity[hydrated[index].EntityID] = index
+	}
+	items := make([]LibraryItem, 0, len(entityIDs))
+	for _, entityID := range entityIDs {
+		itemIndex, ok := byEntity[entityID]
+		if !ok {
+			return nil, sql.ErrNoRows
+		}
+		items = append(items, hydrated[itemIndex])
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+type reusedScanArchiveKey struct {
+	path        string
+	sizeBytes   int64
+	modifiedAt  string
+	analyzerVer string
+}
+
+type reusedScanArchiveState struct {
+	linkID   string
+	entityID string
+	rootPath string
+	active   int
+}
+
+// applyReusedScanArchivesTx handles the common incremental-scan case in one
+// indexed prefetch followed by executions of a single prepared update. The
+// archive and artifact rows are read from the transaction snapshot before any
+// link is touched, while state is updated in memory for duplicate inputs to
+// preserve the sequential behavior of the general path.
+func (s *Store) applyReusedScanArchivesTx(ctx context.Context, tx *sql.Tx, scanID string, archives []ScanArchive) ([]string, error) {
+	if len(archives) == 0 {
+		return []string{}, nil
+	}
+	paths := make([]string, 0, len(archives))
+	seenPaths := make(map[string]struct{}, len(archives))
+	for _, archive := range archives {
+		archivePath := strings.TrimSpace(archive.ArchivePath)
+		if archivePath == "" {
+			return nil, errors.New("archive path is required")
+		}
+		if _, err := normalizeArchiveSourceClass(archive.SourceClass); err != nil {
+			return nil, err
+		}
+		pathKey := sqliteNoCaseKey(archivePath)
+		if _, seen := seenPaths[pathKey]; seen {
+			continue
+		}
+		seenPaths[pathKey] = struct{}{}
+		paths = append(paths, archivePath)
+	}
+
+	states := make(map[reusedScanArchiveKey]reusedScanArchiveState, len(paths))
+	stateEntityIDs := make([]string, 0, len(paths))
+	seenStateEntities := make(map[string]struct{}, len(paths))
+	const prefetchChunkSize = 800
+	for chunk := range (len(paths) + prefetchChunkSize - 1) / prefetchChunkSize {
+		start := chunk * prefetchChunkSize
+		end := start + prefetchChunkSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		placeholders := strings.TrimRight(strings.Repeat("?,", end-start), ",")
+		args := make([]any, end-start)
+		for index := range paths[start:end] {
+			args[index] = paths[start+index]
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT l.path,l.id,l.entity_id,l.root_path,l.active,l.size_bytes,l.modified_at,COALESCE(a.analyzer_version,'')
+			FROM archive_links l
+			JOIN artifacts a ON a.id=l.artifact_id
+			WHERE l.path COLLATE NOCASE IN (`+placeholders+`)
+			ORDER BY l.path COLLATE NOCASE,l.rowid`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var path, linkID, entityID, rootPath, modifiedAt, analyzerVer string
+			var active int
+			var sizeBytes int64
+			if err := rows.Scan(&path, &linkID, &entityID, &rootPath, &active, &sizeBytes, &modifiedAt, &analyzerVer); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			key := reusedScanArchiveKey{
+				path:        sqliteNoCaseKey(path),
+				sizeBytes:   sizeBytes,
+				modifiedAt:  modifiedAt,
+				analyzerVer: analyzerVer,
+			}
+			if _, exists := states[key]; exists {
+				continue
+			}
+			states[key] = reusedScanArchiveState{
+				linkID:   linkID,
+				entityID: entityID,
+				rootPath: rootPath,
+				active:   active,
+			}
+			if _, seen := seenStateEntities[entityID]; !seen {
+				seenStateEntities[entityID] = struct{}{}
+				stateEntityIDs = append(stateEntityIDs, entityID)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	oldLatest, err := prefetchLatestScanLinksTx(ctx, tx, stateEntityIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	updateStmt, err := tx.PrepareContext(ctx, `UPDATE archive_links
+		SET root_path = ?, active = 1, size_bytes = ?, modified_at = ?,
+			last_seen_at = ?, last_scan_id = ?
+		WHERE id = ?`)
+	if err != nil {
+		return nil, err
+	}
+	defer updateStmt.Close()
+	eventStmt, err := tx.PrepareContext(ctx, `INSERT INTO events(at,entity_id,type,data_json) VALUES(?,?,?,?)`)
+	if err != nil {
+		return nil, err
+	}
+	defer eventStmt.Close()
+
+	entityIDs := make([]string, 0, len(archives))
+	seenEntities := make(map[string]struct{}, len(archives))
+	rootChangedEntities := make(map[string]struct{})
+	for _, archive := range archives {
+		archivePath := strings.TrimSpace(archive.ArchivePath)
+		modifiedAt := archive.Modified.UTC().Format(time.RFC3339Nano)
+		key := reusedScanArchiveKey{
+			path:        sqliteNoCaseKey(archivePath),
+			sizeBytes:   archive.SizeBytes,
+			modifiedAt:  modifiedAt,
+			analyzerVer: modkit.AnalyzerVersion,
+		}
+		state, ok := states[key]
+		if !ok {
+			return nil, fmt.Errorf("reuse archive %q: %w", archivePath, sql.ErrNoRows)
+		}
+		wasActive := state.active
+		if state.rootPath != archive.Root {
+			rootChangedEntities[state.entityID] = struct{}{}
+		}
+		if _, err := updateStmt.ExecContext(ctx, archive.Root, archive.SizeBytes, modifiedAt, nowUTC(), scanID, state.linkID); err != nil {
+			return nil, err
+		}
+		if wasActive == 0 {
+			encoded, _ := json.Marshal(map[string]any{"path": archivePath})
+			if _, err := eventStmt.ExecContext(ctx, nowUTC(), state.entityID, "archive_relinked", string(encoded)); err != nil {
+				return nil, err
+			}
+		}
+		state.active = 1
+		state.rootPath = archive.Root
+		states[key] = state
+		if _, seen := seenEntities[state.entityID]; !seen {
+			seenEntities[state.entityID] = struct{}{}
+			entityIDs = append(entityIDs, state.entityID)
+		}
+	}
+	newLatest, err := prefetchLatestScanLinksTx(ctx, tx, entityIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, entityID := range entityIDs {
+		if _, rootChanged := rootChangedEntities[entityID]; rootChanged || oldLatest[entityID] != newLatest[entityID] {
+			if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return entityIDs, nil
+}
+
+func prefetchLatestScanLinksTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (map[string]string, error) {
+	latest := make(map[string]string, len(entityIDs))
+	const chunkSize = 800
+	for chunk := range (len(entityIDs) + chunkSize - 1) / chunkSize {
+		start := chunk * chunkSize
+		end := start + chunkSize
+		if end > len(entityIDs) {
+			end = len(entityIDs)
+		}
+		placeholders := strings.TrimRight(strings.Repeat("?,", end-start), ",")
+		args := make([]any, end-start)
+		for index := range entityIDs[start:end] {
+			args[index] = entityIDs[start+index]
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT entity_id,id FROM (
+			SELECT entity_id,id,
+				ROW_NUMBER() OVER(PARTITION BY entity_id ORDER BY active DESC,last_seen_at DESC,id DESC) AS ordinal
+			FROM archive_links
+			WHERE entity_id IN (`+placeholders+`)
+		) WHERE ordinal=1`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var entityID, linkID string
+			if err := rows.Scan(&entityID, &linkID); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			latest[entityID] = linkID
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return latest, nil
+}
+
+func sqliteNoCaseKey(value string) string {
+	for index := range value {
+		if value[index] < 'A' || value[index] > 'Z' {
+			continue
+		}
+		lowered := []byte(value)
+		for inner := range lowered[index:] {
+			position := index + inner
+			if lowered[position] >= 'A' && lowered[position] <= 'Z' {
+				lowered[position] += 'a' - 'A'
+			}
+		}
+		return string(lowered)
+	}
+	return value
+}
+
+func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID string, archive ScanArchive) (string, error) {
+	archivePath := strings.TrimSpace(archive.ArchivePath)
+	if archivePath == "" {
+		return "", errors.New("archive path is required")
+	}
+	sourceClass, err := normalizeArchiveSourceClass(archive.SourceClass)
+	if err != nil {
+		return "", err
+	}
+	sourceExplicit := strings.TrimSpace(archive.SourceClass) != ""
+	modifiedAt := archive.Modified.UTC().Format(time.RFC3339Nano)
+	now := nowUTC()
+
+	if archive.Reused {
+		var linkID, entityID string
+		var wasActive int
+		if err := tx.QueryRowContext(ctx, `SELECT l.id, l.entity_id, l.active
+			FROM archive_links l
+			JOIN artifacts a ON a.id = l.artifact_id
+			WHERE l.path = ? COLLATE NOCASE
+				AND l.size_bytes = ?
+				AND l.modified_at = ?
+				AND a.analyzer_version = ?
+			LIMIT 1`, archivePath, archive.SizeBytes, modifiedAt, modkit.AnalyzerVersion).
+			Scan(&linkID, &entityID, &wasActive); err != nil {
+			return "", fmt.Errorf("reuse archive %q: %w", archivePath, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE archive_links
+			SET root_path = ?, active = 1, size_bytes = ?, modified_at = ?,
+				last_seen_at = ?, last_scan_id = ?
+			WHERE id = ?`, archive.Root, archive.SizeBytes, modifiedAt, now, scanID, linkID); err != nil {
+			return "", err
+		}
+		if wasActive == 0 {
+			if err := appendEventTx(ctx, tx, entityID, "archive_relinked", map[string]any{"path": archivePath}); err != nil {
+				return "", err
+			}
+		}
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return "", err
+		}
+		return entityID, nil
+	}
+
+	centralFingerprint := strings.TrimSpace(archive.Manifest.CentralFingerprint)
+	if centralFingerprint == "" {
+		return "", errors.New("archive central fingerprint is required")
+	}
+	manifestJSON, err := json.Marshal(archive.Manifest)
+	if err != nil {
+		return "", err
+	}
+	manifestText := string(manifestJSON)
+	var artifactID, previousSHA, previousManifest, previousAnalyzer string
+	var previousSize int64
+	err = tx.QueryRowContext(ctx, `SELECT id, sha256, size_bytes, manifest_json, analyzer_version
+		FROM artifacts WHERE central_fingerprint = ?`, centralFingerprint).
+		Scan(&artifactID, &previousSHA, &previousSize, &previousManifest, &previousAnalyzer)
+	artifactChanged := true
+	if errors.Is(err, sql.ErrNoRows) {
+		artifactID, err = modkit.NewID()
+		if err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO artifacts(
+			id, central_fingerprint, sha256, size_bytes, manifest_json, analyzer_version, analyzed_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?)`, artifactID, centralFingerprint, archive.Manifest.FullSHA256,
+			archive.SizeBytes, manifestText, modkit.AnalyzerVersion, now); err != nil {
+			return "", err
+		}
+	} else if err != nil {
+		return "", err
+	} else {
+		effectiveSHA := previousSHA
+		if archive.Manifest.FullSHA256 != "" {
+			effectiveSHA = archive.Manifest.FullSHA256
+		}
+		artifactChanged = effectiveSHA != previousSHA ||
+			previousSize != archive.SizeBytes ||
+			previousManifest != manifestText ||
+			previousAnalyzer != modkit.AnalyzerVersion
+		if artifactChanged {
+			if _, err := tx.ExecContext(ctx, `UPDATE artifacts SET
+				sha256 = CASE WHEN ? <> '' THEN ? ELSE sha256 END,
+				size_bytes = ?, manifest_json = ?, analyzer_version = ?, analyzed_at = ?
+				WHERE id = ?`, archive.Manifest.FullSHA256, archive.Manifest.FullSHA256,
+				archive.SizeBytes, manifestText, modkit.AnalyzerVersion, now, artifactID); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	display := displayName(archive.Manifest, archivePath)
+	kind := string(archive.Manifest.Kind)
+	basenameKey := strings.ToLower(filepath.Base(archivePath)) + "\x00" + centralFingerprint
+	var linkID, entityID, previousArtifact, previousLinkSource string
+	var wasActive int
+	err = tx.QueryRowContext(ctx, `SELECT id, entity_id, artifact_id, active, source_id
+		FROM archive_links WHERE path = ? COLLATE NOCASE`, archivePath).
+		Scan(&linkID, &entityID, &previousArtifact, &wasActive, &previousLinkSource)
+	newLink := false
+	if errors.Is(err, sql.ErrNoRows) {
+		err = tx.QueryRowContext(ctx, `SELECT entity_id FROM archive_links
+			WHERE basename_key = ?
+			ORDER BY active DESC, last_seen_at DESC, id DESC LIMIT 1`, basenameKey).Scan(&entityID)
+		if errors.Is(err, sql.ErrNoRows) {
+			entityID, err = modkit.NewID()
+			if err != nil {
+				return "", err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO entities(
+				id, display_name, kind, source_id, created_at, updated_at
+			) VALUES(?, ?, ?, ?, ?, ?)`, entityID, display, kind, sourceClass, now, now); err != nil {
+				return "", err
+			}
+		} else if err != nil {
+			return "", err
+		} else if !sourceExplicit {
+			if err := tx.QueryRowContext(ctx, `SELECT source_id FROM entities WHERE id = ?`, entityID).Scan(&sourceClass); err != nil {
+				return "", err
+			}
+		}
+		linkID, err = modkit.NewID()
+		if err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO archive_links(
+			id, entity_id, artifact_id, path, root_path, active, size_bytes,
+			modified_at, discovered_at, last_seen_at, last_scan_id, basename_key, source_id
+		) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`, linkID, entityID, artifactID,
+			archivePath, archive.Root, archive.SizeBytes, modifiedAt, now, now, scanID, basenameKey, sourceClass); err != nil {
+			return "", err
+		}
+		newLink = true
+	} else {
+		if !sourceExplicit {
+			sourceClass = strings.TrimSpace(previousLinkSource)
+			if sourceClass == "" {
+				sourceClass = "user-added"
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE archive_links SET
+			artifact_id = ?, root_path = ?, active = 1, source_id = ?, size_bytes = ?, modified_at = ?,
+				last_seen_at = ?, last_scan_id = ?, basename_key = ?
+			WHERE id = ?`, artifactID, archive.Root, sourceClass, archive.SizeBytes, modifiedAt, now, scanID, basenameKey, linkID); err != nil {
+			return "", err
+		}
+	}
+
+	var previousDisplay, previousKind, previousSource string
+	if !newLink {
+		if err := tx.QueryRowContext(ctx, `SELECT display_name, kind, source_id
+			FROM entities WHERE id = ?`, entityID).Scan(&previousDisplay, &previousKind, &previousSource); err != nil {
+			return "", err
+		}
+	}
+	entityChanged := newLink || previousArtifact != artifactID || artifactChanged || previousSource != sourceClass
+	if !newLink && (previousDisplay != display || previousKind != kind) {
+		entityChanged = true
+	}
+	if !newLink && entityChanged {
+		if _, err := tx.ExecContext(ctx, `UPDATE entities SET
+			display_name = ?, kind = ?, source_id = ?, updated_at = ? WHERE id = ?`,
+			display, kind, sourceClass, now, entityID); err != nil {
+			return "", err
+		}
+	}
+	if err := applyAssetTx(ctx, tx, entityID, archive, now); err != nil {
+		return "", err
+	}
+	if newLink {
+		if err := appendEventTx(ctx, tx, entityID, "archive_discovered", map[string]any{"path": archivePath, "artifactId": artifactID}); err != nil {
+			return "", err
+		}
+	} else {
+		if previousArtifact != artifactID {
+			if err := appendEventTx(ctx, tx, entityID, "archive_changed", map[string]any{
+				"path": archivePath, "fromArtifactId": previousArtifact, "artifactId": artifactID,
+			}); err != nil {
+				return "", err
+			}
+		}
+		if wasActive == 0 {
+			if err := appendEventTx(ctx, tx, entityID, "archive_relinked", map[string]any{"path": archivePath}); err != nil {
+				return "", err
+			}
+		}
+	}
+	if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+		return "", err
+	}
+	return entityID, nil
+}
+
+func applyAssetTx(ctx context.Context, tx *sql.Tx, entityID string, archive ScanArchive, now string) error {
+	if archive.Asset != nil {
+		if strings.TrimSpace(archive.Asset.SHA256) == "" {
+			return errors.New("asset SHA-256 is required")
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO assets(
+			sha256, path, mime, width, height, size_bytes, created_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(sha256) DO UPDATE SET
+			path = excluded.path, mime = excluded.mime, width = excluded.width,
+			height = excluded.height, size_bytes = excluded.size_bytes`,
+			archive.Asset.SHA256, archive.Asset.Path, archive.Asset.MIME, archive.Asset.Width,
+			archive.Asset.Height, archive.Asset.SizeBytes, now); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO entity_assets(entity_id, asset_sha256, role, ordinal)
+			VALUES(?, ?, 'thumbnail', 0)
+			ON CONFLICT(entity_id, role, ordinal) DO UPDATE SET asset_sha256 = excluded.asset_sha256`,
+			entityID, archive.Asset.SHA256)
+		return err
+	}
+	if !archive.Reused && strings.TrimSpace(archive.Manifest.SelectedImagePath) == "" {
+		_, err := tx.ExecContext(ctx, `DELETE FROM entity_assets
+			WHERE entity_id = ? AND role = 'thumbnail' AND ordinal = 0`, entityID)
+		return err
+	}
+	return nil
+}
+
+func markLibraryIndexFreshTx(ctx context.Context, tx *sql.Tx) error {
+	return markLibraryFTSFreshTx(ctx, tx)
+}
+
+func normalizeArchiveSourceClass(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "user-added", nil
+	case "beamng-repository":
+		return "beamng-repository", nil
+	case "user-added":
+		return "user-added", nil
+	default:
+		return "", fmt.Errorf("unsupported archive source classification %q", value)
+	}
 }
 
 func (s *Store) GetLibraryItem(ctx context.Context, entityID string) (LibraryItem, error) {
@@ -709,63 +1274,158 @@ func (s *Store) GetLibraryItem(ctx context.Context, entityID string) (LibraryIte
 }
 
 func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID string) ([]LibraryItem, error) {
-	items, err := s.listItems(ctx, "")
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
-	collectionNames, err := s.libraryCollectionNames(ctx)
+	defer tx.Rollback()
+
+	entityIDs, err := s.listLibraryQueryTx(ctx, tx, health, kind, query, folderID)
 	if err != nil {
 		return nil, err
+	}
+	items, err := s.listItemsByIDsTx(ctx, tx, entityIDs)
+	if err != nil {
+		return nil, err
+	}
+	byEntity := make(map[string]int, len(items))
+	for index := range items {
+		byEntity[items[index].EntityID] = index
 	}
 	search := parseLibrarySearchQuery(query)
+	collectionNames := map[string]string{}
+	for _, term := range search.terms {
+		if term.scope == "all" || term.scope == "collection" {
+			collectionNames, err = s.libraryCollectionNamesTx(ctx, tx)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
 	health = normalizeLibraryStatus(health)
-	filtered := items[:0]
-	for _, item := range items {
+	filtered := make([]LibraryItem, 0, len(entityIDs))
+	for _, entityID := range entityIDs {
+		itemIndex, ok := byEntity[entityID]
+		if !ok {
+			continue
+		}
+		item := items[itemIndex]
 		if health != "" && item.HealthStatus != health {
 			continue
 		}
 		if kind != "" && kind != "all" && string(item.Kind) != kind {
 			continue
 		}
-		if folderID == "unfiled" && item.FolderID != "" || folderID != "" && folderID != "all" && folderID != "unfiled" && item.FolderID != folderID {
+		if folderID == "unfiled" && item.FolderID != "" ||
+			folderID != "" && folderID != "all" && folderID != "unfiled" && item.FolderID != folderID {
 			continue
 		}
-		if !search.matches(item, collectionNames) {
+		// listLibraryQuery intentionally returns candidates. Keep this
+		// residual check so scoped terms and status semantics remain exactly
+		// those of the pre-SQL query implementation.
+		if (search.status != "" || len(search.terms) > 0) && !search.matches(item, collectionNames) {
 			continue
 		}
 		filtered = append(filtered, item)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return filtered, nil
 }
 
 func (s *Store) listItems(ctx context.Context, entityID string) ([]LibraryItem, error) {
-	query := `SELECT e.id, e.display_name, e.kind, COALESCE(lfe.folder_id,''),
+	if strings.TrimSpace(entityID) == "" {
+		return s.queryLibraryItems(ctx, nil)
+	}
+	return s.listItemsByIDs(ctx, []string{entityID})
+}
+
+func (s *Store) listItemsByIDs(ctx context.Context, entityIDs []string) ([]LibraryItem, error) {
+	return s.listItemsByIDsQuery(ctx, s.db, entityIDs)
+}
+
+func (s *Store) listItemsByIDsTx(ctx context.Context, tx *sql.Tx, entityIDs []string) ([]LibraryItem, error) {
+	return s.listItemsByIDsQuery(ctx, tx, entityIDs)
+}
+
+func (s *Store) listItemsByIDsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
+	if len(entityIDs) == 0 {
+		return []LibraryItem{}, nil
+	}
+	// Keep IN lists below SQLite's conservative host-parameter limit. The
+	// caller restores candidate ordering after hydration.
+	const chunkSize = 800
+	items := make([]LibraryItem, 0, len(entityIDs))
+	for start := 0; start < len(entityIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(entityIDs) {
+			end = len(entityIDs)
+		}
+		chunk, err := s.queryLibraryItemsQuery(ctx, queryer, entityIDs[start:end])
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, chunk...)
+	}
+	return items, nil
+}
+
+func (s *Store) queryLibraryItems(ctx context.Context, entityIDs []string) ([]LibraryItem, error) {
+	return s.queryLibraryItemsQuery(ctx, s.db, entityIDs)
+}
+
+func (s *Store) queryLibraryItemsTx(ctx context.Context, tx *sql.Tx, entityIDs []string) ([]LibraryItem, error) {
+	return s.queryLibraryItemsQuery(ctx, tx, entityIDs)
+}
+
+func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
+	query := `SELECT e.id, e.display_name, e.kind,
+		COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'),
+		CASE lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))
+			WHEN 'beamng-repository' THEN 'BeamNG Repository'
+			WHEN 'user-added' THEN 'User added'
+			ELSE COALESCE(sc.label,'')
+		END,
+		COALESCE(lfe.folder_id,''),
 		COALESCE(l.id,''), COALESCE(l.artifact_id,''), COALESCE(l.path,''), COALESCE(l.root_path,''),
 		COALESCE(l.active,0), COALESCE(l.size_bytes,0), COALESCE(l.modified_at,''), COALESCE(l.last_seen_at,''),
 		COALESCE(a.central_fingerprint,''), COALESCE(a.sha256,''), COALESCE(a.manifest_json,'{}'),
 		COALESCE(ast.sha256,'')
 	FROM entities e
 	LEFT JOIN library_folder_entities lfe ON lfe.entity_id=e.id
-	LEFT JOIN archive_links l ON l.id = (SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id ORDER BY l2.active DESC, l2.last_seen_at DESC LIMIT 1)
+	LEFT JOIN archive_links l ON l.id = (
+		SELECT l2.id FROM archive_links l2
+		WHERE l2.entity_id=e.id
+		ORDER BY l2.active DESC, l2.last_seen_at DESC, l2.id DESC LIMIT 1
+	)
+	LEFT JOIN source_classifications sc ON sc.id = COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added')
 	LEFT JOIN artifacts a ON a.id=l.artifact_id
 	LEFT JOIN entity_assets ea ON ea.entity_id=e.id AND ea.role='thumbnail' AND ea.ordinal=0
 	LEFT JOIN assets ast ON ast.sha256=ea.asset_sha256`
-	args := []any{}
-	if entityID != "" {
-		query += ` WHERE e.id = ?`
-		args = append(args, entityID)
+	args := make([]any, 0, len(entityIDs))
+	if len(entityIDs) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(entityIDs)), ",")
+		query += ` WHERE e.id IN (` + placeholders + `)`
+		for _, entityID := range entityIDs {
+			args = append(args, entityID)
+		}
 	}
-	query += ` ORDER BY l.active DESC, e.updated_at DESC, e.display_name COLLATE NOCASE LIMIT 5000`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	query += ` ORDER BY l.active DESC, e.updated_at DESC, e.display_name COLLATE NOCASE, e.id`
+	rows, err := queryer.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []LibraryItem{}
+	items := make([]LibraryItem, 0, len(entityIDs))
 	for rows.Next() {
 		var item LibraryItem
 		var kind, manifestJSON, assetSHA string
-		if err := rows.Scan(&item.EntityID, &item.DisplayName, &kind, &item.FolderID, &item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath, &item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt, &item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
+		if err := rows.Scan(&item.EntityID, &item.DisplayName, &kind, &item.SourceID, &item.Source, &item.FolderID,
+			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
+			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
+			&item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
 			return nil, err
 		}
 		item.Kind = modkit.Kind(kind)
@@ -787,13 +1447,132 @@ func (s *Store) listItems(ctx context.Context, entityID string) ([]LibraryItem, 
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	if err := s.attachLibraryItemTags(ctx, items); err != nil {
+	if err := attachLibraryItemTagsQuery(ctx, queryer, items); err != nil {
 		return nil, err
 	}
-	if err := s.attachLibraryItemHealth(ctx, items); err != nil {
+	if err := attachLibraryItemHealthQuery(ctx, queryer, items); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, items []LibraryItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	byEntity := make(map[string]*LibraryItem, len(items))
+	for index := range items {
+		items[index].Tags = []ModTag{}
+		byEntity[items[index].EntityID] = &items[index]
+	}
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon
+		FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
+	args := []any{}
+	if len(items) == 1 {
+		query += ` WHERE te.entity_id=?`
+		args = append(args, items[0].EntityID)
+	}
+	rows, err := queryer.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entityID string
+		var tag ModTag
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon); err != nil {
+			return err
+		}
+		if item := byEntity[entityID]; item != nil {
+			item.Tags = append(item.Tags, tag)
+		}
+	}
+	return rows.Err()
+}
+
+func attachLibraryItemHealthQuery(ctx context.Context, queryer libraryQueryer, items []LibraryItem) error {
+	for index := range items {
+		items[index].HealthStatus = "unscanned"
+		if libraryItemBroken(items[index]) {
+			items[index].HealthStatus = "broken"
+		}
+		items[index].HealthLabel = virusHealthLabel(items[index].HealthStatus)
+		items[index].LastSecurityScanAt = ""
+		items[index].LastSecurityScanVerdict = ""
+		items[index].LastSecurityScanSHA256 = ""
+		items[index].SecurityScanChanged = false
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	type healthRecord struct {
+		artifactID, status, verdict, updatedAt, sha256 string
+	}
+	currentHealth := map[string]healthRecord{}
+	latestHealth := map[string]healthRecord{}
+	rows, err := queryer.QueryContext(ctx, `SELECT entity_id,artifact_id,status,verdict,updated_at,artifact_sha256,current_ordinal,entity_ordinal FROM (
+		SELECT v.entity_id,v.artifact_id,v.status,v.verdict,v.updated_at,COALESCE(NULLIF(v.file_sha256,''),a.sha256,'') AS artifact_sha256,
+			ROW_NUMBER() OVER(PARTITION BY v.entity_id,v.artifact_id ORDER BY v.updated_at DESC,v.id DESC) AS current_ordinal,
+			ROW_NUMBER() OVER(PARTITION BY v.entity_id ORDER BY v.updated_at DESC,v.id DESC) AS entity_ordinal
+		FROM virus_scans v LEFT JOIN artifacts a ON a.id=v.artifact_id
+	) WHERE current_ordinal=1 OR entity_ordinal=1`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entityID, artifactID string
+		var record healthRecord
+		var currentOrdinal, entityOrdinal int
+		if err := rows.Scan(&entityID, &artifactID, &record.status, &record.verdict, &record.updatedAt, &record.sha256, &currentOrdinal, &entityOrdinal); err != nil {
+			return err
+		}
+		record.artifactID = artifactID
+		if currentOrdinal == 1 {
+			currentHealth[entityID+"\x00"+artifactID] = record
+		}
+		if entityOrdinal == 1 {
+			latestHealth[entityID] = record
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	scanStatus := func(record healthRecord) string {
+		status := record.verdict
+		if record.status == "running" {
+			status = "scanning"
+		} else if record.status == "failed" {
+			status = "scan_failed"
+		}
+		if status == "" {
+			status = "unscanned"
+		}
+		return status
+	}
+	for index := range items {
+		item := &items[index]
+		if record, ok := latestHealth[item.EntityID]; ok {
+			item.LastSecurityScanAt = record.updatedAt
+			item.LastSecurityScanVerdict = record.verdict
+			item.LastSecurityScanSHA256 = record.sha256
+			item.SecurityScanChanged = record.artifactID != item.ArtifactID
+			if !item.SecurityScanChanged && record.sha256 != "" && item.SHA256 != "" {
+				item.SecurityScanChanged = !strings.EqualFold(record.sha256, item.SHA256)
+			}
+		}
+		record, ok := currentHealth[item.EntityID+"\x00"+item.ArtifactID]
+		if !ok {
+			continue
+		}
+		status := scanStatus(record)
+		if status != "threat" && libraryItemBroken(*item) {
+			status = "broken"
+		}
+		item.HealthStatus = status
+		item.HealthLabel = virusHealthLabel(status)
+	}
+	return nil
 }
 
 func (s *Store) GetEntityDetail(ctx context.Context, entityID string) (EntityDetail, error) {
@@ -1039,6 +1818,12 @@ func (s *Store) AppendEvent(ctx context.Context, entityID, eventType string, dat
 func appendEventTx(ctx context.Context, tx *sql.Tx, entityID, eventType string, data map[string]any) error {
 	encoded, _ := json.Marshal(data)
 	_, err := tx.ExecContext(ctx, `INSERT INTO events(at,entity_id,type,data_json) VALUES(?,?,?,?)`, nowUTC(), entityID, eventType, string(encoded))
+	return err
+}
+
+func appendEventStmtTx(ctx context.Context, stmt *sql.Stmt, entityID, eventType string, data map[string]any) error {
+	encoded, _ := json.Marshal(data)
+	_, err := stmt.ExecContext(ctx, nowUTC(), entityID, eventType, string(encoded))
 	return err
 }
 

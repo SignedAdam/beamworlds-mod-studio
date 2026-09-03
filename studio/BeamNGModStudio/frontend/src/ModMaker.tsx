@@ -33,6 +33,7 @@ import {
   type TreeSelection,
   type TreeSeverity,
 } from "./FileTree";
+import { IndexCardTabs, type IndexCardTabItem } from "./IndexCardTabs";
 import { Icon } from "./icons";
 import { Badge, Button, Spinner, formatBytes, kindIcon, kindLabel } from "./ui";
 import { ProjectBrowser } from "./ProjectBrowser";
@@ -2419,6 +2420,248 @@ export function ModMaker({
   const contextTab = sessionMenu
     ? sessionTabs.find((tab) => tab.record.id === sessionMenu.id)
     : undefined;
+  const activeItemID: string | null =
+    activeTab?.kind === "file"
+      ? `file:${activeTab.path}`
+      : activeTab?.kind === "session"
+        ? `session:${activeTab.id}`
+        : null;
+  const emptySurface = (
+    <div className="editor-empty-message">Click a file to open it</div>
+  );
+  const activeSurface =
+    fileLoadingPath &&
+    activeTab?.kind === "file" &&
+    activeTab.path === fileLoadingPath ? (
+      <div className="center-loader">
+        <Spinner />
+        <span>Opening file</span>
+      </div>
+    ) : activeSession ? (
+      <VirgilSessionView
+        key={activeSession.record.id}
+        workspaceID={loadedWorkspace.id}
+        session={activeSession.record}
+        transient={activeSession.transient}
+        locked={Boolean(activeSession.busy)}
+        prompt={sessionPrompts[activeSession.record.id] ?? ""}
+        activeFilePath={activePath}
+        activityBuffer={agentActivityBuffer}
+        onPromptChange={(value) => {
+          const id = activeSession.record.id;
+          setSessionPrompts((current) => {
+            if (!value) {
+              if (!(id in current)) return current;
+              const next = { ...current };
+              delete next[id];
+              return next;
+            }
+            return { ...current, [id]: value };
+          });
+        }}
+        onSessionChange={(record) =>
+          updateSession(
+            record,
+            activeSession.transient ? activeSession.record.id : undefined,
+          )
+        }
+        onReload={onReload}
+        onNotify={onNotify}
+        onError={onError}
+        onBusyChange={(busy) =>
+          setSessionTabBusy(activeSession.record.id, busy)
+        }
+      />
+    ) : activeDocument ? (
+      <>
+        <header className="source-editor__header">
+          <div>
+            <code>{activeDocument.path}</code>
+            {activeDocument.restored && (
+              <Badge tone="cyan">Draft restored</Badge>
+            )}
+            {activeDocument.content !== activeDocument.savedContent && (
+              <Badge tone="warning">Unsaved</Badge>
+            )}
+            {activeDocument.externalContent !== undefined && (
+              <Badge tone="warning">Changed by Virgil</Badge>
+            )}
+          </div>
+          <div>
+            {activePath.toLowerCase().endsWith(".pc") && (
+              <Button
+                tone="quiet"
+                icon="copy"
+                onClick={() => void cloneSelectedVariant()}
+              >
+                Clone variant
+              </Button>
+            )}
+            {activeDocument.externalContent !== undefined && (
+              <Button
+                tone="quiet"
+                icon="refresh"
+                onClick={reloadExternalChange}
+              >
+                Reload
+              </Button>
+            )}
+            <Button
+              className={
+                activeDocument.content === activeDocument.savedContent &&
+                busy !== "save"
+                  ? "source-save-button--saved"
+                  : ""
+              }
+              tone={
+                activeDocument.content !== activeDocument.savedContent
+                  ? "primary"
+                  : "default"
+              }
+              icon="save"
+              disabled={
+                activeDocument.content === activeDocument.savedContent ||
+                busy !== ""
+              }
+              aria-label={
+                busy === "save"
+                  ? "Saving…"
+                  : activeDocument.content !== activeDocument.savedContent
+                    ? "Save"
+                    : "Saved"
+              }
+              onClick={() => void saveFile()}
+            >
+              {busy === "save"
+                ? "Saving…"
+                : activeDocument.content !== activeDocument.savedContent
+                  ? "Save"
+                  : "Saved"}
+            </Button>
+          </div>
+        </header>
+        {sourceSaveToast && (
+          <div
+            className={`source-save-toast source-save-toast--${sourceSaveToastTone}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span>{sourceSaveToast}</span>
+            <button
+              type="button"
+              className="source-save-toast__dismiss"
+              onClick={dismissSourceSaveToast}
+              aria-label="Dismiss save notification"
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+        )}
+        <CodeEditor
+          path={activeDocument.path}
+          value={activeDocument.content}
+          onChange={updateDocument}
+          onSave={(snapshot) => void saveFile(snapshot)}
+          onDiagnostics={(diagnostics) => {
+            const path = activeDocument.path;
+            diagnosticsByPath.current[path] = diagnostics;
+            const severity = severityFromSave(false, diagnostics);
+            setFileSeverity((current) => {
+              if (current[path] === severity) return current;
+              const next = { ...current };
+              if (severity) next[path] = severity;
+              else delete next[path];
+              return next;
+            });
+          }}
+          selection={editorSelection}
+        />
+      </>
+    ) : (
+      emptySurface
+    );
+
+  const fileTabItems: IndexCardTabItem[] = documents.map((document) => ({
+    id: `file:${document.path}`,
+    label: (
+      <>
+        {document.path.split("/").pop()}
+        {document.content !== document.savedContent && (
+          <i className="modmaker-tab__dirty" aria-label="Unsaved" />
+        )}
+      </>
+    ),
+    icon: <Icon name="files" size={14} />,
+    panel: null,
+    onClose: () => closeDocument(document.path),
+    closeLabel: `Close ${document.path}`,
+    title: document.path,
+  }));
+  if (
+    activeTab?.kind === "file" &&
+    !documents.some((document) => document.path === activeTab.path)
+  ) {
+    fileTabItems.push({
+      id: `file:${activeTab.path}`,
+      label: activeTab.path.split("/").pop(),
+      icon: <Icon name="files" size={14} />,
+      panel: null,
+      title: activeTab.path,
+    });
+  }
+  const tabItems: IndexCardTabItem[] = [
+    ...fileTabItems,
+    ...sessionTabs.map((tab) => {
+      const status = tab.record.status || "idle";
+      return {
+        id: `session:${tab.record.id}`,
+        label: (
+          <>
+            {tab.record.title || "Virgil session"}
+            <i
+              className={`modmaker-tab__status modmaker-tab__status--${status}`}
+              aria-label={status}
+            />
+          </>
+        ),
+        icon: <ReplaceableUIPlaceholder entity="virgil-logo" />,
+        panel: null,
+        onClose: () => {
+          void closeSession(tab.record.id);
+        },
+        closeLabel: `Close ${tab.record.title || "Virgil session"}`,
+        title: tab.transient
+          ? "Transient Virgil session"
+          : tab.record.runtimeSessionId || "Legacy Virgil history",
+        onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => {
+          event.preventDefault();
+          const margin = 8;
+          const menuWidth = 184;
+          const menuHeight = 84;
+          setSessionMenu({
+            id: tab.record.id,
+            x: Math.max(
+              margin,
+              Math.min(
+                event.clientX,
+                window.innerWidth - menuWidth - margin,
+              ),
+            ),
+            y: Math.max(
+              margin,
+              Math.min(
+                event.clientY,
+                window.innerHeight - menuHeight - margin,
+              ),
+            ),
+          });
+        },
+      };
+    }),
+  ].map((item) => ({
+    ...item,
+    panel: item.id === activeItemID ? activeSurface : null,
+  }));
 
   return (
     <section className="maker-shell">
@@ -2542,302 +2785,44 @@ export function ModMaker({
               />
 
               <section
-                className={`source-editor ${activeSession ? "source-editor--session" : documents.length > 0 || sessionTabs.length > 0 ? "source-editor--open" : "source-editor--empty"}`}
+                className={`source-editor source-editor--shared-tabs ${activeSession ? "source-editor--session" : documents.length > 0 || sessionTabs.length > 0 ? "source-editor--open" : "source-editor--empty"}`}
               >
-                <div className="editor-tabs">
-                  <div
-                    className="editor-tabs__scroll"
-                    role="tablist"
-                    aria-label="Open workspace files and Virgil sessions"
-                  >
-                    {documents.map((document) => {
-                      const isActive =
-                        activeTab?.kind === "file" &&
-                        activeTab.path === document.path;
-                      return (
-                        <div
-                          key={document.path}
-                          className={`editor-tab ${isActive ? "is-active" : ""}`}
-                        >
-                          <button
-                            type="button"
-                            className="editor-tab__open"
-                            role="tab"
-                            aria-selected={isActive}
-                            onClick={() => {
-                              editorInteractionVersion.current += 1;
-                              cancelFormatTasks();
-                              setActivePath(document.path);
-                              setActiveTab({
-                                kind: "file",
-                                path: document.path,
-                              });
-                              setTreeSelection({
-                                path: document.path,
-                                kind: "file",
-                              });
-                            }}
-                            title={document.path}
-                          >
-                            <Icon name="files" size={14} />
-                            <span>{document.path.split("/").pop()}</span>
-                            {document.content !== document.savedContent && (
-                              <i />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="editor-tab__close"
-                            onClick={() => closeDocument(document.path)}
-                            aria-label={`Close ${document.path}`}
-                          >
-                            <Icon name="close" size={12} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                    {sessionTabs.map((tab) => {
-                      const isActive =
-                        activeTab?.kind === "session" &&
-                        activeTab.id === tab.record.id;
-                      const status = tab.record.status || "idle";
-                      return (
-                        <div
-                          key={tab.record.id}
-                          className={`editor-tab editor-tab--session ${isActive ? "is-active" : ""}`}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            const margin = 8;
-                            const menuWidth = 184;
-                            const menuHeight = 84;
-                            setSessionMenu({
-                              id: tab.record.id,
-                              x: Math.max(
-                                margin,
-                                Math.min(
-                                  event.clientX,
-                                  window.innerWidth - menuWidth - margin,
-                                ),
-                              ),
-                              y: Math.max(
-                                margin,
-                                Math.min(
-                                  event.clientY,
-                                  window.innerHeight - menuHeight - margin,
-                                ),
-                              ),
-                            });
-                          }}
-                        >
-                          <button
-                            type="button"
-                            className="editor-tab__open editor-tab__open--session"
-                            role="tab"
-                            aria-selected={isActive}
-                            onClick={() => {
-                              editorInteractionVersion.current += 1;
-                              cancelFormatTasks();
-                              setActiveTab({
-                                kind: "session",
-                                id: tab.record.id,
-                              });
-                              setTreeSelection(null);
-                            }}
-                            title={
-                              tab.transient
-                                ? "Transient Virgil session"
-                                : tab.record.runtimeSessionId ||
-                                  "Legacy Virgil history"
-                            }
-                          >
-                            <ReplaceableUIPlaceholder entity="virgil-logo" />
-                            <span>{tab.record.title || "Virgil session"}</span>
-                            <i
-                              className={`editor-tab__status editor-tab__status--${status}`}
-                              aria-label={status}
-                            />
-                          </button>
-                          <button
-                            type="button"
-                            className="editor-tab__close"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void closeSession(tab.record.id);
-                            }}
-                            aria-label={`Close ${tab.record.title || "Virgil session"}`}
-                          >
-                            <Icon name="close" size={12} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <Button
-                    type="button"
-                    className="editor-tabs__new-session"
-                    icon="plus"
-                    disabled={preferenceBusy || busy !== ""}
-                    onClick={openNewSession}
-                  >
-                    New Virgil Session
-                  </Button>
-                </div>
-                {fileLoadingPath &&
-                activeTab?.kind === "file" &&
-                activeTab.path === fileLoadingPath ? (
-                  <div className="center-loader">
-                    <Spinner />
-                    <span>Opening file</span>
-                  </div>
-                ) : activeSession ? (
-                  <VirgilSessionView
-                    key={activeSession.record.id}
-                    workspaceID={loadedWorkspace.id}
-                    session={activeSession.record}
-                    transient={activeSession.transient}
-                    locked={Boolean(activeSession.busy)}
-                    prompt={sessionPrompts[activeSession.record.id] ?? ""}
-                    activeFilePath={activePath}
-                    activityBuffer={agentActivityBuffer}
-                    onPromptChange={(value) => {
-                      const id = activeSession.record.id;
-                      setSessionPrompts((current) => {
-                        if (!value) {
-                          if (!(id in current)) return current;
-                          const next = { ...current };
-                          delete next[id];
-                          return next;
-                        }
-                        return { ...current, [id]: value };
-                      });
-                    }}
-                    onSessionChange={(record) =>
-                      updateSession(
-                        record,
-                        activeSession.transient
-                          ? activeSession.record.id
-                          : undefined,
-                      )
+                <IndexCardTabs
+                  items={tabItems}
+                  value={activeItemID}
+                  onValueChange={(id) => {
+                    if (id.startsWith("file:")) {
+                      const path = id.slice("file:".length);
+                      editorInteractionVersion.current += 1;
+                      cancelFormatTasks();
+                      setActivePath(path);
+                      setActiveTab({ kind: "file", path });
+                      setTreeSelection({ path, kind: "file" });
+                      return;
                     }
-                    onReload={onReload}
-                    onNotify={onNotify}
-                    onError={onError}
-                    onBusyChange={(busy) =>
-                      setSessionTabBusy(activeSession.record.id, busy)
-                    }
-                  />
-                ) : activeDocument ? (
-                  <>
-                    <header className="source-editor__header">
-                      <div>
-                        <code>{activeDocument.path}</code>
-                        {activeDocument.restored && (
-                          <Badge tone="cyan">Draft restored</Badge>
-                        )}
-                        {activeDocument.content !==
-                          activeDocument.savedContent && (
-                          <Badge tone="warning">Unsaved</Badge>
-                        )}
-                        {activeDocument.externalContent !== undefined && (
-                          <Badge tone="warning">Changed by Virgil</Badge>
-                        )}
-                      </div>
-                      <div>
-                        {activePath.toLowerCase().endsWith(".pc") && (
-                          <Button
-                            tone="quiet"
-                            icon="copy"
-                            onClick={() => void cloneSelectedVariant()}
-                          >
-                            Clone variant
-                          </Button>
-                        )}
-                        {activeDocument.externalContent !== undefined && (
-                          <Button
-                            tone="quiet"
-                            icon="refresh"
-                            onClick={reloadExternalChange}
-                          >
-                            Reload
-                          </Button>
-                        )}
-                        <Button
-                          className={
-                            activeDocument.content === activeDocument.savedContent &&
-                            busy !== "save"
-                              ? "source-save-button--saved"
-                              : ""
-                          }
-                          tone={
-                            activeDocument.content !== activeDocument.savedContent
-                              ? "primary"
-                              : "default"
-                          }
-                          icon="save"
-                          disabled={
-                            activeDocument.content ===
-                              activeDocument.savedContent || busy !== ""
-                          }
-                          aria-label={
-                            busy === "save"
-                              ? "Saving…"
-                              : activeDocument.content !== activeDocument.savedContent
-                                ? "Save"
-                                : "Saved"
-                          }
-                          onClick={() => void saveFile()}
-                        >
-                          {busy === "save"
-                            ? "Saving…"
-                            : activeDocument.content !==
-                                activeDocument.savedContent
-                              ? "Save"
-                              : "Saved"}
-                        </Button>
-                      </div>
-                    </header>
-                    {sourceSaveToast && (
-                      <div
-                        className={`source-save-toast source-save-toast--${sourceSaveToastTone}`}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <span>{sourceSaveToast}</span>
-                        <button
-                          type="button"
-                          className="source-save-toast__dismiss"
-                          onClick={dismissSourceSaveToast}
-                          aria-label="Dismiss save notification"
-                        >
-                          <Icon name="close" size={13} />
-                        </button>
-                      </div>
-                    )}
-                    <CodeEditor
-                      path={activeDocument.path}
-                      value={activeDocument.content}
-                      onChange={updateDocument}
-                      onSave={(snapshot) => void saveFile(snapshot)}
-                      onDiagnostics={(diagnostics) => {
-                        const path = activeDocument.path;
-                        diagnosticsByPath.current[path] = diagnostics;
-                        const severity = severityFromSave(false, diagnostics);
-                        setFileSeverity((current) => {
-                          if (current[path] === severity) return current;
-                          const next = { ...current };
-                          if (severity) next[path] = severity;
-                          else delete next[path];
-                          return next;
-                        });
-                      }}
-                      selection={editorSelection}
-                    />
-                  </>
-                ) : (
-                  <div className="editor-empty-message">
-                    Click a file to open it
-                  </div>
-                )}
+                    if (!id.startsWith("session:")) return;
+                    const sessionID = id.slice("session:".length);
+                    editorInteractionVersion.current += 1;
+                    cancelFormatTasks();
+                    setActiveTab({ kind: "session", id: sessionID });
+                    setTreeSelection(null);
+                  }}
+                  ariaLabel="Open workspace files and Virgil sessions"
+                  compact
+                  actions={
+                    <Button
+                      type="button"
+                      icon="plus"
+                      disabled={preferenceBusy || busy !== ""}
+                      onClick={openNewSession}
+                    >
+                      New Virgil Session
+                    </Button>
+                  }
+                  mountInactivePanels={false}
+                  emptyPanel={emptySurface}
+                  className="modmaker-tabs"
+                />
               </section>
               {sessionMenu && contextTab && (
                 <div

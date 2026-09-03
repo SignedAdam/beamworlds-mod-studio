@@ -230,30 +230,145 @@ func (s *Store) RenameLibraryFolder(ctx context.Context, folderID, name string) 
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE library_folders SET name=?,updated_at=? WHERE id=?`, name, nowUTC(), strings.TrimSpace(folderID))
-	return requireChanged(result, err, "library folder")
+	folderID = strings.TrimSpace(folderID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var oldName string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM library_folders WHERE id=?`, folderID).Scan(&oldName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	entityIDs, err := libraryFolderEntityIDsTx(ctx, tx, folderID)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE library_folders SET name=?,updated_at=? WHERE id=?`, name, nowUTC(), folderID)
+	if err := requireChanged(result, err, "library folder"); err != nil {
+		return err
+	}
+	if oldName != name {
+		if err := s.refreshCanonicalLibrarySearchEntriesTx(ctx, tx, entityIDs); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteLibraryFolder(ctx context.Context, folderID string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM library_folders WHERE id=?`, strings.TrimSpace(folderID))
-	return requireChanged(result, err, "library folder")
+	folderID = strings.TrimSpace(folderID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	entityIDs, err := libraryFolderEntityIDsTx(ctx, tx, folderID)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM library_folders WHERE id=?`, folderID)
+	if err := requireChanged(result, err, "library folder"); err != nil {
+		return err
+	}
+	if err := s.refreshCanonicalLibrarySearchEntriesTx(ctx, tx, entityIDs); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) MoveLibraryItem(ctx context.Context, entityID, folderID string) error {
 	entityID = strings.TrimSpace(entityID)
-	if err := s.db.QueryRowContext(ctx, `SELECT id FROM entities WHERE id=?`, entityID).Scan(&entityID); err != nil {
-		return err
-	}
 	folderID = strings.TrimSpace(folderID)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM entities WHERE id=?`, entityID).Scan(&entityID); err != nil {
+		return err
+	}
+	var currentFolderID string
+	assignmentErr := tx.QueryRowContext(ctx, `SELECT folder_id FROM library_folder_entities WHERE entity_id=?`, entityID).Scan(&currentFolderID)
+	if assignmentErr != nil && !errors.Is(assignmentErr, sql.ErrNoRows) {
+		return assignmentErr
+	}
+	hasAssignment := assignmentErr == nil
 	if folderID == "" {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM library_folder_entities WHERE entity_id=?`, entityID)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM library_folder_entities WHERE entity_id=?`, entityID); err != nil {
+			return err
+		}
+		if hasAssignment {
+			if err := s.refreshCanonicalLibrarySearchEntriesTx(ctx, tx, []string{entityID}); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM library_folders WHERE id=?`, folderID).Scan(&folderID); err != nil {
 		return err
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT id FROM library_folders WHERE id=?`, folderID).Scan(&folderID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO library_folder_entities(entity_id,folder_id,position) VALUES(?,?,0) ON CONFLICT(entity_id) DO UPDATE SET folder_id=excluded.folder_id,position=excluded.position`, entityID, folderID); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO library_folder_entities(entity_id,folder_id,position) VALUES(?,?,0) ON CONFLICT(entity_id) DO UPDATE SET folder_id=excluded.folder_id,position=excluded.position`, entityID, folderID)
-	return err
+	if !hasAssignment || currentFolderID != folderID {
+		if err := s.refreshCanonicalLibrarySearchEntriesTx(ctx, tx, []string{entityID}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func libraryFolderEntityIDsTx(ctx context.Context, tx *sql.Tx, folderID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT entity_id FROM library_folder_entities WHERE folder_id=? ORDER BY entity_id`, folderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entityIDs := []string{}
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			return nil, err
+		}
+		entityIDs = append(entityIDs, entityID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return entityIDs, nil
+}
+
+func (s *Store) refreshCanonicalLibrarySearchEntriesTx(ctx context.Context, tx *sql.Tx, entityIDs []string) error {
+	for _, entityID := range entityIDs {
+		var present int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM entities WHERE id=?`, entityID).Scan(&present)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if present == 0 {
+			continue
+		}
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) listPresets(ctx context.Context) ([]ModPreset, error) {

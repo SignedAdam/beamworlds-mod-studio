@@ -36,6 +36,40 @@ import { formatBytes } from "./ui";
 type View =
   "library" | "workspaces" | "scanner" | "profiles" | "activity" | "settings";
 type ToastTone = "success" | "error" | "info";
+type InterfaceSize = "compact" | "default" | "comfortable" | "large";
+type TextSize = "small" | "default" | "large" | "extra-large";
+
+const INTERFACE_SIZE_STORAGE_KEY = "beamworlds.interface-size";
+const TEXT_SIZE_STORAGE_KEY = "beamworlds.text-size";
+
+function normalizeInterfaceSize(value: unknown): InterfaceSize {
+  return value === "compact" ||
+    value === "comfortable" ||
+    value === "large"
+    ? value
+    : "default";
+}
+
+function normalizeTextSize(value: unknown): TextSize {
+  return value === "small" || value === "large" || value === "extra-large"
+    ? value
+    : "default";
+}
+
+function mirrorSizing(interfaceSize: unknown, textSize: unknown) {
+  try {
+    window.localStorage.setItem(
+      INTERFACE_SIZE_STORAGE_KEY,
+      normalizeInterfaceSize(interfaceSize),
+    );
+    window.localStorage.setItem(
+      TEXT_SIZE_STORAGE_KEY,
+      normalizeTextSize(textSize),
+    );
+  } catch {
+    // Sizing remains authoritative in the backend when storage is unavailable.
+  }
+}
 
 interface ToastState {
   message: string;
@@ -299,6 +333,11 @@ function App() {
     const root = document.documentElement;
     root.dataset.theme = settings?.theme ?? "dark";
     if (!settings) return;
+    const interfaceSize = normalizeInterfaceSize(settings.interfaceSize);
+    const textSize = normalizeTextSize(settings.textSize);
+    root.dataset.interfaceSize = interfaceSize;
+    root.dataset.textSize = textSize;
+    mirrorSizing(interfaceSize, textSize);
     const colors: Record<string, string> = {
       "--user-emphasis": settings.emphasisColor,
       "--user-active-tab": settings.activeTabColor,
@@ -630,6 +669,7 @@ function App() {
   const saveSettings = async (update: SettingsUpdate) => {
     try {
       const next = await API.SaveSettings(update);
+      mirrorSizing(next.interfaceSize, next.textSize);
       setSettings(next);
       if (next.showAIUsage) setUsage(await API.AIUsage());
       notify("Settings saved", "success");

@@ -2063,6 +2063,25 @@ func (s *Store) importLegacyCatalogOnce(ctx context.Context, path string) error 
 			return fmt.Errorf("index imported entity %q (backup retained at %s): %w", mod.EntityID, backupPath, err)
 		}
 	}
+	representatives, err := reconcileLegacyRepresentativesTx(ctx, tx, catalog.Mods)
+	if err != nil {
+		return fmt.Errorf("reconcile legacy representatives (backup retained at %s): %w", backupPath, err)
+	}
+	for index := range catalog.Mods {
+		mod := &catalog.Mods[index]
+		representative, ok := representatives[mod.EntityID]
+		if !ok || representative.LinkID != mod.LinkID {
+			continue
+		}
+		artifactID, err := importLegacyArtifactTx(ctx, tx, representative)
+		if err != nil {
+			return fmt.Errorf("finalize representative artifact for %q (backup retained at %s): %w", mod.EntityID, backupPath, err)
+		}
+		representative.ArtifactID = artifactID
+		if err := importLegacyEntityTx(ctx, tx, representative); err != nil {
+			return fmt.Errorf("finalize representative entity %q (backup retained at %s): %w", mod.EntityID, backupPath, err)
+		}
+	}
 	if err := rebuildLibrarySearchFTSTx(ctx, tx); err != nil {
 		return fmt.Errorf("verify imported search index (backup retained at %s): %w", backupPath, err)
 	}
@@ -2125,19 +2144,24 @@ func (s *Store) importLegacyCatalogOnce(ctx context.Context, path string) error 
 		return fmt.Errorf("legacy catalog parity failed: canonical entities=%d, FTS rows=%d (backup retained at %s)", len(afterEntities), afterFTS, backupPath)
 	}
 	for _, mod := range catalog.Mods {
-		var gotName, gotKind, gotSourceID, gotPath, ftsContent, payloadJSON string
-		if err := tx.QueryRowContext(ctx, `SELECT e.display_name,e.kind,e.source_id,l.path
+		var gotName, gotKind, gotEntitySourceID, gotLinkSourceID, gotPath, ftsContent, payloadJSON string
+		if err := tx.QueryRowContext(ctx, `SELECT e.display_name,e.kind,e.source_id,l.source_id,l.path
 			FROM entities e JOIN archive_links l ON l.entity_id=e.id
-			WHERE e.id=? AND l.path=? COLLATE NOCASE`, mod.EntityID, mod.Path).Scan(&gotName, &gotKind, &gotSourceID, &gotPath); err != nil {
+			WHERE e.id=? AND l.path=? COLLATE NOCASE`, mod.EntityID, mod.Path).Scan(&gotName, &gotKind, &gotEntitySourceID, &gotLinkSourceID, &gotPath); err != nil {
 			return fmt.Errorf("legacy catalog representative lookup %q failed (backup retained at %s): %w", mod.EntityID, backupPath, err)
 		}
-		if gotName != mod.DisplayName || gotKind != string(mod.Kind) || gotSourceID != mod.SourceID || !strings.EqualFold(gotPath, mod.Path) {
+		representative, ok := representatives[mod.EntityID]
+		if !ok {
+			return fmt.Errorf("legacy catalog representative missing for %q (backup retained at %s)", mod.EntityID, backupPath)
+		}
+		if gotName != representative.DisplayName || gotKind != string(representative.Kind) || gotEntitySourceID != representative.SourceID ||
+			gotLinkSourceID != mod.SourceID || !strings.EqualFold(gotPath, mod.Path) {
 			return fmt.Errorf("legacy catalog representative parity failed for %q (backup retained at %s)", mod.EntityID, backupPath)
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT content FROM library_search_fts WHERE entity_id=?`, mod.EntityID).Scan(&ftsContent); err != nil {
 			return fmt.Errorf("legacy catalog FTS lookup %q failed (backup retained at %s): %w", mod.EntityID, backupPath, err)
 		}
-		if !strings.Contains(ftsContent, mod.DisplayName) || (mod.Path != "" && !strings.Contains(ftsContent, mod.Path)) {
+		if !strings.Contains(ftsContent, representative.DisplayName) || (mod.Path != "" && !strings.Contains(ftsContent, mod.Path)) {
 			return fmt.Errorf("legacy catalog FTS parity failed for %q (backup retained at %s)", mod.EntityID, backupPath)
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT payload_json FROM legacy_catalog_mods WHERE ordinal=?`, mod.Ordinal).Scan(&payloadJSON); err != nil {
@@ -2843,6 +2867,32 @@ func importLegacyLinkTx(ctx context.Context, tx *sql.Tx, mod importedLegacyMod) 
 	_, err = tx.ExecContext(ctx, `UPDATE archive_links SET entity_id=?,artifact_id=?,path=?,root_path=?,active=?,source_id=?,size_bytes=?,modified_at=?,discovered_at=?,last_seen_at=?,last_scan_id=?,basename_key=? WHERE id=?`,
 		mod.EntityID, mod.ArtifactID, mod.Path, mod.RootPath, boolInt(mod.Active), mod.SourceID, mod.SizeBytes, mod.ModifiedAt, mod.DiscoveredAt, mod.LastSeenAt, "", strings.ToLower(filepath.Base(mod.Path))+"\x00"+mod.Fingerprint, existing)
 	return err
+}
+
+func reconcileLegacyRepresentativesTx(ctx context.Context, tx *sql.Tx, mods []importedLegacyMod) (map[string]importedLegacyMod, error) {
+	representatives := make(map[string]importedLegacyMod, len(mods))
+	for index := range mods {
+		mod := &mods[index]
+		if err := tx.QueryRowContext(ctx, `SELECT id,entity_id,artifact_id FROM archive_links WHERE path=? COLLATE NOCASE`, mod.Path).
+			Scan(&mod.LinkID, &mod.EntityID, &mod.ArtifactID); err != nil {
+			return nil, err
+		}
+		current, exists := representatives[mod.EntityID]
+		if !exists || legacyRepresentativePreferred(*mod, current) {
+			representatives[mod.EntityID] = *mod
+		}
+	}
+	return representatives, nil
+}
+
+func legacyRepresentativePreferred(candidate, current importedLegacyMod) bool {
+	if candidate.Active != current.Active {
+		return candidate.Active
+	}
+	if candidate.LastSeenAt != current.LastSeenAt {
+		return candidate.LastSeenAt > current.LastSeenAt
+	}
+	return candidate.LinkID > current.LinkID
 }
 
 func (s *Store) importLegacyCatalogOnceNoMarker(ctx context.Context, path string) error {

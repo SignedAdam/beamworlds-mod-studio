@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { LibraryFolder } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import { Icon } from './icons'
+import { Icon, type IconName } from './icons'
+import './CollectionMenu.css'
 
 interface CollectionMenuProps {
   folders: LibraryFolder[]
@@ -12,27 +14,91 @@ interface CollectionMenuProps {
   onDelete: (id: string) => void
 }
 
+interface CollectionChoice {
+  id: string
+  label: string
+  detail: string
+  icon: IconName
+  count?: number
+  folder?: LibraryFolder
+}
+
+const menuID = 'library-collection-menu'
+
 export function CollectionMenu({ folders, value, total, onChange, onCreate, onRename, onDelete }: CollectionMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const choiceRefs = useRef<Array<HTMLButtonElement | null>>([])
   const active = folders.find(folder => folder.id === value)
   const label = value === 'all' ? 'All mods' : value === 'unfiled' ? 'Unfiled' : active?.name ?? 'All mods'
+  const choices: CollectionChoice[] = [
+    { id: 'all', label: 'All mods', detail: 'Entire indexed library', icon: 'library', count: total },
+    { id: 'unfiled', label: 'Unfiled', detail: 'Not assigned to a collection', icon: 'folder' },
+    ...folders.map(folder => ({
+      id: folder.id,
+      label: folder.name,
+      detail: `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? '' : 's'}`,
+      icon: 'folder' as const,
+      folder,
+    })),
+  ]
+  const selectedIndex = Math.max(0, choices.findIndex(choice => choice.id === value))
+
+  const focusChoice = (index: number) => {
+    if (choices.length === 0) return
+    const wrappedIndex = (index + choices.length) % choices.length
+    choiceRefs.current[wrappedIndex]?.focus()
+  }
+  const focusTrigger = () => {
+    window.setTimeout(() => triggerRef.current?.focus(), 0)
+  }
+  const closeMenu = () => {
+    setOpen(false)
+    focusTrigger()
+  }
+  const select = (next: string) => {
+    onChange(next)
+    closeMenu()
+  }
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLButtonElement>('[data-collection-choice]')
+      : null
+    if (!target) return
+    const activeIndex = Number(target.dataset.collectionChoice)
+    if (!Number.isInteger(activeIndex) || activeIndex < 0 || activeIndex >= choices.length) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusChoice(activeIndex + (event.key === 'ArrowDown' ? 1 : -1))
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      focusChoice(event.key === 'Home' ? 0 : choices.length - 1)
+    } else if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault()
+      select(choices[activeIndex].id)
+    }
+  }
 
   useEffect(() => {
     if (!open) return
-    const close = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    choiceRefs.current[selectedIndex]?.focus()
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) closeMenu()
     }
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      closeMenu()
     }
-    document.addEventListener('pointerdown', close)
+    document.addEventListener('pointerdown', closeOutside)
     document.addEventListener('keydown', escape)
     return () => {
-      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('pointerdown', closeOutside)
       document.removeEventListener('keydown', escape)
     }
-  }, [open])
+  }, [open, selectedIndex])
 
   const create = () => {
     const name = window.prompt('Collection name')?.trim()
@@ -45,25 +111,61 @@ export function CollectionMenu({ folders, value, total, onChange, onCreate, onRe
   const remove = (folder: LibraryFolder) => {
     if (window.confirm(`Delete collection “${folder.name}”? Its mods become Unfiled and are not deleted.`)) onDelete(folder.id)
   }
-  const select = (next: string) => {
-    onChange(next)
-    setOpen(false)
-  }
 
   return <div className="collection-control" ref={rootRef}>
-    <button type="button" className={value !== 'all' ? 'collection-trigger is-filtered' : 'collection-trigger'} onClick={() => setOpen(current => !current)} aria-expanded={open} aria-haspopup="menu" title="Collections are optional single-home groups; tags can overlap across any number of mods.">
-      <Icon name="folder" size={15}/><span>{label}</span><Icon name="chevron" size={13}/>
+    <button
+      ref={triggerRef}
+      type="button"
+      className={`collection-trigger${value !== 'all' ? ' is-filtered' : ''}${open ? ' is-open' : ''}`}
+      onClick={() => { if (open) closeMenu(); else setOpen(true) }}
+      onKeyDown={event => {
+        if (!open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+          event.preventDefault()
+          setOpen(true)
+        }
+      }}
+      aria-expanded={open}
+      aria-haspopup="menu"
+      aria-controls={menuID}
+      aria-label={label}
+      title={`Filter by collection: ${label}`}
+    >
+      <span>{label}</span>
+      <Icon name="chevron" size={13}/>
     </button>
-    {open && <div className="collection-menu" role="menu" aria-label="Library collections">
-      <header><div><strong>Collections</strong><small>Optional single-home groups. Use tags for labels that overlap.</small></div><button type="button" className="icon-button" onClick={create} aria-label="Create collection" title="Create collection"><Icon name="plus" size={15}/></button></header>
-      <button type="button" role="menuitemradio" aria-checked={value === 'all'} className={value === 'all' ? 'is-active' : ''} onClick={() => select('all')}><Icon name="library" size={15}/><span><strong>All mods</strong><small>Entire indexed library</small></span><em>{total.toLocaleString()}</em></button>
-      <button type="button" role="menuitemradio" aria-checked={value === 'unfiled'} className={value === 'unfiled' ? 'is-active' : ''} onClick={() => select('unfiled')}><Icon name="folder" size={15}/><span><strong>Unfiled</strong><small>Not assigned to a collection</small></span></button>
-      {folders.map(folder => <div className={value === folder.id ? 'collection-menu__row is-active' : 'collection-menu__row'} key={folder.id}>
-        <button type="button" role="menuitemradio" aria-checked={value === folder.id} onClick={() => select(folder.id)}><Icon name="folder" size={15}/><span><strong>{folder.name}</strong><small>{folder.modCount.toLocaleString()} mod{folder.modCount === 1 ? '' : 's'}</small></span></button>
-        <button type="button" className="icon-button" onClick={() => rename(folder)} aria-label={`Rename ${folder.name}`} title="Rename collection"><Icon name="edit" size={13}/></button>
-        <button type="button" className="icon-button" onClick={() => remove(folder)} aria-label={`Delete ${folder.name}`} title="Delete collection"><Icon name="trash" size={13}/></button>
-      </div>)}
-      {folders.length === 0 && <p>No collections yet. Most libraries only need tags.</p>}
+    {open && <div className="collection-menu" id={menuID} role="menu" aria-label="Library collections" aria-orientation="vertical" onKeyDown={handleMenuKeyDown}>
+      <header className="collection-menu__header">
+        <div><strong>Collections</strong></div>
+        <button type="button" role="menuitem" className="icon-button collection-menu__create" onClick={create} aria-label="Create collection" title="Create collection"><Icon name="plus" size={15}/></button>
+      </header>
+      {choices.map((choice, index) => {
+        const activeChoice = value === choice.id
+        const choiceContent = <>
+          <Icon name={choice.icon} size={15}/>
+          <span className="collection-menu__choice-label"><strong>{choice.label}</strong><small>{choice.detail}</small></span>
+          {choice.count !== undefined && <em className="collection-menu__choice-count">{choice.count.toLocaleString()}</em>}
+        </>
+        const choiceButton = <button
+          key={choice.id}
+          type="button"
+          role="menuitemradio"
+          aria-checked={activeChoice}
+          className={`collection-menu__choice${activeChoice ? ' is-active' : ''}`}
+          data-collection-choice={index}
+          ref={element => { choiceRefs.current[index] = element }}
+          tabIndex={index === selectedIndex ? 0 : -1}
+          onClick={() => select(choice.id)}
+        >
+          {choiceContent}
+        </button>
+        if (!choice.folder) return choiceButton
+        return <div className={`collection-menu__row${activeChoice ? ' is-active' : ''}`} role="none" key={choice.id}>
+          {choiceButton}
+          <button type="button" role="menuitem" className="icon-button collection-menu__action" onClick={() => rename(choice.folder!)} aria-label={`Rename ${choice.folder.name}`} title="Rename collection"><Icon name="edit" size={13}/></button>
+          <button type="button" role="menuitem" className="icon-button collection-menu__action" onClick={() => remove(choice.folder!)} aria-label={`Delete ${choice.folder.name}`} title="Delete collection"><Icon name="trash" size={13}/></button>
+        </div>
+      })}
+      {folders.length === 0 && <p className="collection-menu__empty">No collections yet.</p>}
     </div>}
   </div>
 }

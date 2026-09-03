@@ -25,6 +25,7 @@ export {
     EventRecord,
     ExportRecord,
     ExportResponse,
+    GitInitializationResult,
     KnowledgeDocument,
     LibraryFolder,
     LibraryItem,

@@ -120,6 +120,113 @@ func TestSearchWorkspaceReturnsBoundedMatchContext(t *testing.T) {
 	}
 }
 
+func TestWorkspaceWalkersExcludeOnlyRootGitMetadata(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "source.zip")
+	writeTestZIP(t, source, map[string]string{
+		"vehicles/test/example.jbeam": "{\"format\":2}\n",
+	})
+	workspaceRoot := filepath.Join(root, "workspace")
+	manifest, err := CreateWorkspace(context.Background(), source, workspaceRoot, "workspace-id", "entity-id", "artifact-id", KindVehicle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesRoot := filepath.Join(workspaceRoot, "files")
+	rootGitSecret := filepath.Join(filesRoot, ".git", "config")
+	if err := os.MkdirAll(filepath.Dir(rootGitSecret), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootGitSecret, []byte("root-private-token"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nestedGitAsset := filepath.Join(filesRoot, "assets", ".git", "kept.txt")
+	if err := os.MkdirAll(filepath.Dir(nestedGitAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nestedGitAsset, []byte("nested-git-content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := ListWorkspaceFiles(filesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsWorkspacePath(files, ".git/config") {
+		t.Fatal("root .git metadata appeared in workspace files")
+	}
+	if !containsWorkspacePath(files, "assets/.git/kept.txt") {
+		t.Fatal("nested assets/.git content was incorrectly excluded")
+	}
+	directories, err := ListWorkspaceDirectories(filesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsString(directories, ".git") {
+		t.Fatal("root .git metadata appeared in workspace directories")
+	}
+	if !containsString(directories, "assets/.git") {
+		t.Fatal("nested assets/.git directory was incorrectly excluded")
+	}
+
+	matches, err := SearchWorkspaceMatches(filesRoot, "root-private-token", 10, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("search returned root Git metadata: %#v", matches)
+	}
+	matches, err = SearchWorkspaceMatches(filesRoot, "nested-git-content", 10, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].RelativePath != "assets/.git/kept.txt" {
+		t.Fatalf("search omitted nested .git content: %#v", matches)
+	}
+
+	changes, err := DiffWorkspace(source, filesRoot, manifest.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range changes {
+		if strings.HasPrefix(change.Path, ".git/") {
+			t.Fatalf("diff included root Git metadata: %#v", change)
+		}
+	}
+	exportPath := filepath.Join(root, "export.zip")
+	if _, err := ExportWorkspace(context.Background(), source, filesRoot, exportPath, manifest.Files); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := zip.OpenReader(exportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exported.Close()
+	for _, entry := range exported.File {
+		if entry.Name == ".git" || strings.HasPrefix(entry.Name, ".git/") {
+			t.Fatalf("export included root Git metadata: %q", entry.Name)
+		}
+	}
+}
+
+func containsWorkspacePath(files []FileSnapshot, want string) bool {
+	for _, file := range files {
+		if file.Path == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func writeTestZIP(t *testing.T, filename string, entries map[string]string) {
 	t.Helper()
 	file, err := os.Create(filename)

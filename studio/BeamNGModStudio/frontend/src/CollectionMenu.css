@@ -1,0 +1,418 @@
+.collection-control {
+  position: relative;
+  z-index: 220;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.collection-control .collection-trigger {
+  width: clamp(112px, 18vw, 220px);
+  min-width: 112px;
+  max-width: 240px;
+  height: 31px;
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-control);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s, background-color .12s, color .12s;
+}
+
+.collection-control .collection-trigger > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-control .collection-trigger > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.collection-control .collection-trigger > svg:last-child {
+  transition: transform .12s, color .12s;
+}
+
+.collection-control .collection-trigger[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.collection-control .collection-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--active-tab) 58%, var(--line-strong));
+  background: color-mix(in srgb, var(--active-tab) 8%, var(--field));
+  color: var(--text);
+}
+
+.collection-control .collection-trigger:hover:not(:disabled) > svg:last-child,
+.collection-control .collection-trigger[aria-expanded="true"] > svg:last-child {
+  color: var(--active-tab);
+}
+
+.collection-control .collection-trigger:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: 2px;
+}
+
+.collection-control .collection-trigger.is-filtered {
+  border-color: color-mix(in srgb, var(--active-tab) 62%, var(--line-strong));
+  background: color-mix(in srgb, var(--active-tab) 9%, var(--field));
+  color: var(--text);
+}
+
+.collection-control .collection-trigger.is-filtered[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--active-tab) 13%, var(--field));
+}
+
+.collection-control .collection-trigger:disabled,
+.collection-control .collection-trigger.is-loading {
+  cursor: default;
+  opacity: .58;
+}
+
+.collection-control .collection-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 250;
+  width: min(336px, calc(100vw - 18px));
+  max-width: calc(100vw - 18px);
+  max-height: min(460px, calc(100vh - 150px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .48);
+  animation: collection-menu-in .13s cubic-bezier(.2, .8, .2, 1);
+}
+
+.collection-control .collection-menu > header {
+  min-height: 35px;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 3px 4px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.collection-control .collection-menu > header > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.collection-control .collection-menu > header strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-control);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-control .collection-menu .collection-menu__create {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.collection-control .collection-menu .collection-menu__create:hover:not(:disabled),
+.collection-control .collection-menu .collection-menu__action:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.collection-control .collection-menu .collection-menu__create:focus-visible,
+.collection-control .collection-menu .collection-menu__action:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: 1px;
+}
+
+.collection-control .collection-menu__choice {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--menu-item-height);
+  height: auto;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collection-control .collection-menu__choice > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.collection-control .collection-menu__choice:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--active-tab) 8%, transparent);
+  color: var(--text);
+}
+
+.collection-control .collection-menu__choice:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.collection-control .collection-menu__choice.is-active {
+  background: color-mix(in srgb, var(--active-tab) 12%, transparent);
+  box-shadow: inset 2px 0 var(--active-tab);
+  color: var(--text);
+}
+
+.collection-control .collection-menu__choice.is-active > svg {
+  color: var(--active-tab);
+}
+
+.collection-control .collection-menu__choice:disabled,
+.collection-control .collection-menu__action:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.collection-control .collection-menu__choice-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.collection-control .collection-menu__choice strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-control);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-control .collection-menu__choice small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-control .collection-menu__choice-count {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.collection-control .collection-menu__row {
+  min-width: 0;
+  min-height: var(--menu-item-height);
+  height: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.collection-control .collection-menu__row .collection-menu__choice {
+  min-height: var(--menu-item-height);
+  border-bottom: 0;
+}
+
+.collection-control .collection-menu__action {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.collection-control .collection-menu__empty {
+  margin: 0;
+  padding: 10px 7px 7px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+html[data-theme="light"] .collection-control .collection-trigger {
+  border-color: var(--library-table-divider);
+  background: var(--library-table-surface);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-trigger > svg {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-trigger:hover:not(:disabled),
+html[data-theme="light"] .collection-control .collection-trigger[aria-expanded="true"] {
+  border-color: var(--library-accent);
+  background: color-mix(in srgb, var(--library-accent) 10%, var(--library-table-surface));
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-trigger:hover:not(:disabled) > svg:last-child,
+html[data-theme="light"] .collection-control .collection-trigger[aria-expanded="true"] > svg:last-child,
+html[data-theme="light"] .collection-control .collection-trigger.is-filtered > svg {
+  color: var(--library-accent);
+}
+
+html[data-theme="light"] .collection-control .collection-trigger.is-filtered {
+  border-color: var(--library-accent);
+  background: color-mix(in srgb, var(--library-accent) 9%, var(--library-table-surface));
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-trigger.is-filtered[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--library-accent) 13%, var(--library-table-surface));
+}
+
+html[data-theme="light"] .collection-control .collection-trigger:focus-visible,
+html[data-theme="light"] .collection-control .collection-menu__choice:focus-visible,
+html[data-theme="light"] .collection-control .collection-menu__create:focus-visible,
+html[data-theme="light"] .collection-control .collection-menu__action:focus-visible {
+  outline: 2px solid var(--library-accent);
+}
+
+html[data-theme="light"] .collection-control .collection-menu {
+  border-color: var(--library-table-divider);
+  background: var(--library-table-surface);
+  color: var(--library-table-primary-text);
+  box-shadow: var(--shadow);
+}
+
+html[data-theme="light"] .collection-control .collection-menu > header {
+  border-bottom-color: var(--library-table-divider);
+}
+
+html[data-theme="light"] .collection-control .collection-menu > header strong,
+html[data-theme="light"] .collection-control .collection-menu__choice strong {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__choice {
+  border-bottom-color: var(--library-table-divider);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__choice > svg,
+html[data-theme="light"] .collection-control .collection-menu__choice small,
+html[data-theme="light"] .collection-control .collection-menu__choice-count,
+html[data-theme="light"] .collection-control .collection-menu__empty,
+html[data-theme="light"] .collection-control .collection-menu__action,
+html[data-theme="light"] .collection-control .collection-menu__create {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__choice:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--library-accent) 8%, var(--library-table-surface));
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__choice.is-active {
+  background: color-mix(in srgb, var(--library-accent) 13%, var(--library-table-surface));
+  box-shadow: inset 2px 0 var(--library-accent);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__choice.is-active > svg {
+  color: var(--library-accent);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__create:hover:not(:disabled),
+html[data-theme="light"] .collection-control .collection-menu__action:hover:not(:disabled) {
+  border-color: var(--library-table-divider);
+  background: color-mix(in srgb, var(--library-accent) 8%, var(--library-table-surface));
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .collection-control .collection-menu__row {
+  border-bottom-color: var(--library-table-divider);
+}
+
+@keyframes collection-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .collection-control .collection-trigger {
+    width: clamp(100px, 32vw, 180px);
+    min-width: 100px;
+    max-width: 180px;
+  }
+
+  .collection-control .collection-menu {
+    width: min(320px, calc(100vw - 16px));
+    max-width: calc(100vw - 16px);
+  }
+}
+
+@media (max-width: 400px) {
+  .collection-control .collection-trigger {
+    width: clamp(96px, 32vw, 150px);
+    min-width: 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collection-control .collection-trigger,
+  .collection-control .collection-trigger > svg:last-child {
+    transition: none;
+  }
+
+  .collection-control .collection-menu {
+    animation: none;
+  }
+}

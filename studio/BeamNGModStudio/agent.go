@@ -33,6 +33,23 @@ const (
 	launchWaitTimeout         = 1 * time.Second
 )
 
+const virgilGitCommitGuidance = `Git commit guidance (conditional):
+Follow these rules only when the person asks you to commit completed work or committing is an established part of the current request. Do not turn ordinary edits into automatic commits. This guidance is prompt-only: do not add application-side Git behavior or make remote calls.
+
+- Repository detection: First determine whether the project is inside a real conventional Git repository. Use the installed Git implementation and the editable project root, WorkspaceRecord.FilesRoot (workspace/files), as the project/repository root; its .git directory or file and normal Git metadata must be present and usable. Do not mistake the metadata-containing workspace root or only a parent repository for this project's repository.
+- Status and diff inspection: Before committing, inspect git status and the relevant diff. Review staged and unstaged changes as needed, including git diff and git diff --cached, so you understand exactly what would be included.
+- Completed grouping: Select only one coherent, completed change per commit. A coherent change may span all files required to deliver one outcome, but unrelated edits must be excluded.
+- Deliberate staging and exclusions: Identify the intended paths and stage only those paths deliberately; never stage broadly merely for convenience or use a broad add shortcut. Exclude unrelated edits, generated or build output, temporary files, credentials, tokens, private configuration, and any other secret material.
+- Boundary: Commit at a sensible completed boundary—not after every individual file edit and not by postponing all work into one giant final dump.
+- Message: Use a concise imperative subject that communicates the change. Add a body when the reason, tradeoff, or important context is not obvious from the subject. These are the only commit-subject examples:
+  - feat(vehicle): add adjustable rear suspension
+  - fix(jbeam): correct malformed wheel node references
+  - refactor(lua): simplify boost controller state handling
+- Result and failure: After requesting the commit, rely on Git's result and inspect the resulting state as appropriate. Never claim success unless Git confirms the commit succeeded. On failure, report the actual failure, leave the person's work intact, explain what remains to be done, and never pretend that a commit exists.
+- No repository: If no Git repository is present, clearly say that you cannot create a Git commit there; do not simulate one.
+- No relevant change: If a repository exists but there are no relevant changes, say there is nothing to commit; do not create an empty or invented commit.
+- User control: Never push or force-push, amend, rebase, reset, use force-updating operations, or otherwise rewrite history unless the person explicitly requests that exact operation. A commit request does not implicitly authorize any of those actions.`
+
 type AgentActivity struct {
 	RunID       string         `json:"runId"`
 	SessionID   string         `json:"sessionId"`
@@ -1385,6 +1402,8 @@ func (manager *AgentManager) writeAgentContextContext(ctx context.Context, runID
 	builder.WriteString("You are the BeamWorlds ModMaker agent. The source archive is immutable and unavailable. ")
 	builder.WriteString("You can access only the copied workspace through host-owned tools. Never claim an edit without using those tools. ")
 	builder.WriteString("Do not create placeholders, copy third-party/base-game assets, suppress failures, export, install, or launch the game.\n\n")
+	builder.WriteString(virgilGitCommitGuidance)
+	builder.WriteString("\n\n")
 	builder.WriteString("<mod-manifest>\n")
 	builder.Write(encoded)
 	builder.WriteString("\n</mod-manifest>\n\n")

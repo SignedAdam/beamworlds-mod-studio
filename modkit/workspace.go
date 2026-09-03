@@ -213,14 +213,21 @@ func ListWorkspaceDirectoriesContext(ctx context.Context, filesRoot string) ([]s
 		if walkErr != nil {
 			return walkErr
 		}
-		if !entry.IsDir() || filename == filesRoot {
+		if !entry.IsDir() {
+			return nil
+		}
+		if filename == filesRoot {
 			return nil
 		}
 		relative, err := filepath.Rel(filesRoot, filename)
 		if err != nil {
 			return err
 		}
-		result = append(result, filepath.ToSlash(relative))
+		relative = filepath.ToSlash(relative)
+		if isWorkspaceGitMetadataPath(relative) {
+			return fs.SkipDir
+		}
+		result = append(result, relative)
 		return nil
 	})
 	if err != nil {
@@ -228,6 +235,11 @@ func ListWorkspaceDirectoriesContext(ctx context.Context, filesRoot string) ([]s
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+func isWorkspaceGitMetadataPath(relativePath string) bool {
+	normalized := filepath.ToSlash(filepath.Clean(relativePath))
+	return normalized == ".git" || strings.HasPrefix(normalized, ".git/")
 }
 
 func listWorkspaceFiles(ctx context.Context, filesRoot string, includeHashes bool) ([]FileSnapshot, error) {
@@ -243,11 +255,24 @@ func listWorkspaceFiles(ctx context.Context, filesRoot string, includeHashes boo
 			return walkErr
 		}
 		if entry.IsDir() {
+			if filename == filesRoot {
+				return nil
+			}
+			relative, err := filepath.Rel(filesRoot, filename)
+			if err != nil {
+				return err
+			}
+			if isWorkspaceGitMetadataPath(relative) {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		relative, err := filepath.Rel(filesRoot, filename)
 		if err != nil {
 			return err
+		}
+		if isWorkspaceGitMetadataPath(relative) {
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -1022,6 +1047,17 @@ func SearchWorkspaceMatchesContext(ctx context.Context, filesRoot, query string,
 		if walkErr != nil {
 			return walkErr
 		}
+		relative, err := filepath.Rel(filesRoot, filename)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if isWorkspaceGitMetadataPath(relative) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			return nil
 		}
@@ -1047,7 +1083,6 @@ func SearchWorkspaceMatchesContext(ctx context.Context, filesRoot, query string,
 			_ = file.Close()
 			return nil
 		}
-		relative, _ := filepath.Rel(filesRoot, filename)
 		scanErr := func() error {
 			defer file.Close()
 			scanner := bufio.NewScanner(io.LimitReader(contextReader{ctx: ctx, reader: file}, maxEditorBytes+1))

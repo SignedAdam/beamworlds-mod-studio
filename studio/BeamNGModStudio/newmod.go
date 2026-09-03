@@ -133,10 +133,16 @@ func (service *AppService) CreateNewMod(request NewModRequest) (WorkspaceDetail,
 		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
 	}
-	workspaceLock.Unlock()
 	keepSource = true
+	gitResult := initializeWorkspaceGit(ctx, filepath.Join(root, "files"))
+	workspaceLock.Unlock()
 	_ = service.store.AppendEvent(ctx, item.EntityID, "mod_project_created", map[string]any{"workspaceId": workspaceID, "kind": kind, "modId": modID})
-	return service.GetWorkspace(workspaceID)
+	detail, err := service.GetWorkspace(workspaceID)
+	if err != nil {
+		return WorkspaceDetail{}, err
+	}
+	detail.GitInitialization = gitResult
+	return detail, nil
 }
 
 func normalizeModID(value string) string {

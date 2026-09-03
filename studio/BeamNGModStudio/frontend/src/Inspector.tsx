@@ -11,7 +11,7 @@ import type {
 } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import type { ArchiveMember, Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
 import { Icon } from './icons'
-import { IndexCardTabs } from './IndexCardTabs'
+import { IndexCardTabs, type IndexCardTabItem } from './IndexCardTabs'
 import { TagEditor } from './TagEditor'
 import { Badge, Button, EmptyState, Spinner, formatBytes, formatDate, issueTone, kindIcon, kindLabel } from './ui'
 
@@ -24,6 +24,8 @@ interface InspectorProps {
   tags: ModTag[]
   loading: boolean
   creatingWorkspace: boolean
+  stale: boolean
+  writeBlocked: boolean
   onClose: () => void
   onMoveFolder: (folderID: string) => void
   onSetTags: (tagIDs: string[]) => Promise<void>
@@ -48,6 +50,8 @@ export function Inspector({
   tags,
   loading,
   creatingWorkspace,
+  stale,
+  writeBlocked,
   onClose,
   onMoveFolder,
   onSetTags,
@@ -85,7 +89,7 @@ export function Inspector({
     return { total: filtered.length, visible: filtered.slice(0, 500) }
   }, [manifest, fileFilter])
 
-  return <aside className="inspector" aria-label="Mod inspector">
+  return <aside className={`inspector${stale ? ' is-stale' : ''}`} aria-label="Mod inspector">
     <header className="inspector__header">
       <div className="inspector__identity">
         <Icon name={kindIcon(String(item.kind))} size={19}/>
@@ -96,12 +100,12 @@ export function Inspector({
       </div>
       <button className="icon-button" onClick={onClose} aria-label="Close inspector"><Icon name="close" size={16}/></button>
     </header>
-
+    {stale && <div className="inspector-stale-warning" role="alert" aria-live="assertive"><Icon name="warning" size={18}/><strong>Changed. Please close and reopen this mod&apos;s details.</strong></div>}
     <div className="inspector__actions">
-      <Button className="inspector__maker" icon="workspace" tone="quiet" disabled={!item.linked || creatingWorkspace} onClick={onCreateWorkspace}>
+      <Button className="inspector__maker" icon="workspace" tone="quiet" disabled={stale || writeBlocked || !item.linked || creatingWorkspace} onClick={onCreateWorkspace}>
         {creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}
       </Button>
-      <button type="button" className={`inspector__scan-control inspector__scan-control--${item.healthStatus || 'unscanned'}`} disabled={!item.linked} onClick={() => onVirusScan(item)}>
+      <button type="button" className={`inspector__scan-control inspector__scan-control--${item.healthStatus || 'unscanned'}`} disabled={stale || writeBlocked || !item.linked} onClick={() => onVirusScan(item)}>
         <span className="inspector__scan-action"><Icon name="shield" size={14}/><strong>Scan for threats</strong></span>
         <span className="inspector__scan-status" aria-live="polite">
           <Icon name={scanStatusIcon(item.healthStatus)} size={13}/>
@@ -111,7 +115,7 @@ export function Inspector({
       </button>
       <label className="inspector-folder">
         <span>Collection</span>
-        <select value={item.folderId || ''} onChange={event => onMoveFolder(event.target.value)}>
+        <select value={item.folderId || ''} disabled={stale || writeBlocked} onChange={event => onMoveFolder(event.target.value)}>
           <option value="">Unfiled</option>
           {folders.map(folder => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
         </select>
@@ -123,14 +127,14 @@ export function Inspector({
         items={[
           {
             id: 'overview',
+            panel: <Overview item={item} detail={currentDetail} tags={tags} stale={stale} writeBlocked={writeBlocked} onSetTags={onSetTags} onCreateTag={onCreateTag} onUpdateTagVisual={onUpdateTagVisual} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag} onSaveDetails={onSaveDetails} onError={onError}/>,
             label: 'Overview',
-            panel: <Overview item={item} detail={currentDetail} tags={tags} onSetTags={onSetTags} onCreateTag={onCreateTag} onUpdateTagVisual={onUpdateTagVisual} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag} onSaveDetails={onSaveDetails} onError={onError}/>,
           },
           ...(String(item.kind) === 'vehicle' && variantCount > 0 ? [{
             id: 'variants',
             label: 'Variants',
+            panel: <Variants key={item.entityId} variants={manifest?.variants ?? []} selected={selectedVariant} stale={stale} writeBlocked={writeBlocked} onSelect={setSelectedVariant} onPreviewMember={onPreviewMember} onSaveVariant={onSaveVariant} onError={onError}/>,
             count: variantCount,
-            panel: <Variants key={item.entityId} variants={manifest?.variants ?? []} selected={selectedVariant} onSelect={setSelectedVariant} onPreviewMember={onPreviewMember} onSaveVariant={onSaveVariant} onError={onError}/>,
           }] : []),
           {
             id: 'issues',
@@ -145,8 +149,8 @@ export function Inspector({
           },
           {
             id: 'files',
+            panel: <Files key={item.entityId} item={item} members={members} query={fileFilter} stale={stale} writeBlocked={writeBlocked} onQuery={setFileFilter} onPreviewMember={onPreviewMember} onExtractMember={onExtractMember} onRevealArchive={onRevealArchive} onCreateWorkspace={onCreateWorkspace} creatingWorkspace={creatingWorkspace} onError={onError}/>,
             label: 'Files',
-            panel: <Files key={item.entityId} item={item} members={members} query={fileFilter} onQuery={setFileFilter} onPreviewMember={onPreviewMember} onExtractMember={onExtractMember} onRevealArchive={onRevealArchive} onCreateWorkspace={onCreateWorkspace} creatingWorkspace={creatingWorkspace} onError={onError}/>,
           },
           {
             id: 'history',
@@ -154,7 +158,7 @@ export function Inspector({
             count: historyCount,
             panel: <History detail={currentDetail}/>,
           },
-        ]}
+        ] satisfies IndexCardTabItem[]}
         value={tab}
         onValueChange={value => setTab(value as InspectorTab)}
         activationMode="manual"
@@ -169,6 +173,8 @@ function Overview({
   item,
   detail,
   tags,
+  stale,
+  writeBlocked,
   onSetTags,
   onCreateTag,
   onUpdateTagVisual,
@@ -180,6 +186,8 @@ function Overview({
   item: LibraryItem
   detail: EntityDetail | null
   tags: ModTag[]
+  stale: boolean
+  writeBlocked: boolean
   onSetTags: (tagIDs: string[]) => Promise<void>
   onCreateTag: (name: string, color: string, icon: string) => Promise<ModTag | null>
   onUpdateTagVisual: (tagID: string, color: string, icon: string) => Promise<void>
@@ -190,12 +198,13 @@ function Overview({
 }) {
   const manifest = detail?.item.manifest ?? item.manifest
   return <div className="inspector-section-stack">
-    <Details item={item} manifest={manifest} onSave={onSaveDetails} onError={onError}/>
+    <Details item={item} manifest={manifest} stale={stale} writeBlocked={writeBlocked} onSave={onSaveDetails} onError={onError}/>
     <fieldset className="inspector-fieldset inspector-tags">
       <legend>Tags</legend>
       <TagEditor
         assigned={item.tags ?? []}
         tags={tags}
+        locked={stale || writeBlocked}
         onSet={onSetTags}
         onCreate={onCreateTag}
         onUpdateVisual={onUpdateTagVisual}
@@ -206,15 +215,18 @@ function Overview({
     </fieldset>
   </div>
 }
-
 function Details({
   item,
   manifest,
+  stale,
   onSave,
+  writeBlocked,
   onError,
 }: {
   item: LibraryItem
   manifest: LibraryItem['manifest']
+  stale: boolean
+  writeBlocked: boolean
   onSave: (update: LibraryItemDetailsUpdate) => Promise<void>
   onError: (error: unknown) => void
 }) {
@@ -238,7 +250,7 @@ function Details({
     setEditing(false)
   }
   const save = async () => {
-    if (saving) return
+    if (stale || writeBlocked || saving) return
     setSaving(true)
     try {
       await onSave(draft)
@@ -254,7 +266,7 @@ function Details({
     <legend>Details</legend>
     <div className="inspector-details__header">
       <span>Identity and presentation metadata for this library item.</span>
-      {!editing && <Button icon="edit" tone="quiet" onClick={() => setEditing(true)}>Edit</Button>}
+      {!editing && <Button icon="edit" tone="quiet" disabled={stale || writeBlocked} onClick={() => setEditing(true)}>Edit</Button>}
     </div>
     {editing ? <div className="inspector-edit-form">
       <label><span>Description</span><textarea value={draft.description} maxLength={2000} rows={4} onChange={event => setDraft(current => ({ ...current, description: event.target.value }))} placeholder="Describe what this mod adds to BeamNG."/></label>
@@ -262,7 +274,7 @@ function Details({
       <label><span>Version</span><input value={draft.version} maxLength={80} onChange={event => setDraft(current => ({ ...current, version: event.target.value }))} placeholder="Not declared"/></label>
       <div className="inspector-form-actions">
         <Button tone="quiet" disabled={saving} onClick={cancel}>Cancel</Button>
-        <Button icon="save" tone="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
+        <Button icon="save" tone="primary" disabled={stale || writeBlocked || saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
       </div>
     </div> : <dl className="inspector-details__list">
       <div className="inspector-details__description"><dt>Description</dt><dd>{draft.description.trim() || 'No description provided.'}</dd></div>
@@ -330,6 +342,8 @@ const variantFields: { key: keyof VariantDraft; label: string; multiline?: boole
 function Variants({
   variants,
   selected,
+  stale,
+  writeBlocked,
   onSelect,
   onPreviewMember,
   onSaveVariant,
@@ -337,6 +351,8 @@ function Variants({
 }: {
   variants: Variant[]
   selected: Variant | null
+  stale: boolean
+  writeBlocked: boolean
   onSelect: (variant: Variant | null) => void
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   onSaveVariant: (update: LibraryVariantUpdate) => Promise<void>
@@ -356,15 +372,13 @@ function Variants({
     setDraft(active ? variantDraft(active) : null)
   }, [activeKey])
 
-  if (variants.length === 0) return <div className="inspector-section-stack"><EmptyState icon="vehicle" title="No vehicle variants" detail="This artifact does not expose matched .pc configuration records."/></div>
-
   const beginEdit = () => {
-    if (!active) return
+    if (stale || writeBlocked || !active) return
     setDraft(variantDraft(active))
     setEditing(true)
   }
   const save = async () => {
-    if (!active || !draft || saving) return
+    if (stale || writeBlocked || !active || !draft || saving) return
     setSaving(true)
     try {
       await onSaveVariant(variantUpdate(active, draft))
@@ -395,10 +409,10 @@ function Variants({
           {variantFields.map(field => <label key={field.key}><span>{field.label}</span>{field.multiline ? <textarea rows={3} value={draft[field.key]} onChange={event => setDraft(current => current ? { ...current, [field.key]: event.target.value } : current)}/> : <input value={draft[field.key]} onChange={event => setDraft(current => current ? { ...current, [field.key]: event.target.value } : current)}/>}</label>)}
           <div className="inspector-form-actions">
             <Button tone="quiet" disabled={saving} onClick={() => { setDraft(active ? variantDraft(active) : null); setEditing(false) }}>Cancel</Button>
-            <Button icon="save" tone="primary" disabled={saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
+            <Button icon="save" tone="primary" disabled={stale || writeBlocked || saving} onClick={() => void save()}>{saving ? 'Saving' : 'Save'}</Button>
           </div>
         </div> : <div className="variant-detail-view">
-          <div className="variant-detail-view__heading"><div><h4>{active.configuration || active.baseName || 'Unnamed variant'}</h4><span>{(active.configType ?? '').trim().toLowerCase() === 'factory' ? 'Factory' : 'Custom'}</span></div><Button icon="edit" tone="quiet" onClick={beginEdit}>Edit</Button></div>
+          <div className="variant-detail-view__heading"><div><h4>{active.configuration || active.baseName || 'Unnamed variant'}</h4><span>{(active.configType ?? '').trim().toLowerCase() === 'factory' ? 'Factory' : 'Custom'}</span></div><Button icon="edit" tone="quiet" disabled={stale || writeBlocked} onClick={beginEdit}>Edit</Button></div>
           <p className="variant-description">{active.description?.trim() || 'No description provided.'}</p>
           <dl className="variant-facts">
             <div><dt>Body style</dt><dd>{active.bodyStyle || '—'}</dd></div>
@@ -593,7 +607,9 @@ function Files({
   item,
   members,
   query,
+  stale,
   onQuery,
+  writeBlocked,
   onPreviewMember,
   onExtractMember,
   onRevealArchive,
@@ -604,7 +620,9 @@ function Files({
   item: LibraryItem
   members: { total: number; visible: ArchiveMember[] }
   query: string
+  stale: boolean
   onQuery: (value: string) => void
+  writeBlocked: boolean
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   onExtractMember: (memberPath: string) => Promise<void>
   onRevealArchive: () => Promise<void>
@@ -667,7 +685,7 @@ function Files({
     }
   }
   const extract = async () => {
-    if (!selected || selected.directory || actionBusy) return
+    if (stale || writeBlocked || !selected || selected.directory || actionBusy) return
     setActionBusy('extract')
     try {
       await onExtractMember(selected.path)
@@ -678,7 +696,7 @@ function Files({
     }
   }
   const reveal = async () => {
-    if (actionBusy) return
+    if (stale || writeBlocked || actionBusy) return
     setActionBusy('reveal')
     try {
       await onRevealArchive()
@@ -705,9 +723,9 @@ function Files({
         <header><div><span>Selected file</span><strong title={selected.path}>{selected.path}</strong></div><Badge tone={selected.directory ? 'neutral' : 'accent'}>{selected.directory ? 'Directory' : 'File'}</Badge></header>
         <div className="file-preview-panel__actions">
           <Button icon="copy" tone="quiet" onClick={() => void copyPath()}>{copied ? 'Copied' : 'Copy path'}</Button>
-          <Button icon="export" tone="quiet" disabled={selected.directory || !item.linked || actionBusy !== ''} onClick={() => void extract()}>{actionBusy === 'extract' ? 'Extracting' : 'Extract'}</Button>
-          <Button icon="archive" tone="quiet" disabled={!item.linked || actionBusy !== ''} onClick={() => void reveal()}>{actionBusy === 'reveal' ? 'Opening' : 'Reveal archive'}</Button>
-          <Button icon="workspace" tone="quiet" disabled={!item.linked || creatingWorkspace} onClick={onCreateWorkspace}>{creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}</Button>
+          <Button icon="export" tone="quiet" disabled={stale || writeBlocked || selected.directory || !item.linked || actionBusy !== ''} onClick={() => void extract()}>{actionBusy === 'extract' ? 'Extracting' : 'Extract'}</Button>
+          <Button icon="archive" tone="quiet" disabled={stale || writeBlocked || !item.linked || actionBusy !== ''} onClick={() => void reveal()}>{actionBusy === 'reveal' ? 'Opening' : 'Reveal archive'}</Button>
+          <Button icon="workspace" tone="quiet" disabled={stale || writeBlocked || !item.linked || creatingWorkspace} onClick={onCreateWorkspace}>{creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}</Button>
         </div>
         {selected.directory ? <div className="file-preview-panel__metadata"><strong>Directory</strong><span>This entry groups files in the archive and has no file content to preview.</span></div> : previewLoading ? <div className="file-preview-panel__loading"><Spinner small/><span>Loading preview</span></div> : preview ? <FilePreview preview={preview} member={selected}/> : <div className="file-preview-panel__metadata"><strong>Preview unavailable</strong><span>This file can be selected and extracted, but its contents are not supported for inline preview.</span></div>}
       </section>}

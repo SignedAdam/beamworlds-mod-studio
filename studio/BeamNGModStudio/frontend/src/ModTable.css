@@ -1,0 +1,306 @@
+/* Library table presentation is scoped here so scanner and ModMaker tables keep their palette. */
+html[data-theme="light"] .library-view {
+  --library-table-canvas: #f3f9ff;
+  --library-table-surface: #ffffff;
+  --library-table-header: #e8f3ff;
+  --library-table-hover: #eef7ff;
+  --library-table-selected: #dceeff;
+  --library-table-selected-hover: #d2e8ff;
+  --library-table-divider: #c9dff2;
+  --library-table-primary-text: #142338;
+  --library-table-secondary-text: #405a74;
+  --library-accent: #1d4ed8;
+  --library-table-safe: #166534;
+  --library-table-warning: #9a3412;
+  --library-table-danger: #b42318;
+  --library-table-info: #155e91;
+}
+
+html[data-theme="light"] .mod-table-panel--library {
+  --library-table-focus: var(--library-accent);
+
+  min-width: 0;
+  min-height: 0;
+  background: var(--library-table-canvas);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap {
+  background: var(--library-table-surface);
+  scrollbar-color: var(--library-table-divider) var(--library-table-canvas);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap::-webkit-scrollbar-track {
+  background: var(--library-table-canvas);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--library-table-divider);
+  border-color: var(--library-table-canvas);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table {
+  background: var(--library-table-surface);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table thead,
+html[data-theme="light"] .mod-table-panel--library .mod-table th {
+  background: var(--library-table-header);
+  border-color: var(--library-table-divider);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table th button {
+  background: transparent;
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table th button:hover {
+  background: var(--library-table-hover);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table th button:focus-visible,
+html[data-theme="light"] .mod-table-panel--library .mod-table th:focus-within {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__column-label {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table td {
+  background: transparent;
+  border-right-color: var(--library-table-divider);
+  border-bottom-color: var(--library-table-divider);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody {
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr,
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:nth-child(even) {
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:hover {
+  background: var(--library-table-hover);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:focus {
+  background: var(--library-table-hover);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr.is-selected {
+  background: var(--library-table-selected);
+  outline: 1px solid var(--library-table-focus);
+  outline-offset: -1px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr.is-selected:hover,
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr.is-selected:focus {
+  background: var(--library-table-selected-hover);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr.is-selected:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__name strong {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__path,
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__tags em,
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__workspace-status,
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__virgil-status {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__source {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--library-table-secondary-text);
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__source > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table .badge--neutral {
+  border-color: var(--library-table-divider);
+  background: var(--library-table-header);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__selection input {
+  accent-color: var(--library-table-focus);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__selection input:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: 2px;
+}
+
+/* The status label stays in one compact, shrinkable line at every column width. */
+.mod-table-panel--library .mod-table__status {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mod-table-panel--library .health-pill {
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  gap: 5px;
+  padding-inline: 5px;
+}
+
+.mod-table-panel--library .health-pill__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mod-table-panel--library .mod-table__tags {
+  min-width: 0;
+}
+
+.mod-table-panel--library .mod-tag {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.mod-table-panel--library .mod-tag > svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.mod-table-panel--library .mod-tag__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-tag {
+  border-color: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 56%,
+    var(--library-table-divider)
+  );
+  background: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 9%,
+    var(--library-table-surface)
+  );
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-tag > svg {
+  color: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 62%,
+    var(--library-table-primary-text)
+  );
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-pill {
+  border-color: var(--library-table-divider);
+  background: color-mix(
+    in srgb,
+    var(--library-table-header) 58%,
+    var(--library-table-surface)
+  );
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-pill--safe {
+  border-color: color-mix(in srgb, var(--library-table-safe) 62%, var(--library-table-divider));
+  background: color-mix(in srgb, var(--library-table-safe) 9%, var(--library-table-surface));
+  color: var(--library-table-safe);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-pill--review {
+  border-color: color-mix(in srgb, var(--library-table-warning) 62%, var(--library-table-divider));
+  background: color-mix(in srgb, var(--library-table-warning) 9%, var(--library-table-surface));
+  color: var(--library-table-warning);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-pill--threat,
+html[data-theme="light"] .mod-table-panel--library .health-pill--broken,
+html[data-theme="light"] .mod-table-panel--library .health-pill--scan_failed {
+  border-color: color-mix(in srgb, var(--library-table-danger) 62%, var(--library-table-divider));
+  background: color-mix(in srgb, var(--library-table-danger) 8%, var(--library-table-surface));
+  color: var(--library-table-danger);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-pill--scanning {
+  border-color: color-mix(in srgb, var(--library-table-info) 62%, var(--library-table-divider));
+  background: color-mix(in srgb, var(--library-table-info) 8%, var(--library-table-surface));
+  color: var(--library-table-info);
+}
+
+html[data-theme="light"] .mod-table-panel--library .column-resizer::after {
+  background: var(--library-table-divider);
+}
+
+html[data-theme="light"] .mod-table-panel--library .column-resizer:hover::after,
+html[data-theme="light"] .mod-table-panel--library .column-resizer:focus-visible::after {
+  background: var(--library-table-focus);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .pagination {
+  border-top-color: var(--library-table-divider);
+  background: var(--library-table-canvas);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .pagination .pagination__summary,
+html[data-theme="light"] .mod-table-panel--library > .pagination .page-size {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .pagination .page-size button {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .pagination .page-size button:hover,
+html[data-theme="light"] .mod-table-panel--library > .pagination .page-size button.is-active {
+  color: var(--library-table-focus);
+}
+
+html[data-theme="light"] .mod-table-panel--library .center-loader,
+html[data-theme="light"] .mod-table-panel--library .empty-state {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .empty-state h3 {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .empty-state__icon,
+html[data-theme="light"] .mod-table-panel--library .center-loader svg {
+  color: var(--library-table-focus);
+  border-color: var(--library-table-divider);
+  background: var(--library-table-header);
+}

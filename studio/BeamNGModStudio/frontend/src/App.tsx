@@ -31,7 +31,7 @@ import { VirusScannerView } from "./VirusScannerView";
 import { SettingsView, settingsUpdate } from "./SettingsView";
 import { SetupWizard } from "./SetupWizard";
 import { BeamWorldsMark, Icon } from "./icons";
-import { formatBytes } from "./ui";
+import { formatBytes, formatDate } from "./ui";
 
 type View =
   "library" | "workspaces" | "scanner" | "profiles" | "activity" | "settings";
@@ -95,6 +95,7 @@ function App() {
   const [setupState, setSetupState] = useState<SetupState | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [lastSuccessfulScanAt, setLastSuccessfulScanAt] = useState("");
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
@@ -106,14 +107,17 @@ function App() {
   const [profileProgress, setProfileProgress] =
     useState<ProfileProgress | null>(null);
   const [query, setQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
   const [entityDetail, setEntityDetail] = useState<EntityDetail | null>(null);
   const [entityLoading, setEntityLoading] = useState(false);
+  const [inspectorStale, setInspectorStale] = useState(false);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [selectedWorkspaceID, setSelectedWorkspaceID] = useState("");
   const [workspaceDetail, setWorkspaceDetail] =
     useState<WorkspaceDetail | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceStale, setWorkspaceStale] = useState(false);
   const [editorStatus, setEditorStatus] = useState<EditorStatus>({
     path: "",
     dirty: false,
@@ -121,6 +125,7 @@ function App() {
   });
   const [scan, setScan] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [writeBlocked, setWriteBlocked] = useState(false);
   const [virusScanRequest, setVirusScanRequest] = useState<{
     entityIDs: string[];
     nonce: number;
@@ -139,8 +144,52 @@ function App() {
   const agentListRefreshTimer = useRef<number>();
   const agentDetailRefreshTimer = useRef<number>();
   const agentActivityBuffer = useRef<Record<string, AgentActivity[]>>({});
+  const selectedItemRef = useRef<LibraryItem | null>(null);
+  const inspectorBaselineRef = useRef<{
+    entityID: string;
+    revision: string;
+  } | null>(null);
+  const inspectorStaleRef = useRef(false);
+  const workspaceBaselineRef = useRef<{
+    workspaceID: string;
+    entityID: string;
+    revision: string;
+  } | null>(null);
+  const workspaceStaleRef = useRef(false);
+  const writeBlockedRef = useRef(false);
+  const scanInFlightRef = useRef(false);
+  const scanRunVersionRef = useRef(0);
   const selectedWorkspaceIDRef = useRef("");
   const workspaceSetupID = useRef("");
+  const isWriteBlocked = useCallback(() => writeBlockedRef.current, []);
+  const advanceInspectorBaseline = useCallback(
+    (item: LibraryItem, onlyIfNewer = false) => {
+      if (inspectorStaleRef.current) return;
+      const selected = selectedItemRef.current;
+      if (!selected || selected.entityId !== item.entityId) return;
+      const baseline = inspectorBaselineRef.current;
+      if (
+        baseline &&
+        baseline.entityID === item.entityId &&
+        baseline.revision &&
+        item.revision < baseline.revision
+      )
+        return;
+      if (
+        onlyIfNewer &&
+        baseline &&
+        baseline.entityID === item.entityId &&
+        baseline.revision &&
+        item.revision <= baseline.revision
+      )
+        return;
+      inspectorBaselineRef.current = {
+        entityID: item.entityId,
+        revision: item.revision,
+      };
+    },
+    [],
+  );
 
   const notify = useCallback((message: string, tone: ToastTone = "info") => {
     setToast({ message, tone, visible: true });
@@ -168,11 +217,23 @@ function App() {
     [notify],
   );
 
+
+  useEffect(() => {
+    selectedItemRef.current = selectedItem;
+  }, [selectedItem]);
+
+  useEffect(() => {
+    inspectorStaleRef.current = inspectorStale;
+  }, [inspectorStale]);
+
+  useEffect(() => {
+    workspaceStaleRef.current = workspaceStale;
+  }, [workspaceStale]);
+
   useEffect(() => {
     selectedWorkspaceIDRef.current = selectedWorkspaceID;
   }, [selectedWorkspaceID]);
-
-  const loadShell = useCallback(async () => {
+  const loadShell = useCallback(async (updateLastSuccessful = true) => {
     const [nextConfig, nextDashboard, workspaceResult] = await Promise.all([
       API.Config(),
       API.Dashboard(),
@@ -181,27 +242,29 @@ function App() {
     const nextWorkspaces = workspaceResult ?? [];
     setConfig(nextConfig);
     setDashboard(nextDashboard);
+    if (updateLastSuccessful && nextDashboard.lastSuccessfulScanAt)
+      setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
     setWorkspaces(nextWorkspaces);
     return nextDashboard;
   }, []);
-
-  const loadLibrary = useCallback(async () => {
-    const requestVersion = libraryLoadVersion.current;
-    const nextItems =
-      (await API.ListLibrary("all", "all", query, folderID)) ?? [];
-    if (requestVersion !== libraryLoadVersion.current) return;
-    setItems(nextItems);
-    if (selectedItem) {
-      const replacement = nextItems.find(
-        (item) => item.entityId === selectedItem.entityId,
-      );
-      if (replacement) setSelectedItem(replacement);
-      else {
-        setSelectedItem(null);
-        setEntityDetail(null);
-      }
-    }
-  }, [query, folderID, selectedItem?.entityId]);
+  const loadLibrary = useCallback(
+    async (
+      requestedQuery = query,
+      requestedFolderID = folderID,
+      requestVersion = libraryLoadVersion.current,
+    ) => {
+      const nextItems =
+        (await API.ListLibrary(
+          "all",
+          "all",
+          requestedQuery,
+          requestedFolderID,
+        )) ?? [];
+      if (requestVersion !== libraryLoadVersion.current) return;
+      setItems(nextItems);
+    },
+    [folderID, query],
+  );
   const loadOrganization = useCallback(async () => {
     const [nextOrganization, nextItems] = await Promise.all([
       API.Organization(),
@@ -210,8 +273,36 @@ function App() {
     setOrganization(nextOrganization);
     setAllItems(nextItems ?? []);
   }, []);
-
+  const markOpenEntitiesStale = useCallback((snapshot: LibraryItem[]) => {
+    const byEntityID: Record<string, LibraryItem> = {};
+    for (const item of snapshot) byEntityID[item.entityId] = item;
+    const inspectorBaseline = inspectorBaselineRef.current;
+    if (
+      inspectorBaseline?.entityID &&
+      selectedItemRef.current?.entityId === inspectorBaseline.entityID &&
+      inspectorBaselineRef.current === inspectorBaseline
+    ) {
+      const item = byEntityID[inspectorBaseline.entityID];
+      if (!item || item.revision !== inspectorBaseline.revision) {
+        inspectorStaleRef.current = true;
+        setInspectorStale(true);
+      }
+    }
+    const workspaceBaseline = workspaceBaselineRef.current;
+    if (
+      workspaceBaseline?.entityID &&
+      selectedWorkspaceIDRef.current === workspaceBaseline.workspaceID &&
+      workspaceBaselineRef.current === workspaceBaseline
+    ) {
+      const item = byEntityID[workspaceBaseline.entityID];
+      if (!item || item.revision !== workspaceBaseline.revision) {
+        workspaceStaleRef.current = true;
+        setWorkspaceStale(true);
+      }
+    }
+  }, []);
   const reloadWorkspace = useCallback(async () => {
+    if (workspaceStaleRef.current) return;
     const workspaceID = selectedWorkspaceIDRef.current || selectedWorkspaceID;
     if (!workspaceID) return;
     const requestVersion = ++workspaceDetailLoadVersion.current;
@@ -222,40 +313,101 @@ function App() {
     ]);
     if (
       requestVersion === workspaceDetailLoadVersion.current &&
-      selectedWorkspaceIDRef.current === workspaceID
+      selectedWorkspaceIDRef.current === workspaceID &&
+      !workspaceStaleRef.current
     ) {
       setWorkspaceDetail(nextDetail);
     }
     setWorkspaces(workspaceResult ?? []);
     setDashboard(nextDashboard);
+    if (nextDashboard.lastSuccessfulScanAt)
+      setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
   }, [selectedWorkspaceID]);
 
   const startScan = useCallback(async () => {
+    if (scanInFlightRef.current) return;
+    scanInFlightRef.current = true;
+    const scanRunVersion = ++scanRunVersionRef.current;
     setScanning(true);
     setScan((current) =>
-      current ? { ...current, done: false, error: "" } : null,
+      current
+        ? { ...current, done: false, error: "" }
+        : {
+            scanId: "",
+            phase: "discovering",
+            path: "",
+            discovered: 0,
+            analyzed: 0,
+            cached: 0,
+            failed: 0,
+            done: false,
+          },
     );
+    let successful = false;
     try {
       const summary = await API.ScanLibrary();
+      successful = !summary.cancelled && !summary.error;
+      if (!successful) {
+        scanInFlightRef.current = false;
+        setScanning(false);
+      }
+      if (successful) {
+        writeBlockedRef.current = true;
+        setWriteBlocked(true);
+        try {
+          const committedItems =
+            (await API.ListLibrary("all", "all", "", "all")) ?? [];
+          markOpenEntitiesStale(committedItems);
+        } catch (error) {
+          handleError(error);
+        } finally {
+          writeBlockedRef.current = false;
+          setWriteBlocked(false);
+        }
+      }
       notify(
         `Processed ${summary.analyzed.toLocaleString()} archives${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} cached` : ""}`,
         summary.failed ? "info" : "success",
       );
     } catch (error) {
+      scanInFlightRef.current = false;
+      setScanning(false);
       if (
         !(error instanceof Error) ||
         !error.message.toLowerCase().includes("canceled")
       )
         handleError(error);
+    }
+
+    try {
+      const [libraryResult, shellResult, organizationResult] =
+        await Promise.allSettled([
+          loadLibrary(),
+          loadShell(successful),
+          loadOrganization(),
+        ]);
+      if (libraryResult.status === "rejected")
+        handleError(libraryResult.reason);
+      if (shellResult.status === "rejected")
+        handleError(shellResult.reason);
+      if (organizationResult.status === "rejected")
+        handleError(organizationResult.reason);
+    } catch (error) {
+      handleError(error);
     } finally {
-      setScanning(false);
-      try {
-        await Promise.all([loadLibrary(), loadShell(), loadOrganization()]);
-      } catch (error) {
-        handleError(error);
+      if (scanRunVersionRef.current === scanRunVersion) {
+        scanInFlightRef.current = false;
+        setScanning(false);
       }
     }
-  }, [handleError, loadLibrary, loadOrganization, loadShell, notify]);
+  }, [
+    handleError,
+    loadLibrary,
+    loadOrganization,
+    loadShell,
+    markOpenEntitiesStale,
+    notify,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -271,6 +423,8 @@ function App() {
         const nextDashboard = await API.Dashboard();
         if (!active) return;
         setDashboard(nextDashboard);
+        if (nextDashboard.lastSuccessfulScanAt)
+          setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
         const [
           nextConfig,
           workspaceResult,
@@ -314,10 +468,13 @@ function App() {
 
   useEffect(() => {
     if (!setupState || setupState.required) return;
+    const trimmedInput = searchInput.trim();
+    if (/^(?:tag|tags):$/i.test(trimmedInput)) return;
     const requestVersion = ++libraryLoadVersion.current;
     setLibraryLoading(true);
-    const timer = setTimeout(() => {
-      void loadLibrary()
+    if (!trimmedInput) {
+      setQuery("");
+      void loadLibrary("", folderID, requestVersion)
         .catch((error) => {
           if (requestVersion === libraryLoadVersion.current) handleError(error);
         })
@@ -325,9 +482,21 @@ function App() {
           if (requestVersion === libraryLoadVersion.current)
             setLibraryLoading(false);
         });
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [query, folderID, setupState?.required]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setQuery(searchInput);
+      void loadLibrary(searchInput, folderID, requestVersion)
+        .catch((error) => {
+          if (requestVersion === libraryLoadVersion.current) handleError(error);
+        })
+        .finally(() => {
+          if (requestVersion === libraryLoadVersion.current)
+            setLibraryLoading(false);
+        });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [folderID, searchInput, setupState?.required]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -356,7 +525,8 @@ function App() {
   useEffect(() => {
     const stopScan = Events.On("library:scan", (event) => {
       setScan(event.data);
-      setScanning(!event.data.done);
+      if (!event.data.done) setScanning(true);
+      else if (event.data.error) setScanning(false);
     });
     const stopItem = Events.On("library:item", (event) => {
       setItems((current) => {
@@ -391,6 +561,7 @@ function App() {
       }
     };
     const refreshSelectedWorkspace = async () => {
+      if (workspaceStaleRef.current) return;
       const workspaceID = selectedWorkspaceIDRef.current;
       if (!workspaceID) return;
       const requestVersion = ++workspaceDetailLoadVersion.current;
@@ -399,7 +570,8 @@ function App() {
         if (
           active &&
           requestVersion === workspaceDetailLoadVersion.current &&
-          selectedWorkspaceIDRef.current === workspaceID
+          selectedWorkspaceIDRef.current === workspaceID &&
+          !workspaceStaleRef.current
         ) {
           setWorkspaceDetail(next);
         }
@@ -465,6 +637,9 @@ function App() {
     if (view !== "workspaces") return;
     if (!selectedWorkspaceID) {
       workspaceDetailLoadVersion.current += 1;
+      workspaceBaselineRef.current = null;
+      workspaceStaleRef.current = false;
+      setWorkspaceStale(false);
       setWorkspaceDetail(null);
       setWorkspaceLoading(false);
       return;
@@ -487,7 +662,21 @@ function App() {
           selectedWorkspaceIDRef.current !== workspaceID
         )
           return;
-        setWorkspaceDetail(detail);
+        const baseline = workspaceBaselineRef.current;
+        if (
+          !workspaceStaleRef.current &&
+          baseline &&
+          baseline.workspaceID === workspaceID &&
+          (!baseline.entityID || baseline.entityID === detail.entity.entityId) &&
+          (!baseline.revision || detail.entity.revision > baseline.revision)
+        ) {
+          workspaceBaselineRef.current = {
+            ...baseline,
+            entityID: detail.entity.entityId,
+            revision: detail.entity.revision,
+          };
+        }
+        if (!workspaceStaleRef.current) setWorkspaceDetail(detail);
       })
       .catch((error) => {
         if (
@@ -514,20 +703,55 @@ function App() {
     if (view !== "workspaces")
       setEditorStatus({ path: "", dirty: false, sizeBytes: 0 });
   }, [view]);
-
   const selectItem = async (item: LibraryItem) => {
+    if (
+      inspectorStaleRef.current &&
+      selectedItemRef.current?.entityId === item.entityId
+    )
+      return;
+    selectedItemRef.current = item;
+    inspectorBaselineRef.current = {
+      entityID: item.entityId,
+      revision: item.revision,
+    };
+    inspectorStaleRef.current = false;
+    setInspectorStale(false);
     setSelectedItem(item);
     setEntityDetail(null);
     setEntityLoading(true);
     try {
-      setEntityDetail(await API.GetEntity(item.entityId));
+      const nextDetail = await API.GetEntity(item.entityId);
+      if (
+        selectedItemRef.current?.entityId === item.entityId &&
+        !inspectorStaleRef.current
+      ) {
+        advanceInspectorBaseline(nextDetail.item, true);
+        setEntityDetail(nextDetail);
+      }
     } catch (error) {
       handleError(error);
     } finally {
-      setEntityLoading(false);
+      if (selectedItemRef.current?.entityId === item.entityId)
+        setEntityLoading(false);
     }
   };
   const selectWorkspace = (workspaceID: string) => {
+    if (
+      workspaceStaleRef.current &&
+      selectedWorkspaceIDRef.current === workspaceID
+    )
+      return;
+    const record = workspaces.find((workspace) => workspace.id === workspaceID);
+    const item = record
+      ? allItems.find((candidate) => candidate.entityId === record.entityId)
+      : undefined;
+    workspaceBaselineRef.current = {
+      workspaceID,
+      entityID: record?.entityId ?? item?.entityId ?? "",
+      revision: item?.revision ?? "",
+    };
+    workspaceStaleRef.current = false;
+    setWorkspaceStale(false);
     workspaceDetailLoadVersion.current += 1;
     selectedWorkspaceIDRef.current = workspaceID;
     setWorkspaceDetail(null);
@@ -535,16 +759,45 @@ function App() {
   };
 
   const createWorkspace = async () => {
-    if (!selectedItem) return;
+    if (
+      writeBlockedRef.current ||
+      !selectedItem ||
+      inspectorStaleRef.current
+    )
+      return;
+    const entityID = selectedItem.entityId;
     setCreatingWorkspace(true);
     try {
-      const detail = await API.CreateWorkspace(selectedItem.entityId);
+      const detail = await API.CreateWorkspace(entityID);
+      if (
+        inspectorStaleRef.current ||
+        selectedItemRef.current?.entityId !== entityID
+      )
+        return;
+      const nextWorkspaces = await API.ListWorkspaces();
+      if (
+        inspectorStaleRef.current ||
+        selectedItemRef.current?.entityId !== entityID
+      )
+        return;
+      workspaceBaselineRef.current = {
+        workspaceID: detail.workspace.id,
+        entityID: detail.entity.entityId,
+        revision: detail.entity.revision,
+      };
+      workspaceStaleRef.current = false;
+      setWorkspaceStale(false);
       workspaceDetailLoadVersion.current += 1;
       selectedWorkspaceIDRef.current = detail.workspace.id;
       setWorkspaceDetail(detail);
       setSelectedWorkspaceID(detail.workspace.id);
-      setWorkspaces((await API.ListWorkspaces()) ?? []);
+      setWorkspaces(nextWorkspaces ?? []);
+      selectedItemRef.current = null;
+      inspectorBaselineRef.current = null;
+      inspectorStaleRef.current = false;
       setSelectedItem(null);
+      setEntityDetail(null);
+      setInspectorStale(false);
       setView("workspaces");
       notify(`${detail.entity.displayName} mod workspace opened`, "success");
     } catch (error) {
@@ -553,14 +806,23 @@ function App() {
       setCreatingWorkspace(false);
     }
   };
-
   const openVirusScanner = (item: LibraryItem) => {
+    if (writeBlockedRef.current) return;
+    if (
+      inspectorStaleRef.current &&
+      selectedItemRef.current?.entityId === item.entityId
+    )
+      return;
     setVirusScanRequest({
       entityIDs: [item.entityId],
       nonce: ++virusScanRequestVersion.current,
     });
+    selectedItemRef.current = null;
+    inspectorBaselineRef.current = null;
+    inspectorStaleRef.current = false;
     setSelectedItem(null);
     setEntityDetail(null);
+    setInspectorStale(false);
     setView("scanner");
   };
 
@@ -573,16 +835,23 @@ function App() {
     virgilPrompt = "",
     modelOverride = "",
   ) => {
+    if (writeBlockedRef.current) return;
     const detail = await API.CreateNewMod(request);
     const prompt = virgilPrompt.trim();
     const workspaceID = detail.workspace.id;
-
-    // Keep the workspace behind its loading state until the first Virgil
-    // session is durable and has a running record.
     if (prompt) {
       workspaceSetupID.current = workspaceID;
       setWorkspaceLoading(true);
     }
+
+    // The workspace starts with the entity revision present when it opens.
+    workspaceBaselineRef.current = {
+      workspaceID,
+      entityID: detail.entity.entityId,
+      revision: detail.entity.revision,
+    };
+    workspaceStaleRef.current = false;
+    setWorkspaceStale(false);
     selectedWorkspaceIDRef.current = workspaceID;
     workspaceDetailLoadVersion.current += 1;
     setWorkspaceDetail(detail);
@@ -656,9 +925,11 @@ function App() {
     if (workspaceResult.status === "fulfilled")
       setWorkspaces(workspaceResult.value ?? []);
     else handleError(workspaceResult.reason);
-    if (dashboardResult.status === "fulfilled")
+    if (dashboardResult.status === "fulfilled") {
       setDashboard(dashboardResult.value);
-    else handleError(dashboardResult.reason);
+      if (dashboardResult.value.lastSuccessfulScanAt)
+        setLastSuccessfulScanAt(dashboardResult.value.lastSuccessfulScanAt);
+    } else handleError(dashboardResult.reason);
     if (settingsResult.status === "fulfilled")
       setSettings(settingsResult.value);
     else handleError(settingsResult.reason);
@@ -681,6 +952,7 @@ function App() {
   };
 
   const createFolder = async (name: string) => {
+    if (writeBlockedRef.current) return;
     try {
       setOrganization(await API.CreateLibraryFolder(name, ""));
       await loadLibrary();
@@ -690,6 +962,7 @@ function App() {
     }
   };
   const renameFolder = async (id: string, name: string) => {
+    if (writeBlockedRef.current) return;
     try {
       setOrganization(await API.RenameLibraryFolder(id, name));
       notify("Collection renamed", "success");
@@ -698,6 +971,7 @@ function App() {
     }
   };
   const deleteFolder = async (id: string) => {
+    if (writeBlockedRef.current) return;
     try {
       setOrganization(await API.DeleteLibraryFolder(id));
       setFolderID("all");
@@ -708,13 +982,22 @@ function App() {
     }
   };
   const moveSelectedItem = async (nextFolderID: string) => {
-    if (!selectedItem) return;
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
+    const entityID = current.entityId;
     try {
-      await API.MoveLibraryItem(selectedItem.entityId, nextFolderID);
-      setSelectedItem({
-        ...selectedItem,
-        folderId: nextFolderID,
-      } as LibraryItem);
+      await API.MoveLibraryItem(entityID, nextFolderID);
+      const latest = selectedItemRef.current;
+      if (inspectorStaleRef.current || latest?.entityId !== entityID) return;
+      const nextItem = { ...latest, folderId: nextFolderID };
+      selectedItemRef.current = nextItem;
+      setSelectedItem(nextItem);
+      advanceInspectorBaseline(nextItem);
       await Promise.all([loadLibrary(), loadOrganization()]);
       notify(
         nextFolderID ? "Mod moved to collection" : "Mod moved to Unfiled",
@@ -729,8 +1012,10 @@ function App() {
     color: string,
     icon: string,
   ): Promise<ModTag | null> => {
+    if (writeBlockedRef.current || inspectorStaleRef.current) return null;
     const next = await API.CreateModTag(name, color, icon);
     setOrganization(next);
+    if (inspectorStaleRef.current) return null;
     notify(`Created tag ${name}`, "success");
     return (
       (next.tags ?? []).find(
@@ -741,80 +1026,157 @@ function App() {
     );
   };
   const updateSelectedTag = (tagID: string, replacement: ModTag | null) => {
+    if (inspectorStaleRef.current) return;
+    const current = selectedItemRef.current;
+    if (!current) return;
     const updateItem = (item: LibraryItem) => ({
       ...item,
       tags: replacement
         ? (item.tags ?? []).map((tag) => (tag.id === tagID ? replacement : tag))
         : (item.tags ?? []).filter((tag) => tag.id !== tagID),
     });
-    setSelectedItem((current) => (current ? updateItem(current) : current));
-    setEntityDetail((current) =>
-      current ? { ...current, item: updateItem(current.item) } : current,
+    const nextItem = updateItem(current);
+    selectedItemRef.current = nextItem;
+    setSelectedItem(nextItem);
+    setEntityDetail((currentDetail) =>
+      currentDetail?.item.entityId === nextItem.entityId
+        ? { ...currentDetail, item: updateItem(currentDetail.item) }
+        : currentDetail,
     );
+    advanceInspectorBaseline(nextItem);
   };
   const updateTagVisual = async (
     tagID: string,
     color: string,
     icon: string,
   ): Promise<void> => {
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
+    const entityID = selectedItemRef.current?.entityId;
     const next = await API.UpdateModTagVisual(tagID, color, icon);
     setOrganization(next);
-    const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
-    const currentTag = selectedItem?.tags?.find((tag) => tag.id === tagID);
-    updateSelectedTag(
-      tagID,
-      updatedTag ??
-        (currentTag
-          ? { ...currentTag, color, icon }
-          : { id: tagID, name: "", modCount: 0, color, icon }),
-    );
+    if (
+      !inspectorStaleRef.current &&
+      selectedItemRef.current?.entityId === entityID
+    ) {
+      const currentTag = selectedItemRef.current?.tags?.find(
+        (tag) => tag.id === tagID,
+      );
+      const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
+      updateSelectedTag(
+        tagID,
+        updatedTag ??
+          (currentTag
+            ? { ...currentTag, color, icon }
+            : { id: tagID, name: "", modCount: 0, color, icon }),
+      );
+    }
     await Promise.all([loadLibrary(), loadOrganization()]);
   };
   const renameTag = async (tagID: string, name: string) => {
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
+    const entityID = selectedItemRef.current?.entityId;
     const next = await API.RenameModTag(tagID, name);
     setOrganization(next);
-    const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
-    const currentTag = selectedItem?.tags?.find((tag) => tag.id === tagID);
-    updateSelectedTag(
-      tagID,
-      updatedTag ??
-        (currentTag
-          ? { ...currentTag, name }
-          : { id: tagID, name, modCount: 0, color: "", icon: "" }),
-    );
+    if (
+      !inspectorStaleRef.current &&
+      selectedItemRef.current?.entityId === entityID
+    ) {
+      const currentTag = selectedItemRef.current?.tags?.find(
+        (tag) => tag.id === tagID,
+      );
+      const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
+      updateSelectedTag(
+        tagID,
+        updatedTag ??
+          (currentTag
+            ? { ...currentTag, name }
+            : { id: tagID, name, modCount: 0, color: "", icon: "" }),
+      );
+    }
     await Promise.all([loadLibrary(), loadOrganization()]);
     notify("Tag renamed", "success");
   };
   const deleteTag = async (tagID: string) => {
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
+    const entityID = selectedItemRef.current?.entityId;
     const next = await API.DeleteModTag(tagID);
     setOrganization(next);
-    updateSelectedTag(tagID, null);
+    if (
+      !inspectorStaleRef.current &&
+      selectedItemRef.current?.entityId === entityID
+    )
+      updateSelectedTag(tagID, null);
     await Promise.all([loadLibrary(), loadOrganization()]);
     notify("Tag deleted", "success");
   };
   const setSelectedTags = async (tagIDs: string[]) => {
-    if (!selectedItem) return;
-    const next = await API.SetLibraryItemTags(selectedItem.entityId, tagIDs);
-    const nextDetail = await API.GetEntity(next.entityId);
-    setSelectedItem(nextDetail.item);
-    setEntityDetail(nextDetail);
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
+    const entityID = current.entityId;
+    const next = await API.SetLibraryItemTags(entityID, tagIDs);
+    if (
+      inspectorStaleRef.current ||
+      selectedItemRef.current?.entityId !== entityID
+    )
+      return;
+    advanceInspectorBaseline(next);
+    selectedItemRef.current = next;
+    setSelectedItem(next);
+    try {
+      const nextDetail = await API.GetEntity(entityID);
+      if (
+        !inspectorStaleRef.current &&
+        selectedItemRef.current?.entityId === entityID
+      ) {
+        advanceInspectorBaseline(nextDetail.item, true);
+        selectedItemRef.current = nextDetail.item;
+        setSelectedItem(nextDetail.item);
+        setEntityDetail(nextDetail);
+      }
+    } catch (error) {
+      handleError(error);
+    }
     await Promise.all([loadLibrary(), loadOrganization()]);
   };
   const saveDetails = async (
     update: LibraryItemDetailsUpdate,
   ): Promise<void> => {
-    if (!selectedItem) return;
-    const next = await API.UpdateLibraryItemDetails(
-      selectedItem.entityId,
-      update,
-    );
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
+    const entityID = current.entityId;
+    const next = await API.UpdateLibraryItemDetails(entityID, update);
+    if (inspectorStaleRef.current || selectedItemRef.current?.entityId !== entityID)
+      return;
+    advanceInspectorBaseline(next.item);
+    selectedItemRef.current = next.item;
     setSelectedItem(next.item);
     setEntityDetail(next);
     await Promise.all([loadLibrary(), loadOrganization()]);
   };
   const saveVariant = async (update: LibraryVariantUpdate): Promise<void> => {
-    if (!selectedItem) return;
-    const next = await API.UpdateLibraryVariant(selectedItem.entityId, update);
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
+    const entityID = current.entityId;
+    const next = await API.UpdateLibraryVariant(entityID, update);
+    if (inspectorStaleRef.current || selectedItemRef.current?.entityId !== entityID)
+      return;
+    advanceInspectorBaseline(next.item);
+    selectedItemRef.current = next.item;
     setSelectedItem(next.item);
     setEntityDetail(next);
     await Promise.all([loadLibrary(), loadOrganization()]);
@@ -822,25 +1184,38 @@ function App() {
   const previewMember = async (
     path: string,
   ): Promise<ArchiveMemberPreview | null> => {
-    if (!selectedItem) return null;
+    const current = selectedItemRef.current;
+    if (!current) return null;
     try {
-      return await API.PreviewLibraryArchiveMember(selectedItem.entityId, path);
+      return await API.PreviewLibraryArchiveMember(current.entityId, path);
     } catch (error) {
       handleError(error);
       return null;
     }
   };
   const extractMember = async (path: string): Promise<void> => {
-    if (!selectedItem) return;
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
     const savedPath = await API.ExtractLibraryArchiveMember(
-      selectedItem.entityId,
+      current.entityId,
       path,
     );
     if (savedPath) notify(`Extracted ${path} to ${savedPath}`, "success");
   };
   const revealArchive = async (): Promise<void> => {
-    if (!selectedItem) return;
-    await API.RevealLibraryArchive(selectedItem.entityId);
+    const current = selectedItemRef.current;
+    if (
+      writeBlockedRef.current ||
+      !current ||
+      inspectorStaleRef.current
+    )
+      return;
+    await API.RevealLibraryArchive(current.entityId);
     notify("Archive revealed", "success");
   };
 
@@ -860,11 +1235,14 @@ function App() {
       handleError(error);
     }
   };
-
   const changeView = (next: View) => {
     setView(next);
+    selectedItemRef.current = null;
+    inspectorBaselineRef.current = null;
+    inspectorStaleRef.current = false;
     setSelectedItem(null);
     setEntityDetail(null);
+    setInspectorStale(false);
     if (next === "scanner") setVirusScanRequest(null);
   };
 
@@ -1039,10 +1417,10 @@ function App() {
                 scan={scan}
                 scanning={scanning}
                 loading={libraryLoading}
-                query={query}
+                query={searchInput}
                 folderID={folderID}
                 selectedID={selectedItem?.entityId ?? ""}
-                onQueryChange={setQuery}
+                onQueryChange={setSearchInput}
                 onFolderChange={setFolderID}
                 onCreateFolder={(name) => void createFolder(name)}
                 onRenameFolder={(id, name) => void renameFolder(id, name)}
@@ -1059,6 +1437,9 @@ function App() {
                 allItems={allItems}
                 detail={workspaceDetail}
                 selectedID={selectedWorkspaceID}
+                stale={workspaceStale}
+                writeBlocked={writeBlocked}
+                isWriteBlocked={isWriteBlocked}
                 loading={workspaceLoading}
                 defaultAuthor={settings?.defaultAuthor ?? ""}
                 showFileSizes={settings?.showFileSizes ?? true}
@@ -1069,6 +1450,9 @@ function App() {
                   else {
                     workspaceDetailLoadVersion.current += 1;
                     selectedWorkspaceIDRef.current = "";
+                    workspaceBaselineRef.current = null;
+                    workspaceStaleRef.current = false;
+                    setWorkspaceStale(false);
                     setSelectedWorkspaceID("");
                     setWorkspaceDetail(null);
                   }
@@ -1109,18 +1493,23 @@ function App() {
           </>
         )}
       </main>
-
       {selectedItem && view === "library" && (
         <Inspector
           item={selectedItem}
+          writeBlocked={writeBlocked}
           detail={entityDetail}
+          stale={inspectorStale}
           folders={organization?.folders ?? []}
           tags={organization?.tags ?? []}
           loading={entityLoading}
           creatingWorkspace={creatingWorkspace}
           onClose={() => {
+            selectedItemRef.current = null;
+            inspectorBaselineRef.current = null;
+            inspectorStaleRef.current = false;
             setSelectedItem(null);
             setEntityDetail(null);
+            setInspectorStale(false);
           }}
           onMoveFolder={(folder) => void moveSelectedItem(folder)}
           onSetTags={setSelectedTags}
@@ -1140,11 +1529,17 @@ function App() {
       )}
 
       <footer className="app-statusbar" aria-label="Application status">
-        <div>
-          <span className="status-led status-led--ready" />
-          {scanning
-            ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}`
-            : "Ready"}
+        <div
+          className={`app-statusbar__scan${scanning ? " app-statusbar__scan--active" : ""}`}
+        >
+          <Icon name={scanning ? "scan" : "check"} size={14} />
+          <span>
+            {scanning
+              ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}`
+              : lastSuccessfulScanAt
+                ? `Last scan: ${formatDate(lastSuccessfulScanAt)}`
+                : "No successful scan"}
+          </span>
         </div>
         <div>
           {view === "workspaces" && activeWorkspace ? (

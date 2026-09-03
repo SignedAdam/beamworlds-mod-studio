@@ -241,11 +241,45 @@ func (s *Store) RenameModTag(ctx context.Context, tagID, name string) error {
 	if err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE mod_tags SET name=?,updated_at=? WHERE id=?`, name, nowUTC(), strings.TrimSpace(tagID))
+	tagID = strings.TrimSpace(tagID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `SELECT entity_id FROM mod_tag_entities WHERE tag_id=? ORDER BY entity_id`, tagID)
+	if err != nil {
+		return err
+	}
+	entityIDs := []string{}
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		entityIDs = append(entityIDs, entityID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE mod_tags SET name=?,updated_at=? WHERE id=?`, name, nowUTC(), tagID)
 	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unique") {
 		return fmt.Errorf("tag %q already exists", name)
 	}
-	return requireChanged(result, err, "tag")
+	if err := requireChanged(result, err, "tag"); err != nil {
+		return err
+	}
+	for _, entityID := range entityIDs {
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteModTag(ctx context.Context, tagID string) error {
@@ -292,6 +326,11 @@ func (s *Store) DeleteModTag(ctx context.Context, tagID string) error {
 	result, err := tx.ExecContext(ctx, `DELETE FROM mod_tags WHERE id=?`, tagID)
 	if err := requireChanged(result, err, "tag"); err != nil {
 		return err
+	}
+	for _, entityID := range entityIDs {
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -397,8 +436,12 @@ func (s *Store) SetLibraryItemTags(ctx context.Context, entityID string, tagIDs 
 			return err
 		}
 	}
+	if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
+
 func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) error {
 	if len(items) == 0 {
 		return nil

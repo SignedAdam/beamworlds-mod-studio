@@ -25,6 +25,8 @@ const (
 
 type AppSettings struct {
 	Theme                string `json:"theme"`
+	InterfaceSize        string `json:"interfaceSize"`
+	TextSize             string `json:"textSize"`
 	DefaultAuthor        string `json:"defaultAuthor"`
 	AgentProfile         string `json:"agentProfile"`
 	AgentModel           string `json:"agentModel"`
@@ -52,6 +54,8 @@ type AppSettings struct {
 
 type SettingsUpdate struct {
 	Theme                 string `json:"theme"`
+	InterfaceSize         string `json:"interfaceSize"`
+	TextSize              string `json:"textSize"`
 	DefaultAuthor         string `json:"defaultAuthor"`
 	AgentProfile          string `json:"agentProfile"`
 	AgentModel            string `json:"agentModel"`
@@ -75,9 +79,9 @@ type SettingsUpdate struct {
 	OpenRouterAPIKey      string `json:"openRouterApiKey"`
 	ClearOpenRouterAPIKey bool   `json:"clearOpenRouterApiKey"`
 	OpenAIAPIKey          string `json:"openAIApiKey"`
-	ClearOpenAIAPIKey     bool   `json:"clearOpenAIApiKey"`
+	ClearOpenAIAPIKey     bool   `json:"clearOpenAIAPIKey"`
 	AnthropicAPIKey       string `json:"anthropicApiKey"`
-	ClearAnthropicAPIKey  bool   `json:"clearAnthropicApiKey"`
+	ClearAnthropicAPIKey  bool   `json:"clearAnthropicAPIKey"`
 }
 
 type UsageLimit struct {
@@ -119,6 +123,8 @@ type agentLaunchSettings struct {
 func defaultAppSettings() AppSettings {
 	return AppSettings{
 		Theme:                "dark",
+		InterfaceSize:        "default",
+		TextSize:             "default",
 		AgentProfile:         "chatgpt",
 		ContextMode:          "balanced",
 		ShowAIUsage:          true,
@@ -142,8 +148,18 @@ func defaultAppSettings() AppSettings {
 
 func validateSettings(update SettingsUpdate) (AppSettings, error) {
 	defaults := defaultAppSettings()
+	interfaceSize, err := normalizeSizingValue(update.InterfaceSize, defaults.InterfaceSize, "interface size", "compact", "default", "comfortable", "large")
+	if err != nil {
+		return AppSettings{}, err
+	}
+	textSize, err := normalizeSizingValue(update.TextSize, defaults.TextSize, "text size", "small", "default", "large", "extra-large")
+	if err != nil {
+		return AppSettings{}, err
+	}
 	settings := AppSettings{
 		Theme:                strings.ToLower(strings.TrimSpace(update.Theme)),
+		InterfaceSize:        interfaceSize,
+		TextSize:             textSize,
 		DefaultAuthor:        strings.TrimSpace(update.DefaultAuthor),
 		AgentProfile:         strings.ToLower(strings.TrimSpace(update.AgentProfile)),
 		AgentModel:           strings.TrimSpace(update.AgentModel),
@@ -196,6 +212,27 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 	return settings, nil
 }
 
+func normalizeSizingValue(value, fallback, field string, allowed ...string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return fallback, nil
+	}
+	for _, option := range allowed {
+		if value == option {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("%s must be one of %s", field, strings.Join(allowed, ", "))
+}
+
+func sizingOrDefault(value, fallback, field string, allowed ...string) string {
+	normalized, err := normalizeSizingValue(value, fallback, field, allowed...)
+	if err != nil {
+		return fallback
+	}
+	return normalized
+}
+
 func clampAutoFormatDelay(value int) int {
 	if value <= 0 {
 		return autoFormatDelayDefaultMs
@@ -233,7 +270,8 @@ func colorOrDefault(value, fallback string) string {
 }
 
 func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
-	settings := defaultAppSettings()
+	defaults := defaultAppSettings()
+	settings := defaults
 	var encoded string
 	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, preferencesKey).Scan(&encoded)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -252,7 +290,9 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 	default:
 		settings.AgentProfile = profile
 	}
-	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaultAppSettings().SubsectionTitleColor)
+	settings.InterfaceSize = sizingOrDefault(settings.InterfaceSize, defaults.InterfaceSize, "interface size", "compact", "default", "comfortable", "large")
+	settings.TextSize = sizingOrDefault(settings.TextSize, defaults.TextSize, "text size", "small", "default", "large", "extra-large")
+	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaults.SubsectionTitleColor)
 	settings.AutoFormatDelayMs = clampAutoFormatDelay(settings.AutoFormatDelayMs)
 	if settings.PreScanModel == releasedPreScanModel && settings.FullScanModel == releasedFullScanModel {
 		settings.PreScanModel = ""
@@ -265,6 +305,8 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 }
 
 func (s *Store) saveAppSettings(ctx context.Context, settings AppSettings) error {
+	settings.InterfaceSize = sizingOrDefault(settings.InterfaceSize, "default", "interface size", "compact", "default", "comfortable", "large")
+	settings.TextSize = sizingOrDefault(settings.TextSize, "default", "text size", "small", "default", "large", "extra-large")
 	settings.HasOpenRouterAPIKey = false
 	settings.HasOpenAIAPIKey = false
 	settings.HasAnthropicAPIKey = false

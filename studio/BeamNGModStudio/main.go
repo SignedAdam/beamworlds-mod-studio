@@ -3,6 +3,8 @@ package main
 import (
 	"embed"
 	"log"
+	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -24,7 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("load application configuration: %v", err)
 	}
-	store, err := OpenStore(config.DatabasePath)
+	var store *Store
+	if strings.TrimSpace(config.LibraryDir) == "" {
+		store, err = OpenStore(config.DatabasePath)
+	} else {
+		store, err = OpenStore(config.DatabasePath, filepath.Join(config.LibraryDir, "catalog.json"))
+	}
 	if err != nil {
 		log.Fatalf("open application database: %v", err)
 	}

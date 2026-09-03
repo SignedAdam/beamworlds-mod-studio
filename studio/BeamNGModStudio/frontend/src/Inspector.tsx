@@ -11,6 +11,7 @@ import type {
 } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import type { ArchiveMember, Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
 import { Icon } from './icons'
+import { IndexCardTabs } from './IndexCardTabs'
 import { TagEditor } from './TagEditor'
 import { Badge, Button, EmptyState, Spinner, formatBytes, formatDate, issueTone, kindIcon, kindLabel } from './ui'
 
@@ -76,14 +77,8 @@ export function Inspector({
   const currentDetail = detail?.item.entityId === item.entityId ? detail : null
   const manifest = currentDetail?.item.manifest ?? item.manifest
   const variantCount = (manifest?.variants ?? []).length
-  const tabs: { id: InspectorTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    ...(String(item.kind) === 'vehicle' && variantCount > 0 ? [{ id: 'variants' as const, label: `Variants (${variantCount})` }] : []),
-    { id: 'issues', label: 'Structural Issues' },
-    { id: 'structure', label: 'Structure' },
-    { id: 'files', label: 'Files' },
-    { id: 'history', label: 'History' },
-  ]
+  const issueCount = (manifest?.issues ?? []).length
+  const historyCount = currentDetail?.history?.length ?? 0
   const members = useMemo(() => {
     const query = fileFilter.toLowerCase().trim()
     const filtered = (manifest?.members ?? []).filter(member => !query || member.path.toLowerCase().includes(query))
@@ -123,19 +118,49 @@ export function Inspector({
       </label>
     </div>
 
-    <nav className="inspector-tabs" aria-label="Inspector sections">
-      {tabs.map(value => <button key={value.id} className={tab === value.id ? 'is-active' : ''} onClick={() => setTab(value.id)}>{value.label}</button>)}
-    </nav>
-
     <div className="inspector__body">
-      {loading && !currentDetail ? <div className="center-loader"><Spinner/><span>Loading artifact detail</span></div> : <>
-        {tab === 'overview' && <Overview item={item} detail={currentDetail} tags={tags} onSetTags={onSetTags} onCreateTag={onCreateTag} onUpdateTagVisual={onUpdateTagVisual} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag} onSaveDetails={onSaveDetails} onError={onError}/>}
-        {tab === 'variants' && <Variants key={item.entityId} variants={manifest?.variants ?? []} selected={selectedVariant} onSelect={setSelectedVariant} onPreviewMember={onPreviewMember} onSaveVariant={onSaveVariant} onError={onError}/>}
-        {tab === 'issues' && <StructuralIssues item={item} detail={currentDetail}/>}
-        {tab === 'structure' && <Structure item={item} detail={currentDetail}/>}
-        {tab === 'files' && <Files key={item.entityId} item={item} members={members} query={fileFilter} onQuery={setFileFilter} onPreviewMember={onPreviewMember} onExtractMember={onExtractMember} onRevealArchive={onRevealArchive} onCreateWorkspace={onCreateWorkspace} creatingWorkspace={creatingWorkspace} onError={onError}/>}
-        {tab === 'history' && <History detail={currentDetail}/>}
-      </>}
+      {loading && !currentDetail ? <div className="center-loader"><Spinner/><span>Loading artifact detail</span></div> : <IndexCardTabs
+        items={[
+          {
+            id: 'overview',
+            label: 'Overview',
+            panel: <Overview item={item} detail={currentDetail} tags={tags} onSetTags={onSetTags} onCreateTag={onCreateTag} onUpdateTagVisual={onUpdateTagVisual} onRenameTag={onRenameTag} onDeleteTag={onDeleteTag} onSaveDetails={onSaveDetails} onError={onError}/>,
+          },
+          ...(String(item.kind) === 'vehicle' && variantCount > 0 ? [{
+            id: 'variants',
+            label: 'Variants',
+            count: variantCount,
+            panel: <Variants key={item.entityId} variants={manifest?.variants ?? []} selected={selectedVariant} onSelect={setSelectedVariant} onPreviewMember={onPreviewMember} onSaveVariant={onSaveVariant} onError={onError}/>,
+          }] : []),
+          {
+            id: 'issues',
+            label: 'Structural Issues',
+            count: issueCount,
+            panel: <StructuralIssues item={item} detail={currentDetail}/>,
+          },
+          {
+            id: 'structure',
+            label: 'Structure',
+            panel: <Structure item={item} detail={currentDetail}/>,
+          },
+          {
+            id: 'files',
+            label: 'Files',
+            panel: <Files key={item.entityId} item={item} members={members} query={fileFilter} onQuery={setFileFilter} onPreviewMember={onPreviewMember} onExtractMember={onExtractMember} onRevealArchive={onRevealArchive} onCreateWorkspace={onCreateWorkspace} creatingWorkspace={creatingWorkspace} onError={onError}/>,
+          },
+          {
+            id: 'history',
+            label: 'History',
+            count: historyCount,
+            panel: <History detail={currentDetail}/>,
+          },
+        ]}
+        value={tab}
+        onValueChange={value => setTab(value as InspectorTab)}
+        activationMode="manual"
+        ariaLabel="Inspector sections"
+        mountInactivePanels
+      />}
     </div>
   </aside>
 }

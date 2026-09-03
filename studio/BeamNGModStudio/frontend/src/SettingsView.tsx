@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Browser, Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { AIConnectionEvent, AIConnectionStart, AIConnectionState, AIProviderConnection, AIUsage, AppSettings, SettingsUpdate } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
@@ -17,16 +17,59 @@ interface KeyProvider {
   detail: string
   stored: 'hasOpenRouterApiKey' | 'hasOpenAIApiKey' | 'hasAnthropicApiKey'
   field: 'openRouterApiKey' | 'openAIApiKey' | 'anthropicApiKey'
-  clear: 'clearOpenRouterApiKey' | 'clearOpenAIApiKey' | 'clearAnthropicApiKey'
+  clear: 'clearOpenRouterApiKey' | 'clearOpenAIAPIKey' | 'clearAnthropicAPIKey'
 }
 type Provider = SubscriptionProvider | KeyProvider
+type InterfaceSize = 'compact' | 'default' | 'comfortable' | 'large'
+type TextSize = 'small' | 'default' | 'large' | 'extra-large'
+
+const INTERFACE_SIZE_OPTIONS: readonly { value: InterfaceSize; label: string; percentage: string }[] = [
+  { value: 'compact', label: 'Compact', percentage: '90%' },
+  { value: 'default', label: 'Default', percentage: '100%' },
+  { value: 'comfortable', label: 'Comfortable', percentage: '110%' },
+  { value: 'large', label: 'Large', percentage: '125%' },
+]
+
+const TEXT_SIZE_OPTIONS: readonly { value: TextSize; label: string; percentage: string }[] = [
+  { value: 'small', label: 'Small', percentage: '90%' },
+  { value: 'default', label: 'Default', percentage: '100%' },
+  { value: 'large', label: 'Large', percentage: '115%' },
+  { value: 'extra-large', label: 'Extra large', percentage: '130%' },
+]
+
+const INTERFACE_SIZE_LABELS: Record<InterfaceSize, string> = {
+  compact: 'Compact',
+  default: 'Default',
+  comfortable: 'Comfortable',
+  large: 'Large',
+}
+const TEXT_SIZE_LABELS: Record<TextSize, string> = {
+  small: 'Small',
+  default: 'Default',
+  large: 'Large',
+  'extra-large': 'Extra large',
+}
+
+function normalizeInterfaceSize(value: unknown): InterfaceSize {
+  return INTERFACE_SIZE_OPTIONS.some(option => option.value === value) ? value as InterfaceSize : 'default'
+}
+
+function normalizeTextSize(value: unknown): TextSize {
+  return TEXT_SIZE_OPTIONS.some(option => option.value === value) ? value as TextSize : 'default'
+}
+
+function applySizingAttributes(interfaceSize: unknown, textSize: unknown) {
+  const root = document.documentElement
+  root.dataset.interfaceSize = normalizeInterfaceSize(interfaceSize)
+  root.dataset.textSize = normalizeTextSize(textSize)
+}
 
 const PROVIDERS: readonly Provider[] = [
   { id: 'chatgpt', kind: 'subscription', label: 'ChatGPT', detail: 'Sign in with your ChatGPT subscription' },
   { id: 'claude', kind: 'subscription', label: 'Claude Code', detail: 'Sign in with your Claude subscription' },
   { id: 'openrouter', kind: 'apiKey', label: 'OpenRouter', detail: 'API key from openrouter.ai', stored: 'hasOpenRouterApiKey', field: 'openRouterApiKey', clear: 'clearOpenRouterApiKey' },
-  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'API key from platform.openai.com', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIApiKey' },
-  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'API key from console.anthropic.com', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicApiKey' },
+  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'API key from platform.openai.com', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIAPIKey' },
+  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'API key from console.anthropic.com', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicAPIKey' },
 ]
 
 const providerByID = (id: string) => PROVIDERS.find(provider => provider.id === id)
@@ -75,7 +118,10 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
   const [connections, setConnections] = useState<AIConnectionState | null>(null)
   const [connectionsFailed, setConnectionsFailed] = useState(false)
   const [login, setLogin] = useState<LoginState | null>(null)
+  const [sizingAnnouncement, setSizingAnnouncement] = useState('')
   const savedTheme = useRef(settings?.theme ?? 'dark')
+  const savedInterfaceSize = useRef<InterfaceSize>(normalizeInterfaceSize(settings?.interfaceSize))
+  const savedTextSize = useRef<TextSize>(normalizeTextSize(settings?.textSize))
   const loginRef = useRef<LoginState | null>(null)
   const loginAttempt = useRef(0)
   const lastEvents = useRef(new Map<string, AIConnectionEvent>())
@@ -83,10 +129,16 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
 
   useEffect(() => {
     savedTheme.current = settings?.theme ?? 'dark'
+    savedInterfaceSize.current = normalizeInterfaceSize(settings?.interfaceSize)
+    savedTextSize.current = normalizeTextSize(settings?.textSize)
     setDraft(settings)
   }, [settings])
+  useLayoutEffect(() => {
+    if (draft) applySizingAttributes(draft.interfaceSize, draft.textSize)
+  }, [draft?.interfaceSize, draft?.textSize])
   useEffect(() => () => {
     document.documentElement.dataset.theme = savedTheme.current
+    applySizingAttributes(savedInterfaceSize.current, savedTextSize.current)
   }, [])
 
   const updateLogin = (next: LoginState | null) => {
@@ -209,10 +261,31 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
     setDraft(current => current ? { ...current, theme } : current)
   }
 
+  const updateSizing = (field: 'interfaceSize' | 'textSize', value: InterfaceSize | TextSize) => {
+    if (!draft) return
+    const next = { ...draft, [field]: value } as AppSettings
+    setDraft(next)
+    applySizingAttributes(next.interfaceSize, next.textSize)
+    const label = field === 'interfaceSize'
+      ? INTERFACE_SIZE_LABELS[value as InterfaceSize]
+      : TEXT_SIZE_LABELS[value as TextSize]
+    setSizingAnnouncement(`${field === 'interfaceSize' ? 'Interface size' : 'Text size'}: ${label}.`)
+  }
+
+  const resetSizing = () => {
+    if (!draft) return
+    const next = { ...draft, interfaceSize: 'default', textSize: 'default' } as AppSettings
+    setDraft(next)
+    applySizingAttributes(next.interfaceSize, next.textSize)
+    setSizingAnnouncement('Sizing reset to Default.')
+  }
+
   const reset = () => {
     document.documentElement.dataset.theme = settings?.theme ?? 'dark'
+    applySizingAttributes(savedInterfaceSize.current, savedTextSize.current)
     setDraft(settings)
     setKeyDrafts(emptyKeyDrafts())
+    setSizingAnnouncement('')
   }
 
   const activeProvider = draft && (providerByID(draft.agentProfile)?.id ?? providerByID(connections?.activeProfile ?? '')?.id ?? '')
@@ -252,6 +325,42 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
     {!draft ? <div className="settings-page-loading">Loading settings…</div> : <div className="settings-body"><div className="settings-form">
       <fieldset className="settings-section--wide"><legend>Appearance</legend>
         <div className="settings-row"><label>Theme<span>The quick switch remains available in the sidebar.</span></label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => previewTheme('dark')}>Black glass</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => previewTheme('light')}>Light</button></div></div>
+        <div className="sizing-controls">
+          <fieldset className="sizing-group">
+            <legend>Interface size</legend>
+            <div className="sizing-group__header">
+              <span id="interface-size-label">Interface size</span>
+              <output>Current: {INTERFACE_SIZE_LABELS[draft.interfaceSize as InterfaceSize] ?? 'Default'}</output>
+            </div>
+            <div className="sizing-group__options" role="radiogroup" aria-labelledby="interface-size-label">
+              {INTERFACE_SIZE_OPTIONS.map(option => <label className="sizing-option" key={option.value}>
+                <input type="radio" name="interface-size" value={option.value} checked={draft.interfaceSize === option.value} onChange={() => updateSizing('interfaceSize', option.value)} aria-label={`${option.label} (${option.percentage})`}/>
+                <span>{option.label}</span>
+                <small>{option.percentage}</small>
+              </label>)}
+            </div>
+            <small className="sizing-group__help">Spacing, control height, icon size, and layout density.</small>
+          </fieldset>
+          <fieldset className="sizing-group">
+            <legend>Text size</legend>
+            <div className="sizing-group__header">
+              <span id="text-size-label">Text size</span>
+              <output>Current: {TEXT_SIZE_LABELS[draft.textSize as TextSize] ?? 'Default'}</output>
+            </div>
+            <div className="sizing-group__options" role="radiogroup" aria-labelledby="text-size-label">
+              {TEXT_SIZE_OPTIONS.map(option => <label className="sizing-option" key={option.value}>
+                <input type="radio" name="text-size" value={option.value} checked={draft.textSize === option.value} onChange={() => updateSizing('textSize', option.value)} aria-label={`${option.label} (${option.percentage})`}/>
+                <span>{option.label}</span>
+                <small>{option.percentage}</small>
+              </label>)}
+            </div>
+            <small className="sizing-group__help">Typography scales independently from interface density.</small>
+          </fieldset>
+        </div>
+        <div className="sizing-actions">
+          <button type="button" className="text-button" onClick={resetSizing} disabled={saving}>Reset sizing</button>
+          {sizingAnnouncement && <p className="sizing-announcement" role="status" aria-live="polite">{sizingAnnouncement}</p>}
+        </div>
         <div className="appearance-grid">
           <ColorSetting label="Emphasis" value={draft.emphasisColor} onChange={emphasisColor => setDraft({ ...draft, emphasisColor })}/>
           <ColorSetting label="Active tabs" value={draft.activeTabColor} onChange={activeTabColor => setDraft({ ...draft, activeTabColor })}/>
@@ -440,6 +549,8 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
 export function settingsUpdate(settings: AppSettings, overrides: Partial<SettingsUpdate> = {}): SettingsUpdate {
   return {
     theme: settings.theme,
+    interfaceSize: settings.interfaceSize,
+    textSize: settings.textSize,
     defaultAuthor: settings.defaultAuthor,
     agentProfile: settings.agentProfile,
     agentModel: settings.agentModel,
@@ -463,9 +574,9 @@ export function settingsUpdate(settings: AppSettings, overrides: Partial<Setting
     openRouterApiKey: '',
     clearOpenRouterApiKey: false,
     openAIApiKey: '',
-    clearOpenAIApiKey: false,
+    clearOpenAIAPIKey: false,
     anthropicApiKey: '',
-    clearAnthropicApiKey: false,
+    clearAnthropicAPIKey: false,
     ...overrides,
   }
 }

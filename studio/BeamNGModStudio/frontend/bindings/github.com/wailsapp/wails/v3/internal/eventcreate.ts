@@ -6,4 +6,27 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-Object.freeze($Create.Events);
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as main$0 from "../../../../SignedAdam/beamng-mod-studio/models.js";
+
+function configure() {
+    Object.freeze(Object.assign($Create.Events, {
+        "agent:event": $$createType0,
+        "ai:connection": $$createType1,
+        "library:item": $$createType2,
+        "library:scan": $$createType3,
+        "profile:progress": $$createType4,
+        "virus:scan": $$createType5,
+    }));
+}
+
+// Private type creation functions
+const $$createType0 = main$0.AgentActivity.createFrom;
+const $$createType1 = main$0.AIConnectionEvent.createFrom;
+const $$createType2 = main$0.LibraryItem.createFrom;
+const $$createType3 = main$0.ScanProgress.createFrom;
+const $$createType4 = main$0.ProfileProgress.createFrom;
+const $$createType5 = main$0.VirusScanProgress.createFrom;
+
+configure();

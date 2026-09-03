@@ -85,8 +85,8 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
         </>}
 
         {step === 2 && <>
-          <SetupTitle eyebrow="BeamWorlds storage" title="Choose the staging drive" detail="Use a drive with enough space for projects and one cached copy of archives staged from other drives."/>
-          <DirectoryField label="Studio data and profile staging" detail="Database, previews, editable projects, exports, archive cache, and managed profile files." value={draft.dataDir} onChange={value => setDraft({ ...draft, dataDir: value })} onBrowse={() => void choose('dataDir', 'Choose BeamWorlds storage')}/>
+          <SetupTitle eyebrow="BeamWorlds storage" title="Choose the staging drive" detail="Use a drive with enough space for workspaces and one cached copy of archives staged from other drives."/>
+          <DirectoryField label="Studio data and profile staging" detail="Database, previews, editable workspaces, exports, archive cache, and managed profile files." value={draft.dataDir} onChange={value => setDraft({ ...draft, dataDir: value })} onBrowse={() => void choose('dataDir', 'Choose BeamWorlds storage')}/>
           <div className="setup-note"><Icon name="folder"/><p>This is not another BeamNG user profile. Settings, controls, and saves continue using <strong>{draft.beamngRoot || 'your BeamNG user folder'}</strong>.</p></div>
         </>}
 

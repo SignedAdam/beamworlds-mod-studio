@@ -5,6 +5,34 @@
 // @ts-ignore: Unused imports
 import * as modkit$0 from "../beamworlds-modkit/models.js";
 
+export interface AIConnectionEvent {
+    "loginId": string;
+    "providerId": string;
+    "status": string;
+    "message"?: string;
+    "requestId"?: string;
+    "inputLabel"?: string;
+}
+
+export interface AIConnectionStart {
+    "loginId": string;
+    "providerId": string;
+    "url": string;
+    "instructions": string;
+}
+
+export interface AIConnectionState {
+    "providers": AIProviderConnection[] | null;
+    "activeProfile": string;
+}
+
+export interface AIProviderConnection {
+    "id": string;
+    "label": string;
+    "method": string;
+    "connected": boolean;
+}
+
 export interface AIUsage {
     "hasRuns": boolean;
     "runCount": number;
@@ -15,6 +43,8 @@ export interface AIUsage {
 
 export interface AgentActivity {
     "runId": string;
+    "sessionId": string;
+    "workspaceId": string;
     "at": string;
     "type": string;
     "message"?: string;
@@ -44,6 +74,7 @@ export interface AgentModelOption {
 
 export interface AgentRunRecord {
     "id": string;
+    "sessionId": string;
     "workspaceId": string;
     "prompt": string;
     "status": string;
@@ -62,7 +93,6 @@ export interface AppConfig {
     "scanRoots": string[] | null;
     "scanConcurrency": number;
     "dataDir"?: string;
-    "ompPath"?: string;
     "configPath": string;
     "projectRoot": string;
     "databasePath": string;
@@ -82,6 +112,7 @@ export interface AppSettings {
     "contextMode": string;
     "showAIUsage": boolean;
     "showFileSizes": boolean;
+    "autoFormatDelayMs": number;
     "emphasisColor": string;
     "activeTabColor": string;
     "subsectionTitleColor": string;
@@ -95,7 +126,9 @@ export interface AppSettings {
     "preScanReasoning": string;
     "fullScanModel": string;
     "fullScanReasoning": string;
-    "hasApiKey": boolean;
+    "hasOpenRouterApiKey": boolean;
+    "hasOpenAIApiKey": boolean;
+    "hasAnthropicApiKey": boolean;
 }
 
 export interface ArchiveLink {
@@ -397,6 +430,7 @@ export interface SettingsUpdate {
     "contextMode": string;
     "showAIUsage": boolean;
     "showFileSizes": boolean;
+    "autoFormatDelayMs": number;
     "emphasisColor": string;
     "activeTabColor": string;
     "subsectionTitleColor": string;
@@ -410,8 +444,12 @@ export interface SettingsUpdate {
     "preScanReasoning": string;
     "fullScanModel": string;
     "fullScanReasoning": string;
-    "apiKey": string;
-    "clearApiKey": boolean;
+    "openRouterApiKey": string;
+    "clearOpenRouterApiKey": boolean;
+    "openAIApiKey": string;
+    "clearOpenAIApiKey": boolean;
+    "anthropicApiKey": string;
+    "clearAnthropicApiKey": boolean;
 }
 
 export interface SetupInput {
@@ -459,6 +497,44 @@ export interface UsageLimit {
     "unit": string;
     "resetsAt": number;
     "status": string;
+}
+
+export interface VirgilSessionRecord {
+    "id": string;
+    "workspaceId": string;
+    "profile": string;
+    "runtimeSessionId": string;
+    "title": string;
+    "runtimeTitle": string;
+    "userTitle": string;
+    "status": string;
+    "lastError": string;
+    "tabOrder": number;
+    "createdAt": string;
+    "updatedAt": string;
+    "runs": AgentRunRecord[] | null;
+    "summary"?: VirgilSessionSummary | null;
+}
+
+/**
+ * VirgilSessionSummary is calculated from persisted run events and workspace
+ * mutations. It is intentionally not stored in the durable session row: the
+ * values are a read model for the editor status bar.
+ */
+export interface VirgilSessionSummary {
+    "sessionId": string;
+    "workspaceId": string;
+    "status": string;
+    "startedAt": string;
+    "finishedAt": string;
+    "changeMode"?: string;
+    "addedLines"?: number | null;
+    "removedLines"?: number | null;
+    "inputTokens"?: number | null;
+    "outputTokens"?: number | null;
+    "totalTokens"?: number | null;
+    "contextUsed"?: number | null;
+    "contextLimit"?: number | null;
 }
 
 export interface VirusScanProgress {
@@ -524,7 +600,7 @@ export interface WorkspaceDetail {
     "drafts": WorkspaceDraft[] | null;
     "validation": modkit$0.ValidationResult;
     "exports": ExportRecord[] | null;
-    "agentRuns": AgentRunRecord[] | null;
+    "virgilSessions": VirgilSessionRecord[] | null;
     "knowledge": KnowledgeDocument[] | null;
     "activeTest"?: TestInstallRecord | null;
     "diskBytes": number;
@@ -533,6 +609,7 @@ export interface WorkspaceDetail {
 export interface WorkspaceDraft {
     "path": string;
     "content": string;
+    "baseSha256": string;
     "updatedAt": string;
 }
 
@@ -550,11 +627,31 @@ export interface WorkspaceRecord {
     "lastValidation": string;
     "displayName": string;
     "kind": modkit$0.Kind;
+    "virgilConfigured": boolean;
+    "virgilEnabled": boolean;
+    "agentRunId": string;
+    "agentGoal": string;
     "agentStatus": string;
+    "agentProcess": string;
     "agentUpdatedAt": string;
+}
+
+export interface WorkspaceSearchMatch {
+    "relativePath": string;
+    "line": number;
+    "column": number;
+    "matchLength": number;
+    "preview": string;
+}
+
+export interface WorkspaceSearchOptions {
+    "query": string;
+    "regex": boolean;
+    "caseSensitive": boolean;
 }
 
 export interface WorkspaceTextFile {
     "path": string;
     "content": string;
+    "sha256": string;
 }

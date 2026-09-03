@@ -121,14 +121,19 @@ func (service *AppService) CreateNewMod(request NewModRequest) (WorkspaceDetail,
 		return WorkspaceDetail{}, err
 	}
 	root := filepath.Join(service.config.WorkspaceDir, workspaceID)
+	workspaceLock := service.agents.workspaceToolMutex(workspaceID)
+	workspaceLock.Lock()
 	workspaceManifest, err := modkit.CreateWorkspace(ctx, sourcePath, root, workspaceID, item.EntityID, item.ArtifactID, item.Kind)
 	if err != nil {
+		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
 	}
 	if _, err := service.store.SaveWorkspace(ctx, workspaceManifest, root, sourcePath); err != nil {
 		_ = os.RemoveAll(root)
+		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
 	}
+	workspaceLock.Unlock()
 	keepSource = true
 	_ = service.store.AppendEvent(ctx, item.EntityID, "mod_project_created", map[string]any{"workspaceId": workspaceID, "kind": kind, "modId": modID})
 	return service.GetWorkspace(workspaceID)

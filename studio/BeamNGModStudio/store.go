@@ -76,21 +76,26 @@ type ArchiveLink struct {
 }
 
 type WorkspaceRecord struct {
-	ID             string      `json:"id"`
-	EntityID       string      `json:"entityId"`
-	ArtifactID     string      `json:"artifactId"`
-	Root           string      `json:"root"`
-	FilesRoot      string      `json:"filesRoot"`
-	SourcePath     string      `json:"sourcePath"`
-	SourceSHA256   string      `json:"sourceSha256"`
-	CreatedAt      string      `json:"createdAt"`
-	UpdatedAt      string      `json:"updatedAt"`
-	Status         string      `json:"status"`
-	LastValidation string      `json:"lastValidation"`
-	DisplayName    string      `json:"displayName"`
-	Kind           modkit.Kind `json:"kind"`
-	AgentStatus    string      `json:"agentStatus"`
-	AgentUpdatedAt string      `json:"agentUpdatedAt"`
+	ID               string      `json:"id"`
+	EntityID         string      `json:"entityId"`
+	ArtifactID       string      `json:"artifactId"`
+	Root             string      `json:"root"`
+	FilesRoot        string      `json:"filesRoot"`
+	SourcePath       string      `json:"sourcePath"`
+	SourceSHA256     string      `json:"sourceSha256"`
+	CreatedAt        string      `json:"createdAt"`
+	UpdatedAt        string      `json:"updatedAt"`
+	Status           string      `json:"status"`
+	LastValidation   string      `json:"lastValidation"`
+	DisplayName      string      `json:"displayName"`
+	Kind             modkit.Kind `json:"kind"`
+	VirgilConfigured bool        `json:"virgilConfigured"`
+	VirgilEnabled    bool        `json:"virgilEnabled"`
+	AgentRunID       string      `json:"agentRunId"`
+	AgentGoal        string      `json:"agentGoal"`
+	AgentStatus      string      `json:"agentStatus"`
+	AgentProcess     string      `json:"agentProcess"`
+	AgentUpdatedAt   string      `json:"agentUpdatedAt"`
 }
 
 type ExportRecord struct {
@@ -202,15 +207,25 @@ func (s *Store) migrate(ctx context.Context) error {
 			id TEXT PRIMARY KEY, entity_id TEXT NOT NULL REFERENCES entities(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
 			root TEXT NOT NULL, files_root TEXT NOT NULL, source_path TEXT NOT NULL, source_sha256 TEXT NOT NULL,
 			created_at TEXT NOT NULL, updated_at TEXT NOT NULL, status TEXT NOT NULL,
-			last_validation_json TEXT NOT NULL DEFAULT ''
+			last_validation_json TEXT NOT NULL DEFAULT '',
+			virgil_configured INTEGER NOT NULL DEFAULT 0,
+			virgil_enabled INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS workspaces_entity_idx ON workspaces(entity_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS virgil_sessions (
+			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+			profile TEXT NOT NULL DEFAULT '', omp_session_id TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT 'Virgil session',
+			omp_title TEXT NOT NULL DEFAULT '', user_title TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'idle', last_error TEXT NOT NULL DEFAULT '',
+			tab_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS virgil_sessions_workspace_idx ON virgil_sessions(workspace_id, tab_order, created_at, id)`,
 		`CREATE TABLE IF NOT EXISTS exports (
 			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), artifact_id TEXT NOT NULL,
 			path TEXT NOT NULL, sha256 TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS agent_runs (
-			id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), prompt TEXT NOT NULL,
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL DEFAULT '', workspace_id TEXT NOT NULL REFERENCES workspaces(id), prompt TEXT NOT NULL,
 			status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT NOT NULL DEFAULT '',
 			final_text TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT ''
 		)`,
@@ -296,7 +311,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS workspace_drafts (
 			workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-			path TEXT NOT NULL, content TEXT NOT NULL, updated_at TEXT NOT NULL,
+			path TEXT NOT NULL, content TEXT NOT NULL, base_sha256 TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL,
 			PRIMARY KEY(workspace_id, path)
 		)`,
 	}
@@ -314,7 +329,194 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureVirusScanHashColumns(ctx); err != nil {
 		return fmt.Errorf("migrate virus scan hashes: %w", err)
 	}
+	if err := s.ensureWorkspaceVirgilColumns(ctx); err != nil {
+		return fmt.Errorf("migrate workspace virgil preferences: %w", err)
+	}
+	if err := s.ensureVirgilSessionSchema(ctx); err != nil {
+		return fmt.Errorf("migrate Virgil sessions: %w", err)
+	}
+	if err := s.ensureWorkspaceDraftBaseSHA(ctx); err != nil {
+		return fmt.Errorf("migrate workspace draft base hashes: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE schema_meta SET version=3 WHERE version<3`); err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
 	return nil
+}
+func (s *Store) ensureWorkspaceVirgilColumns(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(workspaces)`)
+	if err != nil {
+		return err
+	}
+	hasConfigured, hasEnabled := false, false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case "virgil_configured":
+			hasConfigured = true
+		case "virgil_enabled":
+			hasEnabled = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasConfigured {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE workspaces ADD COLUMN virgil_configured INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if !hasEnabled {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE workspaces ADD COLUMN virgil_enabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func (s *Store) ensureWorkspaceDraftBaseSHA(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(workspace_drafts)`)
+	if err != nil {
+		return err
+	}
+	hasBaseSHA := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "base_sha256") {
+			hasBaseSHA = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasBaseSHA {
+		_, err = s.db.ExecContext(ctx, `ALTER TABLE workspace_drafts ADD COLUMN base_sha256 TEXT NOT NULL DEFAULT ''`)
+		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureVirgilSessionSchema(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	hasRunSessionID := false
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(agent_runs)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "session_id") {
+			hasRunSessionID = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	hasProfile := false
+	rows, err = tx.QueryContext(ctx, `PRAGMA table_info(virgil_sessions)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "profile") {
+			hasProfile = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasProfile {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE virgil_sessions ADD COLUMN profile TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if !hasRunSessionID {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE agent_runs ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS agent_runs_session_idx ON agent_runs(session_id, started_at, id)`); err != nil {
+		return err
+	}
+
+	now := nowUTC()
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO virgil_sessions(
+		id,workspace_id,profile,omp_session_id,title,omp_title,user_title,status,last_error,tab_order,created_at,updated_at
+	)
+	SELECT 'legacy-' || ar.workspace_id,ar.workspace_id,'','','Virgil session','','','paused','',0,
+		COALESCE(MIN(NULLIF(ar.started_at,'')),?),COALESCE(MAX(NULLIF(ar.finished_at,'')),?)
+	FROM agent_runs ar
+	WHERE TRIM(COALESCE(ar.session_id,''))=''
+	GROUP BY ar.workspace_id`, now, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO virgil_sessions(
+		id,workspace_id,profile,omp_session_id,title,omp_title,user_title,status,last_error,tab_order,created_at,updated_at
+	)
+	SELECT ar.session_id,ar.workspace_id,'','','Virgil session','','','paused','',0,
+		COALESCE(MIN(NULLIF(ar.started_at,'')),?),COALESCE(MAX(NULLIF(ar.finished_at,'')),?)
+	FROM agent_runs ar
+	LEFT JOIN virgil_sessions vs ON vs.id=ar.session_id
+	WHERE TRIM(COALESCE(ar.session_id,''))<>'' AND vs.id IS NULL
+	GROUP BY ar.session_id,ar.workspace_id`, now, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_runs SET session_id='legacy-' || workspace_id WHERE TRIM(COALESCE(session_id,''))=''`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE virgil_sessions SET title=CASE
+		WHEN TRIM(user_title)<>'' THEN TRIM(user_title)
+		WHEN TRIM(omp_title)<>'' THEN TRIM(omp_title)
+		ELSE 'Virgil session' END`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) BeginScan(ctx context.Context, roots []string) (string, error) {
@@ -685,6 +887,51 @@ func (s *Store) GetAsset(ctx context.Context, sha string) (AssetRecord, error) {
 	return asset, err
 }
 
+const workspaceQuery = `
+	WITH latest_runs AS (
+		SELECT ar.id,ar.workspace_id,ar.prompt,ar.status,ar.started_at,ar.finished_at,
+			ROW_NUMBER() OVER (
+				PARTITION BY ar.workspace_id
+				ORDER BY CASE WHEN ar.status='running' THEN 0 ELSE 1 END,
+					ar.started_at DESC, ar.id DESC
+			) AS run_rank
+		FROM agent_runs ar
+	),
+	latest_events AS (
+		SELECT ae.run_id,ae.at,ae.type,ae.message,
+			ROW_NUMBER() OVER (PARTITION BY ae.run_id ORDER BY ae.id DESC) AS event_rank
+		FROM agent_events ae
+	)
+	SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,
+		w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind,
+		COALESCE(w.virgil_configured,0),COALESCE(w.virgil_enabled,0),
+		COALESCE(lr.id,''),COALESCE(lr.prompt,''),COALESCE(lr.status,'idle'),
+		COALESCE(NULLIF(TRIM(le.message),''),NULLIF(le.type,''),''),
+		COALESCE(NULLIF(le.at,''),NULLIF(lr.finished_at,''),NULLIF(lr.started_at,''),'')
+	FROM workspaces w
+	JOIN entities e ON e.id=w.entity_id
+	LEFT JOIN latest_runs lr ON lr.workspace_id=w.id AND lr.run_rank=1
+	LEFT JOIN latest_events le ON le.run_id=lr.id AND le.event_rank=1`
+
+type workspaceScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanWorkspaceRecord(scanner workspaceScanner) (WorkspaceRecord, error) {
+	var record WorkspaceRecord
+	var virgilConfigured, virgilEnabled int
+	err := scanner.Scan(
+		&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot,
+		&record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt,
+		&record.Status, &record.LastValidation, &record.DisplayName, &record.Kind,
+		&virgilConfigured, &virgilEnabled, &record.AgentRunID, &record.AgentGoal,
+		&record.AgentStatus, &record.AgentProcess, &record.AgentUpdatedAt,
+	)
+	record.VirgilConfigured = virgilConfigured != 0
+	record.VirgilEnabled = virgilEnabled != 0
+	return record, err
+}
+
 func (s *Store) SaveWorkspace(ctx context.Context, manifest modkit.WorkspaceManifest, root, sourcePath string) (WorkspaceRecord, error) {
 	now := nowUTC()
 	_, err := s.db.ExecContext(ctx, `INSERT INTO workspaces(id,entity_id,artifact_id,root,files_root,source_path,source_sha256,created_at,updated_at,status) VALUES(?,?,?,?,?,?,?,?,?,'active')`, manifest.ID, manifest.EntityID, manifest.ArtifactID, root, filepath.Join(root, "files"), sourcePath, manifest.SourceFingerprint, manifest.CreatedAt.UTC().Format(time.RFC3339Nano), now)
@@ -696,32 +943,31 @@ func (s *Store) SaveWorkspace(ctx context.Context, manifest modkit.WorkspaceMani
 }
 
 func (s *Store) GetWorkspace(ctx context.Context, id string) (WorkspaceRecord, error) {
-	var record WorkspaceRecord
-	err := s.db.QueryRowContext(ctx, `
-		SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,
-			w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind,
-			COALESCE((SELECT status FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'idle'),
-			COALESCE((SELECT started_at FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'')
-		FROM workspaces w JOIN entities e ON e.id=w.entity_id WHERE w.id=?`, id).
-		Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind, &record.AgentStatus, &record.AgentUpdatedAt)
-	return record, err
+	return scanWorkspaceRecord(s.db.QueryRowContext(ctx, workspaceQuery+` WHERE w.id=?`, id))
+}
+
+func (s *Store) GetLatestWorkspaceByEntity(ctx context.Context, entityID string) (WorkspaceRecord, error) {
+	return scanWorkspaceRecord(s.db.QueryRowContext(ctx, workspaceQuery+` WHERE w.entity_id=? ORDER BY w.updated_at DESC,w.created_at DESC,w.id DESC LIMIT 1`, entityID))
 }
 
 func (s *Store) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT w.id,w.entity_id,w.artifact_id,w.root,w.files_root,w.source_path,w.source_sha256,
-			w.created_at,w.updated_at,w.status,w.last_validation_json,e.display_name,e.kind,
-			COALESCE((SELECT status FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'idle'),
-			COALESCE((SELECT started_at FROM agent_runs WHERE workspace_id=w.id ORDER BY started_at DESC LIMIT 1),'')
-		FROM workspaces w JOIN entities e ON e.id=w.entity_id ORDER BY w.updated_at DESC`)
+	rows, err := s.db.QueryContext(ctx, workspaceQuery+`
+		WHERE w.id=(
+			SELECT candidate.id
+			FROM workspaces candidate
+			WHERE candidate.entity_id=w.entity_id
+			ORDER BY candidate.updated_at DESC,candidate.created_at DESC,candidate.id DESC
+			LIMIT 1
+		)
+		ORDER BY w.updated_at DESC,w.created_at DESC,w.id DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := []WorkspaceRecord{}
 	for rows.Next() {
-		var record WorkspaceRecord
-		if err := rows.Scan(&record.ID, &record.EntityID, &record.ArtifactID, &record.Root, &record.FilesRoot, &record.SourcePath, &record.SourceSHA256, &record.CreatedAt, &record.UpdatedAt, &record.Status, &record.LastValidation, &record.DisplayName, &record.Kind, &record.AgentStatus, &record.AgentUpdatedAt); err != nil {
+		record, err := scanWorkspaceRecord(rows)
+		if err != nil {
 			return nil, err
 		}
 		result = append(result, record)
@@ -732,6 +978,25 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]WorkspaceRecord, error) {
 func (s *Store) TouchWorkspace(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE workspaces SET updated_at=? WHERE id=?`, nowUTC(), id)
 	return err
+}
+
+func (s *Store) SetWorkspaceVirgil(ctx context.Context, id string, enabled bool) error {
+	enabledValue := 0
+	if enabled {
+		enabledValue = 1
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE workspaces SET virgil_configured=1,virgil_enabled=? WHERE id=?`, enabledValue, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) SetWorkspaceValidation(ctx context.Context, id string, result modkit.ValidationResult) error {

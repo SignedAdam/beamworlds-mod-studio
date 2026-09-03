@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,32 +21,53 @@ type AppService struct {
 	store        *Store
 	library      *LibraryEngine
 	agents       *AgentManager
+	aiRuntime    *managedAIRuntime
 	emit         func(string, any)
 	profileMu    sync.Mutex
 	auditMu      sync.Mutex
 	virusMu      sync.Mutex
 	auditAI      auditAIRunner
+	aiLoginMu    sync.Mutex
+	aiLogins     map[string]*aiLoginProcess
+	aiConnecting map[string]bool
+	aiAuthCtx    context.Context
+	aiAuthCancel context.CancelFunc
 	startProcess func(string, []string, string) (ProcessLaunch, error)
 	gameRunning  func() (bool, error)
 }
 
 type WorkspaceDetail struct {
-	Workspace   WorkspaceRecord         `json:"workspace"`
-	Entity      LibraryItem             `json:"entity"`
-	Files       []modkit.FileSnapshot   `json:"files"`
-	Directories []string                `json:"directories"`
-	Drafts      []WorkspaceDraft        `json:"drafts"`
-	Validation  modkit.ValidationResult `json:"validation"`
-	Exports     []ExportRecord          `json:"exports"`
-	AgentRuns   []AgentRunRecord        `json:"agentRuns"`
-	Knowledge   []KnowledgeDocument     `json:"knowledge"`
-	ActiveTest  *TestInstallRecord      `json:"activeTest,omitempty"`
-	DiskBytes   int64                   `json:"diskBytes"`
+	Workspace      WorkspaceRecord         `json:"workspace"`
+	Entity         LibraryItem             `json:"entity"`
+	Files          []modkit.FileSnapshot   `json:"files"`
+	Directories    []string                `json:"directories"`
+	Drafts         []WorkspaceDraft        `json:"drafts"`
+	Validation     modkit.ValidationResult `json:"validation"`
+	Exports        []ExportRecord          `json:"exports"`
+	VirgilSessions []VirgilSessionRecord   `json:"virgilSessions"`
+	Knowledge      []KnowledgeDocument     `json:"knowledge"`
+	ActiveTest     *TestInstallRecord      `json:"activeTest,omitempty"`
+	DiskBytes      int64                   `json:"diskBytes"`
 }
 
 type WorkspaceTextFile struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	SHA256  string `json:"sha256"`
+}
+
+type WorkspaceSearchOptions struct {
+	Query         string `json:"query"`
+	Regex         bool   `json:"regex"`
+	CaseSensitive bool   `json:"caseSensitive"`
+}
+
+type WorkspaceSearchMatch struct {
+	RelativePath string `json:"relativePath"`
+	Line         int    `json:"line"`
+	Column       int    `json:"column"`
+	MatchLength  int    `json:"matchLength"`
+	Preview      string `json:"preview"`
 }
 
 type ExportResponse struct {
@@ -52,16 +76,23 @@ type ExportResponse struct {
 }
 
 func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppService {
+	agents := NewAgentManager(store, config, emit)
+	aiAuthCtx, aiAuthCancel := context.WithCancel(context.Background())
 	service := &AppService{
 		config:       config,
 		store:        store,
 		library:      NewLibraryEngine(store, config, emit),
-		agents:       NewAgentManager(store, config, emit),
+		agents:       agents,
+		aiRuntime:    agents.runtime,
 		emit:         emit,
+		aiLogins:     make(map[string]*aiLoginProcess),
+		aiConnecting: make(map[string]bool),
+		aiAuthCtx:    aiAuthCtx,
+		aiAuthCancel: aiAuthCancel,
 		startProcess: startDetachedProcess,
 		gameRunning:  beamNGProcessRunning,
 	}
-	service.auditAI = service.runOMPAudit
+	service.auditAI = service.runManagedAIAudit
 	return service
 }
 
@@ -91,23 +122,39 @@ func (service *AppService) CreateWorkspace(entityID string) (WorkspaceDetail, er
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
+	existing, err := service.store.GetLatestWorkspaceByEntity(ctx, item.EntityID)
+	if err == nil {
+		return service.GetWorkspace(existing.ID)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return WorkspaceDetail{}, err
+	}
 	if !item.Linked || item.ArchivePath == "" {
 		return WorkspaceDetail{}, errors.New("the selected mod has no linked source archive")
-	}
-	if !item.Manifest.ValidArchive {
-		return WorkspaceDetail{}, errors.New("cannot create a workspace from an invalid archive")
 	}
 	workspaceID, err := modkit.NewID()
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
 	root := filepath.Join(service.config.WorkspaceDir, workspaceID)
+	workspaceLock := service.agents.workspaceToolMutex(workspaceID)
+	workspaceLock.Lock()
 	manifest, err := modkit.CreateWorkspace(ctx, item.ArchivePath, root, workspaceID, item.EntityID, item.ArtifactID, item.Kind)
 	if err != nil {
+		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
 	}
 	if _, err := service.store.SaveWorkspace(ctx, manifest, root, item.ArchivePath); err != nil {
 		_ = os.RemoveAll(root)
+		workspaceLock.Unlock()
+		return WorkspaceDetail{}, err
+	}
+	workspaceLock.Unlock()
+	return service.GetWorkspace(workspaceID)
+}
+func (service *AppService) ConfigureWorkspaceVirgil(workspaceID string, enabled bool) (WorkspaceDetail, error) {
+	ctx := context.Background()
+	if err := service.store.SetWorkspaceVirgil(ctx, workspaceID, enabled); err != nil {
 		return WorkspaceDetail{}, err
 	}
 	return service.GetWorkspace(workspaceID)
@@ -127,11 +174,14 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
 	files, err := modkit.ListWorkspaceFileInfo(workspace.FilesRoot)
-	if err != nil {
-		return WorkspaceDetail{}, err
+	var directories []string
+	if err == nil {
+		directories, err = modkit.ListWorkspaceDirectories(workspace.FilesRoot)
 	}
-	directories, err := modkit.ListWorkspaceDirectories(workspace.FilesRoot)
+	workspaceLock.Unlock()
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
@@ -147,7 +197,7 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
-	runs, err := service.store.ListAgentRuns(ctx, workspaceID)
+	sessions, err := service.store.ListVirgilSessions(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
@@ -163,7 +213,7 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	if record, testErr := service.store.GetActiveTestInstall(ctx, workspaceID); testErr == nil {
 		activeTest = &record
 	}
-	return WorkspaceDetail{Workspace: workspace, Entity: entity, Files: files, Directories: directories, Drafts: drafts, Validation: validation, Exports: exports, AgentRuns: runs, Knowledge: knowledge, ActiveTest: activeTest, DiskBytes: diskBytes}, nil
+	return WorkspaceDetail{Workspace: workspace, Entity: entity, Files: files, Directories: directories, Drafts: drafts, Validation: validation, Exports: exports, VirgilSessions: sessions, Knowledge: knowledge, ActiveTest: activeTest, DiskBytes: diskBytes}, nil
 }
 
 func (service *AppService) ReadWorkspaceFile(workspaceID, relativePath string) (WorkspaceTextFile, error) {
@@ -171,11 +221,22 @@ func (service *AppService) ReadWorkspaceFile(workspaceID, relativePath string) (
 	if err != nil {
 		return WorkspaceTextFile{}, err
 	}
+	relativePath, err = cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return WorkspaceTextFile{}, err
+	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
 	content, err := modkit.ReadWorkspaceText(workspace.FilesRoot, relativePath)
-	return WorkspaceTextFile{Path: filepath.ToSlash(relativePath), Content: content}, err
+	workspaceLock.Unlock()
+	if err != nil {
+		return WorkspaceTextFile{}, err
+	}
+	sum := sha256.Sum256([]byte(content))
+	return WorkspaceTextFile{Path: filepath.ToSlash(relativePath), Content: content, SHA256: hex.EncodeToString(sum[:])}, nil
 }
 
-func (service *AppService) WriteWorkspaceFile(workspaceID, relativePath, content string) error {
+func (service *AppService) WriteWorkspaceFile(workspaceID, relativePath, content, expectedSHA256 string) error {
 	ctx := context.Background()
 	workspace, err := service.store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -185,7 +246,10 @@ func (service *AppService) WriteWorkspaceFile(workspaceID, relativePath, content
 	if err != nil {
 		return err
 	}
-	if err := modkit.WriteWorkspaceText(workspace.FilesRoot, relativePath, content); err != nil {
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
+	if err := writeWorkspaceTextChecked(workspace.FilesRoot, relativePath, content, expectedSHA256); err != nil {
 		return err
 	}
 	if err := service.store.DeleteWorkspaceDrafts(ctx, workspaceID, relativePath); err != nil {
@@ -194,12 +258,35 @@ func (service *AppService) WriteWorkspaceFile(workspaceID, relativePath, content
 	return service.store.TouchWorkspace(ctx, workspaceID)
 }
 
-func (service *AppService) SearchWorkspace(workspaceID, query string, maxResults int) ([]string, error) {
+func (service *AppService) SearchWorkspace(workspaceID string, options WorkspaceSearchOptions, maxResults int) ([]WorkspaceSearchMatch, error) {
 	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	return modkit.SearchWorkspace(workspace.FilesRoot, query, maxResults)
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
+	matches, err := modkit.SearchWorkspaceMatches(
+		workspace.FilesRoot,
+		options.Query,
+		maxResults,
+		options.Regex,
+		options.CaseSensitive,
+	)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]WorkspaceSearchMatch, len(matches))
+	for index, match := range matches {
+		result[index] = WorkspaceSearchMatch{
+			RelativePath: match.RelativePath,
+			Line:         match.Line,
+			Column:       match.Column,
+			MatchLength:  match.MatchLength,
+			Preview:      match.Preview,
+		}
+	}
+	return result, nil
 }
 
 func (service *AppService) WorkspaceDiff(workspaceID string) ([]modkit.WorkspaceChange, error) {
@@ -207,43 +294,69 @@ func (service *AppService) WorkspaceDiff(workspaceID string) ([]modkit.Workspace
 	if err != nil {
 		return nil, err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	return modkit.DiffWorkspace(workspace.SourcePath, workspace.FilesRoot, manifest.Files)
 }
 
 func (service *AppService) ValidateWorkspace(workspaceID string) (modkit.ValidationResult, error) {
-	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	ctx := context.Background()
+	workspace, err := service.store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return modkit.ValidationResult{}, err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	result := modkit.ValidateWorkspace(workspace.FilesRoot)
-	err = service.store.SetWorkspaceValidation(context.Background(), workspaceID, result)
+	err = service.store.SetWorkspaceValidation(ctx, workspaceID, result)
 	return result, err
 }
 
 func (service *AppService) SetWorkspaceJSONValue(workspaceID, relativePath, dottedPath string, value any) error {
-	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	ctx := context.Background()
+	workspace, err := service.store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
+	relativePath, err = cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return err
+	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	if err := modkit.SetJSONValue(workspace.FilesRoot, relativePath, dottedPath, value); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(context.Background(), workspaceID)
+	return service.store.TouchWorkspace(ctx, workspaceID)
 }
 
 func (service *AppService) CloneVehicleVariant(workspaceID, sourceConfigPath, newBaseName, displayName string) ([]string, error) {
-	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	ctx := context.Background()
+	workspace, err := service.store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	created, err := modkit.CloneVehicleVariant(workspace.FilesRoot, sourceConfigPath, newBaseName, displayName)
 	if err == nil {
-		err = service.store.TouchWorkspace(context.Background(), workspaceID)
+		err = service.store.TouchWorkspace(ctx, workspaceID)
 	}
 	return created, err
 }
 
 func (service *AppService) ExportWorkspace(workspaceID, label string) (ExportResponse, error) {
+	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	if err != nil {
+		return ExportResponse{}, err
+	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	return service.exportWorkspace(context.Background(), workspaceID, label, "manual")
 }
 
@@ -263,26 +376,83 @@ func (service *AppService) AnalyzeRuntime(workspaceID string) (RuntimeReport, er
 	return service.analyzeRuntime(context.Background(), workspaceID)
 }
 
-func (service *AppService) StartAgent(workspaceID, prompt, modelOverride string) (AgentRunRecord, error) {
-	ctx := context.Background()
-	settings, err := service.agentLaunchSettings(ctx)
+func (service *AppService) virgilLaunchSettings(modelOverride string) (agentLaunchSettings, error) {
+	settings, err := service.agentLaunchSettings(context.Background())
 	if err != nil {
-		return AgentRunRecord{}, err
+		return agentLaunchSettings{}, err
 	}
 	modelOverride = strings.TrimSpace(modelOverride)
 	if len(modelOverride) > 120 {
-		return AgentRunRecord{}, errors.New("model identifier exceeds 120 characters")
+		return agentLaunchSettings{}, errors.New("model identifier exceeds 120 characters")
 	}
 	if modelOverride != "" {
 		settings.Model = modelOverride
 	}
-	return service.agents.Start(ctx, workspaceID, prompt, settings)
+	return settings, nil
 }
 
-func (service *AppService) StopAgent(runID string) bool { return service.agents.Stop(runID) }
+func (service *AppService) StartVirgilSession(workspaceID, prompt, modelOverride, userTitle string) (VirgilSessionRecord, error) {
+	settings, err := service.virgilLaunchSettings(modelOverride)
+	if err != nil {
+		return VirgilSessionRecord{}, err
+	}
+	settings.SelectModel = true
+	return service.agents.StartSession(context.Background(), workspaceID, prompt, userTitle, settings)
+}
 
-func (service *AppService) ListAgentRuns(workspaceID string) ([]AgentRunRecord, error) {
-	return service.store.ListAgentRuns(context.Background(), workspaceID)
+func (service *AppService) SendVirgilMessage(sessionID, prompt, modelOverride string) (AgentRunRecord, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return AgentRunRecord{}, errors.New("Virgil session ID is required")
+	}
+	var (
+		settings agentLaunchSettings
+		err      error
+	)
+	if strings.TrimSpace(modelOverride) == "" {
+		session, sessionErr := service.store.GetVirgilSession(context.Background(), sessionID)
+		if sessionErr != nil {
+			return AgentRunRecord{}, sessionErr
+		}
+		settings, err = service.agentLaunchSettingsForProfile(context.Background(), session.Profile)
+		if err != nil {
+			return AgentRunRecord{}, err
+		}
+	} else {
+		settings, err = service.virgilLaunchSettings(modelOverride)
+		if err != nil {
+			return AgentRunRecord{}, err
+		}
+	}
+	settings.SelectModel = strings.TrimSpace(modelOverride) != ""
+	return service.agents.SendMessage(context.Background(), sessionID, prompt, settings)
+}
+func (service *AppService) ResumeVirgilSession(sessionID string) (VirgilSessionRecord, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return VirgilSessionRecord{}, errors.New("Virgil session ID is required")
+	}
+	session, err := service.store.GetVirgilSession(context.Background(), sessionID)
+	if err != nil {
+		return VirgilSessionRecord{}, err
+	}
+	settings, err := service.agentLaunchSettingsForProfile(context.Background(), session.Profile)
+	if err != nil {
+		return VirgilSessionRecord{}, err
+	}
+	return service.agents.ResumeSession(context.Background(), sessionID, settings)
+}
+
+func (service *AppService) RenameVirgilSession(sessionID, title string) (VirgilSessionRecord, error) {
+	return service.agents.RenameSession(context.Background(), sessionID, title)
+}
+
+func (service *AppService) ForgetVirgilSession(sessionID string) error {
+	return service.agents.ForgetSession(context.Background(), sessionID)
+}
+
+func (service *AppService) StopAgent(runID string) bool {
+	return service.agents.Stop(strings.TrimSpace(runID))
 }
 
 func (service *AppService) ListAgentEvents(runID string) ([]AgentEventRecord, error) {
@@ -314,5 +484,13 @@ func (service *AppService) workspaceAndManifest(workspaceID string) (WorkspaceRe
 
 func (service *AppService) shutdown() {
 	service.library.Cancel()
+	service.cancelAllAIConnections()
 	service.agents.StopAll()
+}
+
+// ServiceShutdown is invoked by Wails on every Run exit path, including a
+// native last-window close that does not dispatch application shutdown hooks.
+func (service *AppService) ServiceShutdown() error {
+	service.shutdown()
+	return service.store.Close()
 }

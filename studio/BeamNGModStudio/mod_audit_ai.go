@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -168,7 +167,7 @@ func (service *AppService) runModAuditFull(entityID string, metadata ...ModAudit
 	if err != nil {
 		return ModAudit{}, err
 	}
-	if audit.PreScan.Model == "" {
+	if audit.PreScan.Model == "" && audit.PreScan.Reasoning == "" && audit.PreScan.Summary == "" && len(audit.PreScan.Files) == 0 && audit.PreScan.Raw == "" {
 		artifacts, loadErr := service.store.modAuditArtifactRecords(ctx, audit.ID)
 		if loadErr != nil {
 			return ModAudit{}, loadErr
@@ -757,16 +756,17 @@ func auditImageExtension(mediaType string) string {
 	}
 }
 
-func (service *AppService) runOMPAudit(ctx context.Context, request auditAIRequest) (string, error) {
-	ompPath, err := resolveOMPPath(service.config.OMPPath)
-	if err != nil {
-		return "", err
-	}
+func (service *AppService) runManagedAIAudit(ctx context.Context, request auditAIRequest) (string, error) {
 	launch, err := service.agentLaunchSettings(ctx)
 	if err != nil {
 		return "", err
 	}
+	profile, err := managedAIRuntimeProfileForAgent(launch.Profile)
+	if err != nil {
+		return "", err
+	}
 	launch.Model = strings.TrimSpace(request.Model)
+	launch.SelectModel = true
 	promptDir := filepath.Join(service.config.DataDir, "audit-prompts")
 	if err := os.MkdirAll(promptDir, 0o700); err != nil {
 		return "", err
@@ -802,31 +802,22 @@ func (service *AppService) runOMPAudit(ctx context.Context, request auditAIReque
 			arguments = append(arguments, "@"+attachment)
 		}
 	}
-	command := exec.CommandContext(runCtx, ompPath, arguments...)
-	command.Dir = service.config.DataDir
-	command.Env = os.Environ()
-	if launch.APIKey != "" {
-		switch launch.Profile {
-		case "openrouter":
-			command.Env = append(command.Env, "OPENROUTER_API_KEY="+launch.APIKey)
-		case "claude":
-			command.Env = append(command.Env, "ANTHROPIC_API_KEY="+launch.APIKey)
-		case "openai":
-			command.Env = append(command.Env, "OPENAI_API_KEY="+launch.APIKey)
-		}
+	command, err := service.aiRuntime.Command(runCtx, arguments, launchCredentials(launch), profile)
+	if err != nil {
+		return "", publicAIError(err)
 	}
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
 	if err != nil {
-		message := trimAuditString(stderr.String(), 4000)
+		message := publicAIMessage(trimAuditString(stderr.String(), 4000))
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			return "", errors.New("Virus Scanner AI stage timed out")
 		}
 		if message != "" {
-			return "", fmt.Errorf("Virus Scanner AI stage failed: %w: %s", err, message)
+			return "", publicAIError(fmt.Errorf("Virus Scanner AI stage failed: %w: %s", err, message))
 		}
-		return "", fmt.Errorf("Virus Scanner AI stage failed: %w", err)
+		return "", publicAIError(fmt.Errorf("Virus Scanner AI stage failed: %w", err))
 	}
 	if len(output) > 2<<20 {
 		return "", errors.New("Virus Scanner response exceeded 2 MiB")

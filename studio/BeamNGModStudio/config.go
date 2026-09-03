@@ -18,7 +18,7 @@ type AppConfig struct {
 	ScanRoots       []string `json:"scanRoots"`
 	ScanConcurrency int      `json:"scanConcurrency"`
 	DataDir         string   `json:"dataDir,omitempty"`
-	OMPPath         string   `json:"ompPath,omitempty"`
+	AIRuntimePath   string   `json:"-"`
 
 	ConfigPath     string `json:"configPath"`
 	ProjectRoot    string `json:"projectRoot"`

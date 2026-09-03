@@ -44,7 +44,6 @@ type persistedAppConfig struct {
 	ScanRoots       []string `json:"scanRoots"`
 	ScanConcurrency int      `json:"scanConcurrency"`
 	DataDir         string   `json:"dataDir"`
-	OMPPath         string   `json:"ompPath,omitempty"`
 }
 
 type beamNGPathHints struct {
@@ -119,7 +118,6 @@ func (service *AppService) SaveSetup(input SetupInput) (SetupResult, error) {
 		ScanRoots:       append([]string(nil), config.ScanRoots...),
 		ScanConcurrency: config.ScanConcurrency,
 		DataDir:         config.DataDir,
-		OMPPath:         config.OMPPath,
 	}
 	payload, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {

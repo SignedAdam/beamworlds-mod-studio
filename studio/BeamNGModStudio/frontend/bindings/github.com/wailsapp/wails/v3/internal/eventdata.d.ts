@@ -13,6 +13,7 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "agent:event": main$0.AgentActivity;
+            "ai:connection": main$0.AIConnectionEvent;
             "library:item": main$0.LibraryItem;
             "library:scan": main$0.ScanProgress;
             "profile:progress": main$0.ProfileProgress;

@@ -16,6 +16,7 @@ func init() {
 	application.RegisterEvent[AgentActivity]("agent:event")
 	application.RegisterEvent[ProfileProgress]("profile:progress")
 	application.RegisterEvent[VirusScanProgress]("virus:scan")
+	application.RegisterEvent[AIConnectionEvent]("ai:connection")
 }
 
 func main() {
@@ -51,12 +52,6 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
-	})
-	app.OnShutdown(func() {
-		service.shutdown()
-		if err := store.Close(); err != nil {
-			log.Printf("close application database: %v", err)
-		}
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{

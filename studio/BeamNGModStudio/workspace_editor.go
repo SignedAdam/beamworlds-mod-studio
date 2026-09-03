@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	modkit "github.com/SignedAdam/beamworlds-modkit"
 	"os"
@@ -15,13 +17,15 @@ import (
 const maxWorkspaceDraftBytes = 4 << 20
 
 type WorkspaceDraft struct {
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	UpdatedAt string `json:"updatedAt"`
+	Path       string `json:"path"`
+	Content    string `json:"content"`
+	BaseSHA256 string `json:"baseSha256"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 func (service *AppService) CreateWorkspaceDirectory(workspaceID, relativePath string) error {
-	workspace, err := service.store.GetWorkspace(context.Background(), workspaceID)
+	ctx := context.Background()
+	workspace, err := service.store.GetWorkspace(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -29,10 +33,13 @@ func (service *AppService) CreateWorkspaceDirectory(workspaceID, relativePath st
 	if err != nil {
 		return err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	if err := modkit.CreateWorkspaceDirectory(workspace.FilesRoot, relativePath); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(context.Background(), workspaceID)
+	return service.store.TouchWorkspace(ctx, workspaceID)
 }
 
 func (service *AppService) RenameWorkspacePath(workspaceID, oldPath, newPath string) error {
@@ -52,6 +59,9 @@ func (service *AppService) RenameWorkspacePath(workspaceID, oldPath, newPath str
 	if oldPath == newPath {
 		return nil
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	if err := modkit.RenameWorkspacePath(workspace.FilesRoot, oldPath, newPath); err != nil {
 		return err
 	}
@@ -72,6 +82,9 @@ func (service *AppService) DeleteWorkspacePath(workspaceID, relativePath string)
 	if err != nil {
 		return err
 	}
+	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
 	if err := modkit.DeleteWorkspacePath(workspace.FilesRoot, relativePath); err != nil {
 		return err
 	}
@@ -121,7 +134,7 @@ func (service *AppService) RevealWorkspacePath(workspaceID, relativePath string)
 	return command.Process.Release()
 }
 
-func (service *AppService) SaveWorkspaceDraft(workspaceID, relativePath, content string) error {
+func (service *AppService) SaveWorkspaceDraft(workspaceID, relativePath, content, baseSHA256 string) error {
 	if len(content) > maxWorkspaceDraftBytes {
 		return fmt.Errorf("draft exceeds %d-byte editor limit", maxWorkspaceDraftBytes)
 	}
@@ -132,7 +145,7 @@ func (service *AppService) SaveWorkspaceDraft(workspaceID, relativePath, content
 	if _, err := service.store.GetWorkspace(context.Background(), workspaceID); err != nil {
 		return err
 	}
-	return service.store.SaveWorkspaceDraft(context.Background(), workspaceID, relativePath, content)
+	return service.store.SaveWorkspaceDraft(context.Background(), workspaceID, relativePath, content, baseSHA256)
 }
 
 func (service *AppService) DeleteWorkspaceDraft(workspaceID, relativePath string) error {
@@ -155,8 +168,113 @@ func cleanWorkspaceRelativePath(value string) (string, error) {
 	return cleaned, nil
 }
 
+func workspaceCurrentSHA(filesRoot, relativePath string) (string, bool, error) {
+	return workspaceCurrentSHAContext(context.Background(), filesRoot, relativePath)
+}
+
+func workspaceCurrentSHAContext(ctx context.Context, filesRoot, relativePath string) (string, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	relativePath, err := cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return "", false, err
+	}
+	filename := filepath.Join(filesRoot, filepath.FromSlash(relativePath))
+	info, err := os.Stat(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", true, err
+	}
+	if info.IsDir() {
+		return "", true, fmt.Errorf("workspace path %q is a directory", relativePath)
+	}
+	content, err := modkit.ReadWorkspaceTextContext(ctx, filesRoot, relativePath)
+	if err != nil {
+		return "", true, err
+	}
+	sum := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", sum[:]), true, nil
+}
+
+func workspaceRevisionConflict(relativePath, expectedSHA256, currentSHA256 string, exists bool) error {
+	if strings.TrimSpace(expectedSHA256) == "" {
+		return fmt.Errorf("workspace conflict for %q: expected the path to be absent, but it already exists", relativePath)
+	}
+	if !exists {
+		currentSHA256 = "<missing>"
+	}
+	if currentSHA256 == "" {
+		currentSHA256 = "<unavailable>"
+	}
+	return fmt.Errorf("workspace conflict for %q: expected SHA-256 %q, found %q", relativePath, strings.TrimSpace(expectedSHA256), currentSHA256)
+}
+
+func checkWorkspaceRevision(filesRoot, relativePath, expectedSHA256 string) error {
+	return checkWorkspaceRevisionContext(context.Background(), filesRoot, relativePath, expectedSHA256)
+}
+
+func checkWorkspaceRevisionContext(ctx context.Context, filesRoot, relativePath, expectedSHA256 string) error {
+	expectedSHA256 = strings.TrimSpace(expectedSHA256)
+	currentSHA256, exists, err := workspaceCurrentSHAContext(ctx, filesRoot, relativePath)
+	if err != nil {
+		if expectedSHA256 == "" && exists {
+			return workspaceRevisionConflict(relativePath, expectedSHA256, "", true)
+		}
+		return fmt.Errorf("workspace conflict: cannot verify current SHA-256: %w", err)
+	}
+	if expectedSHA256 == "" {
+		if exists {
+			return workspaceRevisionConflict(relativePath, expectedSHA256, currentSHA256, true)
+		}
+		return nil
+	}
+	if !exists || !strings.EqualFold(currentSHA256, expectedSHA256) {
+		return workspaceRevisionConflict(relativePath, expectedSHA256, currentSHA256, exists)
+	}
+	return nil
+}
+
+func writeWorkspaceTextChecked(filesRoot, relativePath, content, expectedSHA256 string) error {
+	return writeWorkspaceTextCheckedContext(context.Background(), filesRoot, relativePath, content, expectedSHA256)
+}
+
+func writeWorkspaceTextCheckedContext(ctx context.Context, filesRoot, relativePath, content, expectedSHA256 string) error {
+	if err := checkWorkspaceRevisionContext(ctx, filesRoot, relativePath, expectedSHA256); err != nil {
+		return err
+	}
+	relativePath, err := cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return err
+	}
+	return modkit.WriteWorkspaceTextContext(ctx, filesRoot, relativePath, content)
+}
+
+func replaceWorkspaceTextChecked(filesRoot, relativePath, oldText, newText, expectedSHA256 string, all bool) (int, error) {
+	return replaceWorkspaceTextCheckedContext(context.Background(), filesRoot, relativePath, oldText, newText, expectedSHA256, all)
+}
+
+func replaceWorkspaceTextCheckedContext(ctx context.Context, filesRoot, relativePath, oldText, newText, expectedSHA256 string, all bool) (int, error) {
+	if strings.TrimSpace(expectedSHA256) == "" {
+		return 0, errors.New("expectedSha256 is required; read the file before replacing")
+	}
+	relativePath, err := cleanWorkspaceRelativePath(relativePath)
+	if err != nil {
+		return 0, err
+	}
+	if err := checkWorkspaceRevisionContext(ctx, filesRoot, relativePath, expectedSHA256); err != nil {
+		return 0, err
+	}
+	return modkit.ReplaceWorkspaceTextContext(ctx, filesRoot, relativePath, oldText, newText, all)
+}
+
 func (s *Store) ListWorkspaceDrafts(ctx context.Context, workspaceID string) ([]WorkspaceDraft, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT path,content,updated_at FROM workspace_drafts WHERE workspace_id=? ORDER BY updated_at,path`, workspaceID)
+	rows, err := s.db.QueryContext(ctx, `SELECT path,content,base_sha256,updated_at FROM workspace_drafts WHERE workspace_id=? ORDER BY updated_at,path`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +282,7 @@ func (s *Store) ListWorkspaceDrafts(ctx context.Context, workspaceID string) ([]
 	result := []WorkspaceDraft{}
 	for rows.Next() {
 		var draft WorkspaceDraft
-		if err := rows.Scan(&draft.Path, &draft.Content, &draft.UpdatedAt); err != nil {
+		if err := rows.Scan(&draft.Path, &draft.Content, &draft.BaseSHA256, &draft.UpdatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, draft)
@@ -172,8 +290,8 @@ func (s *Store) ListWorkspaceDrafts(ctx context.Context, workspaceID string) ([]
 	return result, rows.Err()
 }
 
-func (s *Store) SaveWorkspaceDraft(ctx context.Context, workspaceID, relativePath, content string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO workspace_drafts(workspace_id,path,content,updated_at) VALUES(?,?,?,?) ON CONFLICT(workspace_id,path) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, workspaceID, relativePath, content, nowUTC())
+func (s *Store) SaveWorkspaceDraft(ctx context.Context, workspaceID, relativePath, content, baseSHA256 string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO workspace_drafts(workspace_id,path,content,base_sha256,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,path) DO UPDATE SET content=excluded.content,base_sha256=excluded.base_sha256,updated_at=excluded.updated_at`, workspaceID, relativePath, content, strings.TrimSpace(baseSHA256), nowUTC())
 	return err
 }
 
@@ -188,14 +306,14 @@ func (s *Store) MoveWorkspaceDrafts(ctx context.Context, workspaceID, oldPrefix,
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT path,content,updated_at FROM workspace_drafts WHERE workspace_id=? AND (path=? OR path LIKE ? ESCAPE '\') ORDER BY path`, workspaceID, oldPrefix, escapeLike(oldPrefix)+"/%")
+	rows, err := tx.QueryContext(ctx, `SELECT path,content,base_sha256,updated_at FROM workspace_drafts WHERE workspace_id=? AND (path=? OR path LIKE ? ESCAPE '\') ORDER BY path`, workspaceID, oldPrefix, escapeLike(oldPrefix)+"/%")
 	if err != nil {
 		return err
 	}
 	drafts := []WorkspaceDraft{}
 	for rows.Next() {
 		var draft WorkspaceDraft
-		if err := rows.Scan(&draft.Path, &draft.Content, &draft.UpdatedAt); err != nil {
+		if err := rows.Scan(&draft.Path, &draft.Content, &draft.BaseSHA256, &draft.UpdatedAt); err != nil {
 			rows.Close()
 			return err
 		}
@@ -209,7 +327,7 @@ func (s *Store) MoveWorkspaceDrafts(ctx context.Context, workspaceID, oldPrefix,
 	}
 	for _, draft := range drafts {
 		suffix := strings.TrimPrefix(draft.Path, oldPrefix)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_drafts(workspace_id,path,content,updated_at) VALUES(?,?,?,?)`, workspaceID, newPrefix+suffix, draft.Content, draft.UpdatedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_drafts(workspace_id,path,content,base_sha256,updated_at) VALUES(?,?,?,?,?)`, workspaceID, newPrefix+suffix, draft.Content, draft.BaseSHA256, draft.UpdatedAt); err != nil {
 			return err
 		}
 	}

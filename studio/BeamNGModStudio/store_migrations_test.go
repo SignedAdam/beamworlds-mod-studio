@@ -555,6 +555,96 @@ func TestSQLiteLegacyJSONImportCreatesBackupAndPreservesParityIdempotently(t *te
 	}
 }
 
+func TestSQLiteLegacyImportReconcilesDuplicateFingerprintRepresentatives(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	databasePath := filepath.Join(root, "duplicate-fingerprint.sqlite")
+	legacyPath := filepath.Join(root, "catalog.json")
+	currentPath := `C:\BeamNG\current\mods\repo\shared.zip`
+	disabledPath := `C:\BeamNG\library\disabled\shared.zip`
+	catalog := migrationLegacyCatalog()
+	catalog["mods"] = []any{
+		map[string]any{
+			"id": "legacy-current-mod", "path": currentPath, "filename": "shared.zip",
+			"enabled": true, "missing": false, "source": "third-party", "size": int64(4096), "modifiedAt": "2026-01-01T12:00:00Z",
+			"fingerprint": "shared-legacy-fingerprint", "title": "Current Shared Vehicle", "archiveDescription": "Current archive metadata",
+		},
+		map[string]any{
+			"id": "legacy-disabled-mod", "path": disabledPath, "filename": "shared.zip",
+			"enabled": false, "missing": false, "source": "repository", "size": int64(4096), "modifiedAt": "2026-01-01T12:00:00Z",
+			"fingerprint": "shared-legacy-fingerprint", "title": "Disabled Shared Vehicle", "archiveDescription": "Disabled archive metadata",
+		},
+	}
+	migrationWriteLegacyCatalog(t, legacyPath, catalog)
+
+	store, err := OpenStore(databasePath, legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if got := migrationCount(t, store, "entities"); got != 1 {
+		t.Fatalf("canonical entities = %d, want 1", got)
+	}
+	if got := migrationCount(t, store, "archive_links"); got != 2 {
+		t.Fatalf("archive links = %d, want 2", got)
+	}
+
+	expected := map[string]struct {
+		source string
+		title  string
+	}{
+		currentPath:  {source: "user-added", title: "Current Shared Vehicle"},
+		disabledPath: {source: "beamng-repository", title: "Disabled Shared Vehicle"},
+	}
+	var entityID string
+	for path, want := range expected {
+		var gotEntityID, gotSource string
+		if err := store.db.QueryRowContext(ctx, `SELECT entity_id,source_id FROM archive_links WHERE path=?`, path).Scan(&gotEntityID, &gotSource); err != nil {
+			t.Fatal(err)
+		}
+		if gotSource != want.source {
+			t.Fatalf("link source for %q = %q, want %q", path, gotSource, want.source)
+		}
+		if entityID == "" {
+			entityID = gotEntityID
+		} else if gotEntityID != entityID {
+			t.Fatalf("duplicate fingerprint links use entities %q and %q", entityID, gotEntityID)
+		}
+	}
+
+	var representativePath, linkSource, entitySource, displayName, manifestJSON string
+	if err := store.db.QueryRowContext(ctx, `SELECT l.path,l.source_id,e.source_id,e.display_name,a.manifest_json
+		FROM entities e
+		JOIN archive_links l ON l.id=(SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1)
+		JOIN artifacts a ON a.id=l.artifact_id
+		WHERE e.id=?`, entityID).Scan(&representativePath, &linkSource, &entitySource, &displayName, &manifestJSON); err != nil {
+		t.Fatal(err)
+	}
+	want, ok := expected[representativePath]
+	if !ok {
+		t.Fatalf("unexpected representative path %q", representativePath)
+	}
+	if linkSource != want.source || entitySource != want.source || displayName != want.title {
+		t.Fatalf("representative = path %q link source %q entity source %q title %q", representativePath, linkSource, entitySource, displayName)
+	}
+	var manifest modkit.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Title != want.title {
+		t.Fatalf("representative manifest title = %q, want %q", manifest.Title, want.title)
+	}
+	var ftsContent string
+	if err := store.db.QueryRowContext(ctx, `SELECT content FROM library_search_fts WHERE entity_id=?`, entityID).Scan(&ftsContent); err != nil {
+		t.Fatal(err)
+	}
+	for path := range expected {
+		if !strings.Contains(ftsContent, path) {
+			t.Fatalf("search content does not contain archive path %q", path)
+		}
+	}
+}
+
 func TestSQLiteLegacyImportRejectsMalformedInvalidSourceAndIndexFailureAtomically(t *testing.T) {
 	cases := []struct {
 		name    string

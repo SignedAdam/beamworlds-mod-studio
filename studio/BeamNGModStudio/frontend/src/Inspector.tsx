@@ -104,7 +104,7 @@ export function Inspector({
 
     <div className="inspector__actions">
       <Button className="inspector__maker" icon="workspace" tone="quiet" disabled={!item.linked || creatingWorkspace} onClick={onCreateWorkspace}>
-        {creatingWorkspace ? 'Opening project' : 'Open in ModMaker'}
+        {creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}
       </Button>
       <button type="button" className={`inspector__scan-control inspector__scan-control--${item.healthStatus || 'unscanned'}`} disabled={!item.linked} onClick={() => onVirusScan(item)}>
         <span className="inspector__scan-action"><Icon name="shield" size={14}/><strong>Scan for threats</strong></span>
@@ -682,7 +682,7 @@ function Files({
           <Button icon="copy" tone="quiet" onClick={() => void copyPath()}>{copied ? 'Copied' : 'Copy path'}</Button>
           <Button icon="export" tone="quiet" disabled={selected.directory || !item.linked || actionBusy !== ''} onClick={() => void extract()}>{actionBusy === 'extract' ? 'Extracting' : 'Extract'}</Button>
           <Button icon="archive" tone="quiet" disabled={!item.linked || actionBusy !== ''} onClick={() => void reveal()}>{actionBusy === 'reveal' ? 'Opening' : 'Reveal archive'}</Button>
-          <Button icon="workspace" tone="quiet" disabled={!item.linked || creatingWorkspace} onClick={onCreateWorkspace}>{creatingWorkspace ? 'Opening project' : 'Open in ModMaker'}</Button>
+          <Button icon="workspace" tone="quiet" disabled={!item.linked || creatingWorkspace} onClick={onCreateWorkspace}>{creatingWorkspace ? 'Opening workspace' : 'Open in ModMaker'}</Button>
         </div>
         {selected.directory ? <div className="file-preview-panel__metadata"><strong>Directory</strong><span>This entry groups files in the archive and has no file content to preview.</span></div> : previewLoading ? <div className="file-preview-panel__loading"><Spinner small/><span>Loading preview</span></div> : preview ? <FilePreview preview={preview} member={selected}/> : <div className="file-preview-panel__metadata"><strong>Preview unavailable</strong><span>This file can be selected and extracted, but its contents are not supported for inline preview.</span></div>}
       </section>}
@@ -743,8 +743,8 @@ function historyEventTitle(type: string) {
     archive_changed: 'Archive updated',
     archive_unlinked: 'Source archive removed',
     archive_relinked: 'Source archive restored',
-    workspace_created: 'ModMaker project created',
-    mod_project_created: 'ModMaker project created',
+    workspace_created: 'ModMaker workspace created',
+    mod_project_created: 'Mod created in ModMaker',
     workspace_exported: 'Build exported',
     virus_scan_complete: 'Virus scan completed',
     virus_scan_failed: 'Virus scan failed',

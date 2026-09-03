@@ -6,14 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
 
 const (
-	preferencesKey = "app.preferences.v1"
-	agentSecretKey = "app.agent-api-key.v1"
+	preferencesKey           = "app.preferences.v1"
+	legacyAgentSecretKey     = "app.agent-api-key.v1"
+	openRouterAgentSecretKey = "app.ai.openrouter-api-key.v1"
+	openAIAgentSecretKey     = "app.ai.openai-api-key.v1"
+	anthropicAgentSecretKey  = "app.ai.anthropic-api-key.v1"
+	releasedPreScanModel     = "gpt-5.6-luna"
+	releasedFullScanModel    = "gpt-5.6-sol"
+	autoFormatDelayDefaultMs = 200
+	autoFormatDelayMinMs     = 50
+	autoFormatDelayMaxMs     = 2000
 )
 
 type AppSettings struct {
@@ -24,6 +31,7 @@ type AppSettings struct {
 	ContextMode          string `json:"contextMode"`
 	ShowAIUsage          bool   `json:"showAIUsage"`
 	ShowFileSizes        bool   `json:"showFileSizes"`
+	AutoFormatDelayMs    int    `json:"autoFormatDelayMs"`
 	EmphasisColor        string `json:"emphasisColor"`
 	ActiveTabColor       string `json:"activeTabColor"`
 	SubsectionTitleColor string `json:"subsectionTitleColor"`
@@ -37,32 +45,39 @@ type AppSettings struct {
 	PreScanReasoning     string `json:"preScanReasoning"`
 	FullScanModel        string `json:"fullScanModel"`
 	FullScanReasoning    string `json:"fullScanReasoning"`
-	HasAPIKey            bool   `json:"hasApiKey"`
+	HasOpenRouterAPIKey  bool   `json:"hasOpenRouterApiKey"`
+	HasOpenAIAPIKey      bool   `json:"hasOpenAIApiKey"`
+	HasAnthropicAPIKey   bool   `json:"hasAnthropicApiKey"`
 }
 
 type SettingsUpdate struct {
-	Theme                string `json:"theme"`
-	DefaultAuthor        string `json:"defaultAuthor"`
-	AgentProfile         string `json:"agentProfile"`
-	AgentModel           string `json:"agentModel"`
-	ContextMode          string `json:"contextMode"`
-	ShowAIUsage          bool   `json:"showAIUsage"`
-	ShowFileSizes        bool   `json:"showFileSizes"`
-	EmphasisColor        string `json:"emphasisColor"`
-	ActiveTabColor       string `json:"activeTabColor"`
-	SubsectionTitleColor string `json:"subsectionTitleColor"`
-	DarkSurfaceColor     string `json:"darkSurfaceColor"`
-	DarkBorderColor      string `json:"darkBorderColor"`
-	DarkTextColor        string `json:"darkTextColor"`
-	LightSurfaceColor    string `json:"lightSurfaceColor"`
-	LightBorderColor     string `json:"lightBorderColor"`
-	LightTextColor       string `json:"lightTextColor"`
-	PreScanModel         string `json:"preScanModel"`
-	PreScanReasoning     string `json:"preScanReasoning"`
-	FullScanModel        string `json:"fullScanModel"`
-	FullScanReasoning    string `json:"fullScanReasoning"`
-	APIKey               string `json:"apiKey"`
-	ClearAPIKey          bool   `json:"clearApiKey"`
+	Theme                 string `json:"theme"`
+	DefaultAuthor         string `json:"defaultAuthor"`
+	AgentProfile          string `json:"agentProfile"`
+	AgentModel            string `json:"agentModel"`
+	ContextMode           string `json:"contextMode"`
+	ShowAIUsage           bool   `json:"showAIUsage"`
+	ShowFileSizes         bool   `json:"showFileSizes"`
+	AutoFormatDelayMs     int    `json:"autoFormatDelayMs"`
+	EmphasisColor         string `json:"emphasisColor"`
+	ActiveTabColor        string `json:"activeTabColor"`
+	SubsectionTitleColor  string `json:"subsectionTitleColor"`
+	DarkSurfaceColor      string `json:"darkSurfaceColor"`
+	DarkBorderColor       string `json:"darkBorderColor"`
+	DarkTextColor         string `json:"darkTextColor"`
+	LightSurfaceColor     string `json:"lightSurfaceColor"`
+	LightBorderColor      string `json:"lightBorderColor"`
+	LightTextColor        string `json:"lightTextColor"`
+	PreScanModel          string `json:"preScanModel"`
+	PreScanReasoning      string `json:"preScanReasoning"`
+	FullScanModel         string `json:"fullScanModel"`
+	FullScanReasoning     string `json:"fullScanReasoning"`
+	OpenRouterAPIKey      string `json:"openRouterApiKey"`
+	ClearOpenRouterAPIKey bool   `json:"clearOpenRouterApiKey"`
+	OpenAIAPIKey          string `json:"openAIApiKey"`
+	ClearOpenAIAPIKey     bool   `json:"clearOpenAIApiKey"`
+	AnthropicAPIKey       string `json:"anthropicApiKey"`
+	ClearAnthropicAPIKey  bool   `json:"clearAnthropicApiKey"`
 }
 
 type UsageLimit struct {
@@ -98,12 +113,13 @@ type agentLaunchSettings struct {
 	Model       string
 	ContextMode string
 	APIKey      string
+	SelectModel bool
 }
 
 func defaultAppSettings() AppSettings {
 	return AppSettings{
 		Theme:                "dark",
-		AgentProfile:         "omp",
+		AgentProfile:         "chatgpt",
 		ContextMode:          "balanced",
 		ShowAIUsage:          true,
 		ShowFileSizes:        true,
@@ -116,10 +132,11 @@ func defaultAppSettings() AppSettings {
 		LightSurfaceColor:    "#f4f2ed",
 		LightBorderColor:     "#aaa69d",
 		LightTextColor:       "#171614",
-		PreScanModel:         "gpt-5.6-luna",
+		PreScanModel:         "",
 		PreScanReasoning:     "medium",
-		FullScanModel:        "gpt-5.6-sol",
+		FullScanModel:        "",
 		FullScanReasoning:    "xhigh",
+		AutoFormatDelayMs:    autoFormatDelayDefaultMs,
 	}
 }
 
@@ -133,6 +150,7 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 		ContextMode:          strings.ToLower(strings.TrimSpace(update.ContextMode)),
 		ShowAIUsage:          update.ShowAIUsage,
 		ShowFileSizes:        update.ShowFileSizes,
+		AutoFormatDelayMs:    clampAutoFormatDelay(update.AutoFormatDelayMs),
 		EmphasisColor:        colorOrDefault(update.EmphasisColor, defaults.EmphasisColor),
 		ActiveTabColor:       colorOrDefault(update.ActiveTabColor, defaults.ActiveTabColor),
 		SubsectionTitleColor: colorOrDefault(update.SubsectionTitleColor, defaults.SubsectionTitleColor),
@@ -151,7 +169,7 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 		return AppSettings{}, errors.New("theme must be dark or light")
 	}
 	switch settings.AgentProfile {
-	case "omp", "codex", "claude", "openrouter", "openai":
+	case "chatgpt", "claude", "openrouter", "openai", "anthropic":
 	default:
 		return AppSettings{}, errors.New("unsupported AI connection profile")
 	}
@@ -176,6 +194,19 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 		}
 	}
 	return settings, nil
+}
+
+func clampAutoFormatDelay(value int) int {
+	if value <= 0 {
+		return autoFormatDelayDefaultMs
+	}
+	if value < autoFormatDelayMinMs {
+		return autoFormatDelayMinMs
+	}
+	if value > autoFormatDelayMaxMs {
+		return autoFormatDelayMaxMs
+	}
+	return value
 }
 
 func firstValue(value, fallback string) string {
@@ -214,12 +245,29 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 	if err := json.Unmarshal([]byte(encoded), &settings); err != nil {
 		return AppSettings{}, fmt.Errorf("decode application settings: %w", err)
 	}
+	profile := normalizeVirgilAIProfile(settings.AgentProfile)
+	switch profile {
+	case "", "omp", "codex":
+		settings.AgentProfile = "chatgpt"
+	default:
+		settings.AgentProfile = profile
+	}
 	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaultAppSettings().SubsectionTitleColor)
+	settings.AutoFormatDelayMs = clampAutoFormatDelay(settings.AutoFormatDelayMs)
+	if settings.PreScanModel == releasedPreScanModel && settings.FullScanModel == releasedFullScanModel {
+		settings.PreScanModel = ""
+		settings.FullScanModel = ""
+		if err := s.saveAppSettings(ctx, settings); err != nil {
+			return AppSettings{}, fmt.Errorf("migrate released scanner defaults: %w", err)
+		}
+	}
 	return settings, nil
 }
 
 func (s *Store) saveAppSettings(ctx context.Context, settings AppSettings) error {
-	settings.HasAPIKey = false
+	settings.HasOpenRouterAPIKey = false
+	settings.HasOpenAIAPIKey = false
+	settings.HasAnthropicAPIKey = false
 	encoded, err := json.Marshal(settings)
 	if err != nil {
 		return err
@@ -244,15 +292,74 @@ func (s *Store) deleteSetting(ctx context.Context, key string) error {
 	return err
 }
 
+func secretSettingForProfile(profile string) string {
+	switch normalizeVirgilAIProfile(profile) {
+	case "openrouter":
+		return openRouterAgentSecretKey
+	case "openai":
+		return openAIAgentSecretKey
+	case "anthropic":
+		return anthropicAgentSecretKey
+	default:
+		return ""
+	}
+}
+
+func (service *AppService) migrateLegacyAgentSecret(ctx context.Context, settings *AppSettings) error {
+	encoded, err := service.store.readSetting(ctx, legacyAgentSecretKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	target := secretSettingForProfile(settings.AgentProfile)
+	if settings.AgentProfile == "claude" {
+		target = anthropicAgentSecretKey
+		settings.AgentProfile = "anthropic"
+	}
+	if target != "" {
+		if _, err := service.store.readSetting(ctx, target); errors.Is(err, sql.ErrNoRows) {
+			if err := service.store.writeSetting(ctx, target, encoded); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+	if err := service.store.deleteSetting(ctx, legacyAgentSecretKey); err != nil {
+		return err
+	}
+	return service.store.saveAppSettings(ctx, *settings)
+}
+
+func hasStoredSecret(ctx context.Context, store *Store, key string) (bool, error) {
+	_, err := store.readSetting(ctx, key)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
 func (service *AppService) Settings() (AppSettings, error) {
 	ctx := context.Background()
 	settings, err := service.store.loadAppSettings(ctx)
 	if err != nil {
 		return AppSettings{}, err
 	}
-	if _, err := service.store.readSetting(ctx, agentSecretKey); err == nil {
-		settings.HasAPIKey = true
-	} else if !errors.Is(err, sql.ErrNoRows) {
+	if err := service.migrateLegacyAgentSecret(ctx, &settings); err != nil {
+		return AppSettings{}, err
+	}
+	if settings.HasOpenRouterAPIKey, err = hasStoredSecret(ctx, service.store, openRouterAgentSecretKey); err != nil {
+		return AppSettings{}, err
+	}
+	if settings.HasOpenAIAPIKey, err = hasStoredSecret(ctx, service.store, openAIAgentSecretKey); err != nil {
+		return AppSettings{}, err
+	}
+	if settings.HasAnthropicAPIKey, err = hasStoredSecret(ctx, service.store, anthropicAgentSecretKey); err != nil {
 		return AppSettings{}, err
 	}
 	return settings, nil
@@ -260,40 +367,101 @@ func (service *AppService) Settings() (AppSettings, error) {
 
 func (service *AppService) SaveSettings(update SettingsUpdate) (AppSettings, error) {
 	ctx := context.Background()
+	current, err := service.store.loadAppSettings(ctx)
+	if err != nil {
+		return AppSettings{}, err
+	}
+	if err := service.migrateLegacyAgentSecret(ctx, &current); err != nil {
+		return AppSettings{}, err
+	}
 	settings, err := validateSettings(update)
 	if err != nil {
 		return AppSettings{}, err
 	}
-	apiKey := strings.TrimSpace(update.APIKey)
-	if len(apiKey) > 8192 {
-		return AppSettings{}, errors.New("API key exceeds 8192 characters")
+	type preparedSecret struct {
+		key       string
+		protected string
+		clear     bool
 	}
-	if update.ClearAPIKey {
-		if err := service.store.deleteSetting(ctx, agentSecretKey); err != nil {
-			return AppSettings{}, err
+	secretInputs := []struct {
+		key   string
+		value string
+		clear bool
+	}{
+		{openRouterAgentSecretKey, update.OpenRouterAPIKey, update.ClearOpenRouterAPIKey},
+		{openAIAgentSecretKey, update.OpenAIAPIKey, update.ClearOpenAIAPIKey},
+		{anthropicAgentSecretKey, update.AnthropicAPIKey, update.ClearAnthropicAPIKey},
+	}
+	prepared := make([]preparedSecret, 0, len(secretInputs))
+	for _, secret := range secretInputs {
+		value := strings.TrimSpace(secret.value)
+		if len(value) > 8192 {
+			return AppSettings{}, errors.New("API key exceeds 8192 characters")
 		}
-	} else if apiKey != "" {
-		protected, err := protectSecret(apiKey, service.config.DataDir)
-		if err != nil {
-			return AppSettings{}, fmt.Errorf("protect API key: %w", err)
+		item := preparedSecret{key: secret.key, clear: secret.clear}
+		if !item.clear && value != "" {
+			item.protected, err = protectSecret(value, service.config.DataDir)
+			if err != nil {
+				return AppSettings{}, fmt.Errorf("protect API key: %w", err)
+			}
 		}
-		if err := service.store.writeSetting(ctx, agentSecretKey, protected); err != nil {
-			return AppSettings{}, err
+		prepared = append(prepared, item)
+	}
+	settings.HasOpenRouterAPIKey = false
+	settings.HasOpenAIAPIKey = false
+	settings.HasAnthropicAPIKey = false
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		return AppSettings{}, err
+	}
+	transaction, err := service.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AppSettings{}, err
+	}
+	defer transaction.Rollback()
+	for _, secret := range prepared {
+		switch {
+		case secret.clear:
+			if _, err := transaction.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, secret.key); err != nil {
+				return AppSettings{}, err
+			}
+		case secret.protected != "":
+			if _, err := transaction.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, secret.key, secret.protected); err != nil {
+				return AppSettings{}, err
+			}
 		}
 	}
-	if err := service.store.saveAppSettings(ctx, settings); err != nil {
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, preferencesKey, string(encoded)); err != nil {
+		return AppSettings{}, err
+	}
+	if err := transaction.Commit(); err != nil {
 		return AppSettings{}, err
 	}
 	return service.Settings()
 }
 
 func (service *AppService) agentLaunchSettings(ctx context.Context) (agentLaunchSettings, error) {
+	return service.agentLaunchSettingsForProfile(ctx, "")
+}
+
+func (service *AppService) agentLaunchSettingsForProfile(ctx context.Context, requestedProfile string) (agentLaunchSettings, error) {
 	settings, err := service.store.loadAppSettings(ctx)
 	if err != nil {
 		return agentLaunchSettings{}, err
 	}
-	result := agentLaunchSettings{Profile: settings.AgentProfile, Model: settings.AgentModel, ContextMode: settings.ContextMode}
-	encoded, err := service.store.readSetting(ctx, agentSecretKey)
+	if err := service.migrateLegacyAgentSecret(ctx, &settings); err != nil {
+		return agentLaunchSettings{}, err
+	}
+	profile := normalizeVirgilAIProfile(requestedProfile)
+	if profile == "" {
+		profile = normalizeVirgilAIProfile(settings.AgentProfile)
+	}
+	result := agentLaunchSettings{Profile: profile, Model: settings.AgentModel, ContextMode: settings.ContextMode}
+	secretKey := secretSettingForProfile(profile)
+	if secretKey == "" {
+		return result, nil
+	}
+	encoded, err := service.store.readSetting(ctx, secretKey)
 	if err == nil {
 		result.APIKey, err = unprotectSecret(encoded, service.config.DataDir)
 		if err != nil {
@@ -305,22 +473,47 @@ func (service *AppService) agentLaunchSettings(ctx context.Context) (agentLaunch
 	return result, nil
 }
 
+func launchCredentials(settings agentLaunchSettings) map[string]string {
+	if settings.APIKey == "" {
+		return nil
+	}
+	switch settings.Profile {
+	case "openrouter":
+		return map[string]string{"OPENROUTER_API_KEY": settings.APIKey}
+	case "openai":
+		return map[string]string{"OPENAI_API_KEY": settings.APIKey}
+	case "anthropic":
+		return map[string]string{"ANTHROPIC_API_KEY": settings.APIKey}
+	default:
+		return nil
+	}
+}
+
 func (service *AppService) ListAgentModels() ([]AgentModelOption, error) {
-	ompPath, err := resolveOMPPath(service.config.OMPPath)
+	commandContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	launch, err := service.agentLaunchSettings(commandContext)
 	if err != nil {
 		return nil, err
 	}
-	commandContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(commandContext, ompPath, "--no-extensions", "models", "--json").Output()
+	profile, err := managedAIRuntimeProfileForAgent(launch.Profile)
 	if err != nil {
-		return nil, fmt.Errorf("list OMP models: %w", err)
+		return nil, err
+	}
+	arguments := append(agentSelectionArguments(launch), "--no-extensions", "models", "--json")
+	command, err := service.aiRuntime.Command(commandContext, arguments, launchCredentials(launch), profile)
+	if err != nil {
+		return nil, err
+	}
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list AI models: %w", err)
 	}
 	var response struct {
 		Models []AgentModelOption `json:"models"`
 	}
 	if err := json.Unmarshal(output, &response); err != nil {
-		return nil, fmt.Errorf("decode OMP models: %w", err)
+		return nil, fmt.Errorf("decode AI models: %w", err)
 	}
 	result := make([]AgentModelOption, 0, len(response.Models))
 	seen := map[string]bool{}
@@ -344,14 +537,25 @@ func (service *AppService) AIUsage() (AIUsage, error) {
 	if err != nil || !usage.HasRuns {
 		return usage, err
 	}
-	ompPath, err := resolveOMPPath(service.config.OMPPath)
+	launch, err := service.agentLaunchSettings(ctx)
 	if err != nil {
 		usage.UsageError = err.Error()
 		return usage, nil
 	}
 	commandContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(commandContext, ompPath, "usage", "--json").Output()
+	profile, profileErr := managedAIRuntimeProfileForAgent(launch.Profile)
+	if profileErr != nil {
+		usage.UsageError = profileErr.Error()
+		return usage, nil
+	}
+	arguments := append(agentSelectionArguments(launch), "usage", "--json")
+	command, err := service.aiRuntime.Command(commandContext, arguments, launchCredentials(launch), profile)
+	if err != nil {
+		usage.UsageError = err.Error()
+		return usage, nil
+	}
+	output, err := command.Output()
 	if err != nil {
 		usage.UsageError = fmt.Sprintf("provider usage unavailable: %v", err)
 		return usage, nil

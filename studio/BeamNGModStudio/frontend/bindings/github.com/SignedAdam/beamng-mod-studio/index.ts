@@ -7,6 +7,10 @@ export {
 };
 
 export type {
+    AIConnectionEvent,
+    AIConnectionStart,
+    AIConnectionState,
+    AIProviderConnection,
     AIUsage,
     AgentActivity,
     AgentEventRecord,
@@ -50,6 +54,8 @@ export type {
     SetupState,
     TestInstallRecord,
     UsageLimit,
+    VirgilSessionRecord,
+    VirgilSessionSummary,
     VirusScanProgress,
     VirusScanRun,
     VirusScanStage,
@@ -57,5 +63,7 @@ export type {
     WorkspaceDetail,
     WorkspaceDraft,
     WorkspaceRecord,
+    WorkspaceSearchMatch,
+    WorkspaceSearchOptions,
     WorkspaceTextFile
 } from "./models.js";

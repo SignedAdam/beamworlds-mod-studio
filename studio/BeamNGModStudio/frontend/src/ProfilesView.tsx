@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { LibraryItem, OrganizationState, PresetDetail, ProfileDetail, ProfileProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import { Badge, Button, EmptyState, Spinner, formatBytes, kindIcon } from './ui'
+import { Badge, Button, EmptyState, Page, Spinner, formatBytes, kindIcon } from './ui'
 import { Icon } from './icons'
 
 interface ProfilesViewProps {
@@ -165,8 +165,10 @@ export function ProfilesView({ organization, items, progress, onOrganization, on
     } catch (error) { onError(error) } finally { setBusy('') }
   }
 
-  return <section className="view profiles-view" aria-label="Mod profiles and presets">
-    <header className="view-header view-header--compact"><div><h1>Mod profiles</h1><p>Combine reusable presets and individual mods, then launch that exact set.</p></div><div className="view-header__actions"><Button icon="refresh" disabled={!hasAppliedProfile || busy !== ''} onClick={() => void restoreNormalMods()}>Restore normal mods</Button><Button icon="folder" onClick={() => API.OpenGameDirectory().catch(onError)}>Open game directory</Button></div></header>
+  return <Page title="Mod profiles" className="profiles-view" ariaLabel="Mod profiles and presets" actions={[
+    { key: 'restore', label: 'Restore normal mods', icon: 'refresh', role: 'secondary', disabled: !hasAppliedProfile || busy !== '', onClick: () => void restoreNormalMods() },
+    { key: 'open-directory', label: 'Open game directory', icon: 'folder', role: 'secondary', onClick: () => API.OpenGameDirectory().catch(onError) },
+  ]}>
     <div className="profiles-layout">
       <aside className="organization-list">
         <header><strong>Mod profiles</strong><Badge tone="neutral">{profiles.length ?? 0}</Badge></header>
@@ -195,5 +197,5 @@ export function ProfilesView({ organization, items, progress, onOrganization, on
         {!presetDetail ? <EmptyState icon="mixed" title="Reusable presets" detail="Create a preset to reuse the same mod group across mod profiles."/> : <><header><div><span>REUSABLE PRESET</span><h2>{presetDetail.preset.name}</h2><p>{presetDetail.preset.description || 'No description'}</p></div><div><button className="icon-button" onClick={renamePreset} title="Edit preset"><Icon name="edit" size={14}/></button><button className="icon-button" onClick={deletePreset} title="Delete preset"><Icon name="trash" size={14}/></button></div></header><label className="search-box search-box--wide"><Icon name="search" size={13}/><input value={modQuery} onChange={event => setModQuery(event.target.value)} placeholder="Filter library"/></label><div className="membership-list membership-list--preset">{filteredItems.map(item => <label key={item.entityId}><input type="checkbox" checked={presetEntityIDs.includes(item.entityId)} onChange={event => void togglePresetMod(item.entityId, event.target.checked)}/><Icon name={kindIcon(String(item.kind))} size={14}/><span><strong>{item.displayName}</strong><small>{item.archivePath}</small></span></label>)}</div></>}
       </aside>
     </div>
-  </section>
+</Page>
 }

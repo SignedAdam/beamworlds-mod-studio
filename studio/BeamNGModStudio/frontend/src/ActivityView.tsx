@@ -1,12 +1,11 @@
 import type { AppConfig, Dashboard } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { Icon } from './icons'
-import { Badge, Button, EmptyState, formatBytes, formatDate } from './ui'
+import { Badge, EmptyState, formatBytes, formatDate, Page } from './ui'
 
 export function ActivityView({ config, dashboard, onScan }: { config: AppConfig | null; dashboard: Dashboard | null; onScan: () => void }) {
   const scanRoots = config?.scanRoots ?? []
   const latestEvents = dashboard?.latestEvents ?? []
-  return <section className="view activity-view">
-    <header className="view-header view-header--compact"><h1>Activity</h1><Button icon="scan" onClick={onScan}>Refresh archive state</Button></header>
+  return <Page title="Activity" className="activity-view" actions={[{ key: 'refresh-archive-state', label: 'Refresh archive state', icon: 'scan', role: 'secondary', onClick: onScan }]}>
 
     <div className="activity-metrics">
       <Metric label="Entities" value={(dashboard?.entities ?? 0).toLocaleString()} icon="library"/>
@@ -20,16 +19,16 @@ export function ActivityView({ config, dashboard, onScan }: { config: AppConfig 
     <div className="activity-columns">
       <section className="technical-pane">
         <header className="pane-toolbar"><strong>Application paths</strong><span/><Badge tone="success">Archives stay in place</Badge></header>
-        <div className="path-list"><PathRow label="Library" value={config?.libraryDir ?? ''}/><PathRow label="Active mods" value={config?.activeModsDir ?? ''}/><PathRow label="Database" value={config?.databasePath ?? ''}/><PathRow label="Preview cache" value={config?.imageCacheDir ?? ''}/><PathRow label="Projects" value={config?.workspaceDir ?? ''}/><PathRow label="Exports" value={config?.exportDir ?? ''}/><PathRow label="BeamNG" value={config?.gameExecutable ?? 'Executable not found'}/></div>
+        <div className="path-list"><PathRow label="Library" value={config?.libraryDir ?? ''}/><PathRow label="Active mods" value={config?.activeModsDir ?? ''}/><PathRow label="Database" value={config?.databasePath ?? ''}/><PathRow label="Preview cache" value={config?.imageCacheDir ?? ''}/><PathRow label="Workspaces" value={config?.workspaceDir ?? ''}/><PathRow label="Exports" value={config?.exportDir ?? ''}/><PathRow label="BeamNG" value={config?.gameExecutable ?? 'Executable not found'}/></div>
         <div className="scan-root-list"><strong>Scan roots</strong>{scanRoots.map(root => <code key={root}>{root}</code>)}</div>
       </section>
 
       <section className="technical-pane activity-log">
         <header className="pane-toolbar"><strong>Recent transitions</strong><span/>{dashboard?.lastScanAt && <time>Scan {formatDate(dashboard.lastScanAt)}</time>}</header>
-        {latestEvents.length === 0 ? <EmptyState icon="activity" title="No recorded transitions" detail="Scans, archive links, projects, exports, tests, and launches appear here."/> : <div className="activity-table">{latestEvents.map(event => <div key={event.id}><Icon name={eventIcon(event.type)} size={14}/><strong>{event.type.replace(/_/g, ' ')}</strong><span>{Object.values(event.data ?? {}).filter(value => typeof value === 'string').join(' · ') || `Entity ${event.entityId.slice(0, 8)}`}</span><time>{formatDate(event.at)}</time></div>)}</div>}
+        {latestEvents.length === 0 ? <EmptyState icon="activity" title="No recorded transitions" detail="Scans, archive links, workspaces, exports, tests, and launches appear here."/> : <div className="activity-table">{latestEvents.map(event => <div key={event.id}><Icon name={eventIcon(event.type)} size={14}/><strong>{eventLabel(event.type)}</strong><span>{Object.values(event.data ?? {}).filter(value => typeof value === 'string').join(' · ') || `Entity ${event.entityId.slice(0, 8)}`}</span><time>{formatDate(event.at)}</time></div>)}</div>}
       </section>
     </div>
-  </section>
+  </Page>
 }
 
 function Metric({ label, value, icon }: { label: string; value: string; icon: Parameters<typeof Icon>[0]['name'] }) {
@@ -38,6 +37,11 @@ function Metric({ label, value, icon }: { label: string; value: string; icon: Pa
 
 function PathRow({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><code title={value}>{value || 'Not configured'}</code><button className="icon-button" onClick={() => { if (value) void navigator.clipboard.writeText(value) }} title="Copy path"><Icon name="copy" size={13}/></button></div>
+}
+
+function eventLabel(eventType: string) {
+  if (eventType === 'mod_project_created') return 'mod created'
+  return eventType.replace(/_/g, ' ')
 }
 
 function eventIcon(eventType: string): Parameters<typeof Icon>[0]['name'] {

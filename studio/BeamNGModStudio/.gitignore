@@ -1,4 +1,4 @@
-.task
+# Build output, including the locally staged private AI runtime payload.
 bin
 frontend/dist
 frontend/node_modules

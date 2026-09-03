@@ -25,33 +25,72 @@ import * as markdownPlugin from 'prettier/plugins/markdown'
 import * as yamlPlugin from 'prettier/plugins/yaml'
 const externalUpdate = Annotation.define<boolean>()
 
+export interface CodeEditorSelection {
+  from: number
+  to: number
+  requestId: number
+}
+
+export interface CodeEditorDiagnostic {
+  from: number
+  to: number
+  severity: Diagnostic['severity']
+  message: string
+  source?: string
+}
+
+export interface CodeEditorSaveSnapshot {
+  value: string
+  diagnostics: CodeEditorDiagnostic[]
+}
+
 interface CodeEditorProps {
   path: string
   value: string
   onChange: (value: string) => void
-  onSave: () => void
+  onSave: (snapshot?: CodeEditorSaveSnapshot) => void
+  onDiagnostics?: (diagnostics: CodeEditorDiagnostic[]) => void
+  selection?: CodeEditorSelection | null
 }
 
-export function CodeEditor({ path, value, onChange, onSave }: CodeEditorProps) {
+export function CodeEditor({ path, value, onChange, onSave, onDiagnostics, selection }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
-  const callbacks = useRef({ onChange, onSave })
-  callbacks.current = { onChange, onSave }
+  const callbacks = useRef({ onChange, onSave, onDiagnostics })
+  callbacks.current = { onChange, onSave, onDiagnostics }
 
   useEffect(() => {
     if (!host.current) return
+    const reportDiagnostics = (editor: EditorView) => {
+      const source = diagnosticSourceFor(path)
+      const diagnostics = source ? Array.from(source(editor), normalizeDiagnostic) : []
+      callbacks.current.onDiagnostics?.(diagnostics)
+      return diagnostics
+    }
     const extensions: Extension[] = [
       basicSetup,
       languageFor(path),
       diagnosticsFor(path),
       keymap.of([
-        { key: 'Mod-s', preventDefault: true, run: () => { callbacks.current.onSave(); return true } },
+        {
+          key: 'Mod-s',
+          preventDefault: true,
+          run: editor => {
+            callbacks.current.onSave({
+              value: editor.state.doc.toString(),
+              diagnostics: reportDiagnostics(editor),
+            })
+            return true
+          },
+        },
         ...defaultKeymap,
       ]),
       EditorView.updateListener.of(update => {
-        if (update.docChanged && !update.transactions.some(transaction => transaction.annotation(externalUpdate))) {
-          callbacks.current.onChange(update.state.doc.toString())
-        }
+        if (!update.docChanged) return
+        const external = update.transactions.some(transaction => transaction.annotation(externalUpdate))
+        const value = update.state.doc.toString()
+        reportDiagnostics(update.view)
+        if (!external) callbacks.current.onChange(value)
       }),
       EditorView.contentAttributes.of({ 'aria-label': `Editing ${path}`, spellcheck: 'false' }),
       EditorView.theme({
@@ -66,11 +105,13 @@ export function CodeEditor({ path, value, onChange, onSave }: CodeEditorProps) {
       }),
     ]
     view.current = new EditorView({ doc: value, extensions, parent: host.current })
+    reportDiagnostics(view.current)
     return () => {
       view.current?.destroy()
       view.current = null
     }
   }, [path])
+
 
   useEffect(() => {
     const editor = view.current
@@ -82,6 +123,19 @@ export function CodeEditor({ path, value, onChange, onSave }: CodeEditorProps) {
       annotations: externalUpdate.of(true),
     })
   }, [value])
+
+  useEffect(() => {
+    const editor = view.current
+    if (!editor || !selection) return
+    const documentLength = editor.state.doc.length
+    const from = Math.max(0, Math.min(selection.from, documentLength))
+    const to = Math.max(from, Math.min(selection.to, documentLength))
+    editor.dispatch({
+      selection: { anchor: from, head: to },
+      effects: EditorView.scrollIntoView(from, { y: 'center' }),
+    })
+    editor.focus()
+  }, [selection?.from, selection?.to, selection?.requestId])
 
   return <div className="code-mirror-host" ref={host}/>
 }
@@ -101,10 +155,10 @@ function languageFor(path: string): Extension {
   return []
 }
 
-function diagnosticsFor(path: string): Extension {
-  if (fileExtension(path) === '.json') return linter(jsonParseLinter())
-  if (!['.js', '.ts', '.html', '.xml', '.css', '.scss', '.md', '.yaml', '.yml'].includes(fileExtension(path))) return []
-  return linter(view => {
+function diagnosticSourceFor(path: string): ((view: EditorView) => readonly Diagnostic[]) | null {
+  if (fileExtension(path) === '.json') return jsonParseLinter()
+  if (!['.js', '.ts', '.html', '.xml', '.css', '.scss', '.md', '.yaml', '.yml'].includes(fileExtension(path))) return null
+  return view => {
     const diagnostics: Diagnostic[] = []
     syntaxTree(view.state).iterate({
       enter(node) {
@@ -113,7 +167,22 @@ function diagnosticsFor(path: string): Extension {
       },
     })
     return diagnostics
-  })
+  }
+}
+
+function diagnosticsFor(path: string): Extension {
+  const source = diagnosticSourceFor(path)
+  return source ? linter(source, { delay: 200 }) : []
+}
+
+function normalizeDiagnostic(diagnostic: Diagnostic): CodeEditorDiagnostic {
+  return {
+    from: diagnostic.from,
+    to: diagnostic.to,
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    source: diagnostic.source,
+  }
 }
 
 export function canFormatSource(path: string) {

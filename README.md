@@ -18,7 +18,7 @@ The CMD file is the only supported launcher. It starts `studio/BeamNGModStudio/b
 
 - Library archives are read in place and never unpacked during scanning.
 - ModMaker extracts a separate workspace and records the source SHA-256.
-- Editor and OMP tools can access only workspace-relative paths.
+- Editor and Virgil host tools can access only workspace-relative paths.
 - Unsaved editor drafts persist in SQLite and are recovered after restart.
 - Export validates the workspace, checks the source checksum before and after packing, writes atomically, and registers a new immutable ZIP.
 - Test installs use the `modstudio-test-*.zip` namespace and verify their checksum before launch.

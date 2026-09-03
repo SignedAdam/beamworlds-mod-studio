@@ -13,6 +13,10 @@ import * as modkit$0 from "../beamworlds-modkit/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AIConnections(): $CancellablePromise<$models.AIConnectionState> {
+    return $Call.ByID(3088172393);
+}
+
 export function AIUsage(): $CancellablePromise<$models.AIUsage> {
     return $Call.ByID(1900328351);
 }
@@ -25,6 +29,10 @@ export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models
     return $Call.ByID(2967954498, workspaceID);
 }
 
+export function CancelAIConnection(loginID: string): $CancellablePromise<void> {
+    return $Call.ByID(1418849106, loginID);
+}
+
 export function CancelScan(): $CancellablePromise<boolean> {
     return $Call.ByID(2524160225);
 }
@@ -35,6 +43,10 @@ export function CloneVehicleVariant(workspaceID: string, sourceConfigPath: strin
 
 export function Config(): $CancellablePromise<$models.AppConfig> {
     return $Call.ByID(91484996);
+}
+
+export function ConfigureWorkspaceVirgil(workspaceID: string, enabled: boolean): $CancellablePromise<$models.WorkspaceDetail> {
+    return $Call.ByID(1209241224, workspaceID, enabled);
 }
 
 export function CreateLibraryFolder(name: string, parentID: string): $CancellablePromise<$models.OrganizationState> {
@@ -101,6 +113,10 @@ export function ExtractLibraryArchiveMember(entityID: string, memberPath: string
     return $Call.ByID(3883547530, entityID, memberPath);
 }
 
+export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void> {
+    return $Call.ByID(2373891276, sessionID);
+}
+
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(2226382837, entityID);
 }
@@ -147,10 +163,6 @@ export function ListAgentEvents(runID: string): $CancellablePromise<$models.Agen
 
 export function ListAgentModels(): $CancellablePromise<$models.AgentModelOption[] | null> {
     return $Call.ByID(1394913177);
-}
-
-export function ListAgentRuns(workspaceID: string): $CancellablePromise<$models.AgentRunRecord[] | null> {
-    return $Call.ByID(2006466853, workspaceID);
 }
 
 export function ListLibrary(health: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[] | null> {
@@ -201,6 +213,10 @@ export function RenameProfile(profileID: string, name: string): $CancellableProm
     return $Call.ByID(1831808545, profileID, name);
 }
 
+export function RenameVirgilSession(sessionID: string, title: string): $CancellablePromise<$models.VirgilSessionRecord> {
+    return $Call.ByID(466550229, sessionID, title);
+}
+
 export function RenameWorkspacePath(workspaceID: string, oldPath: string, newPath: string): $CancellablePromise<void> {
     return $Call.ByID(2387663450, workspaceID, oldPath, newPath);
 }
@@ -211,6 +227,10 @@ export function RestartApplication(): $CancellablePromise<void> {
 
 export function RestoreNormalModSelection(): $CancellablePromise<void> {
     return $Call.ByID(58419305);
+}
+
+export function ResumeVirgilSession(sessionID: string): $CancellablePromise<$models.VirgilSessionRecord> {
+    return $Call.ByID(2325737482, sessionID);
 }
 
 export function RevealLibraryArchive(entityID: string): $CancellablePromise<void> {
@@ -233,16 +253,20 @@ export function SaveSetup(input: $models.SetupInput): $CancellablePromise<$model
     return $Call.ByID(654217000, input);
 }
 
-export function SaveWorkspaceDraft(workspaceID: string, relativePath: string, content: string): $CancellablePromise<void> {
-    return $Call.ByID(4251899839, workspaceID, relativePath, content);
+export function SaveWorkspaceDraft(workspaceID: string, relativePath: string, content: string, baseSHA256: string): $CancellablePromise<void> {
+    return $Call.ByID(4251899839, workspaceID, relativePath, content, baseSHA256);
 }
 
 export function ScanLibrary(): $CancellablePromise<$models.ScanSummary> {
     return $Call.ByID(1511987522);
 }
 
-export function SearchWorkspace(workspaceID: string, query: string, maxResults: number): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2068548899, workspaceID, query, maxResults);
+export function SearchWorkspace(workspaceID: string, options: $models.WorkspaceSearchOptions, maxResults: number): $CancellablePromise<$models.WorkspaceSearchMatch[] | null> {
+    return $Call.ByID(2068548899, workspaceID, options, maxResults);
+}
+
+export function SendVirgilMessage(sessionID: string, prompt: string, modelOverride: string): $CancellablePromise<$models.AgentRunRecord> {
+    return $Call.ByID(311073238, sessionID, prompt, modelOverride);
 }
 
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
@@ -269,12 +293,20 @@ export function Settings(): $CancellablePromise<$models.AppSettings> {
     return $Call.ByID(3630548879);
 }
 
-export function StartAgent(workspaceID: string, prompt: string, modelOverride: string): $CancellablePromise<$models.AgentRunRecord> {
-    return $Call.ByID(3564943239, workspaceID, prompt, modelOverride);
+export function StartAIConnection(providerID: string): $CancellablePromise<$models.AIConnectionStart> {
+    return $Call.ByID(2091354552, providerID);
+}
+
+export function StartVirgilSession(workspaceID: string, prompt: string, modelOverride: string, userTitle: string): $CancellablePromise<$models.VirgilSessionRecord> {
+    return $Call.ByID(1890900807, workspaceID, prompt, modelOverride, userTitle);
 }
 
 export function StopAgent(runID: string): $CancellablePromise<boolean> {
     return $Call.ByID(1641704647, runID);
+}
+
+export function SubmitAIConnection(loginID: string, requestID: string, value: string): $CancellablePromise<void> {
+    return $Call.ByID(987952920, loginID, requestID, value);
 }
 
 export function UninstallTest(workspaceID: string): $CancellablePromise<void> {
@@ -309,6 +341,6 @@ export function WorkspaceDiff(workspaceID: string): $CancellablePromise<modkit$0
     return $Call.ByID(1837507304, workspaceID);
 }
 
-export function WriteWorkspaceFile(workspaceID: string, relativePath: string, content: string): $CancellablePromise<void> {
-    return $Call.ByID(1515493856, workspaceID, relativePath, content);
+export function WriteWorkspaceFile(workspaceID: string, relativePath: string, content: string, expectedSHA256: string): $CancellablePromise<void> {
+    return $Call.ByID(1515493856, workspaceID, relativePath, content, expectedSHA256);
 }

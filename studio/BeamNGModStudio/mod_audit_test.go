@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
@@ -159,7 +161,7 @@ func TestModAuditPreScanBatchesEveryCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 3 || supplied != len(artifacts) || report.Model != "gpt-5.6-luna" {
+	if calls != 3 || supplied != len(artifacts) || report.Model != "" {
 		t.Fatalf("pre-scan batches calls=%d supplied=%d report=%#v", calls, supplied, report)
 	}
 }
@@ -176,7 +178,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 		switch request.SystemPrompt {
 		case preScanSystemPrompt:
 			preCalls++
-			if request.Model != "gpt-5.6-luna" || request.Reasoning != "medium" {
+			if request.Model != "" || request.Reasoning != "medium" {
 				t.Fatalf("pre-scan selection = %s/%s", request.Model, request.Reasoning)
 			}
 			if strings.Contains(strings.ToLower(request.SystemPrompt), "verdict") == false {
@@ -188,7 +190,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 			return `{"summary":"The extension launches a process and contacts a remote URL.","files":[{"path":"lua/ge/extensions/audit.lua","observations":["Calls os.execute and fetches an HTTPS URL"],"behaviors":["Can launch a host process"],"followUp":["Inspect the complete command construction"]}]}`, nil
 		case fullAuditSystemPrompt:
 			fullCalls++
-			if request.Model != "gpt-5.6-sol" || request.Reasoning != "xhigh" {
+			if request.Model != "" || request.Reasoning != "xhigh" {
 				t.Fatalf("full-scan selection = %s/%s", request.Model, request.Reasoning)
 			}
 			if strings.Contains(request.Prompt, "focusedFiles") {
@@ -231,7 +233,7 @@ func TestModAuditStagesPersistAndReuseFileArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preScan.Status != "pre_scan_complete" || preScan.PreScan.Model != "gpt-5.6-luna" || len(preScan.PreScan.Files) != 1 {
+	if preScan.Status != "pre_scan_complete" || preScan.PreScan.Model != "" || len(preScan.PreScan.Files) != 1 {
 		t.Fatalf("unexpected pre-scan: %#v", preScan)
 	}
 	var persistedFiles int
@@ -395,4 +397,40 @@ func containsAuditWarning(warnings []string, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func TestManagedAuditUsesPrivateRuntimeAndSelectedProviderState(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("managed desktop AI runtime is currently packaged for Windows")
+	}
+	service := newTestAppService(t)
+	managed := newManagedAIRuntime(AppConfig{
+		DataDir: service.config.DataDir, AIRuntimePath: stagedAIRuntimePath(t),
+	})
+	service.aiRuntime = managed
+	_, err := service.SaveSettings(SettingsUpdate{
+		Theme: "dark", AgentProfile: "openai", ContextMode: "balanced",
+		OpenAIAPIKey: "scanner-managed-runtime-test-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.runManagedAIAudit(context.Background(), auditAIRequest{
+		Model: "gpt-test", Reasoning: "low", SystemPrompt: "Return JSON.",
+		Prompt: `{}`, Timeout: time.Nanosecond,
+	})
+	if err == nil {
+		t.Fatal("expired managed scanner invocation unexpectedly succeeded")
+	}
+	providerState := filepath.Join(service.config.DataDir, managedAIRuntimeRootName, managedAIRuntimeStateName, managedAIRuntimeAPIStateName, "openai")
+	if info, statErr := os.Stat(providerState); statErr != nil || !info.IsDir() {
+		t.Fatalf("scanner provider state = %q: %v", providerState, statErr)
+	}
+	promptEntries, readErr := os.ReadDir(filepath.Join(service.config.DataDir, "audit-prompts"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(promptEntries) != 0 {
+		t.Fatalf("scanner left %d managed prompt files behind", len(promptEntries))
+	}
 }

@@ -3,9 +3,11 @@ import { Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { LibraryItem, VirusScanProgress, VirusScanRun } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { Icon } from './icons'
-import { Button, Spinner, formatDate, kindLabel } from './ui'
+import { ModTable } from './ModTable'
+import { Page, Spinner, formatDate } from './ui'
 
 type ScanMode = 'signature' | 'full'
+type ScannerTab = 'scan' | 'history'
 type QueueStatus = 'queued' | 'running' | 'complete' | 'failed'
 
 interface ScannerRequest {
@@ -35,6 +37,7 @@ interface QueueEntry {
 
 export function VirusScannerView({ items, request, onLibraryChange, onNotify, onError }: VirusScannerProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [tab, setTab] = useState<ScannerTab>('scan')
   const [query, setQuery] = useState('')
   const [modeOpen, setModeOpen] = useState(false)
   const [running, setRunning] = useState(false)
@@ -159,55 +162,72 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
     else onNotify(`${completed.toLocaleString()} ${mode === 'full' ? 'full' : 'signature-based'} scans completed`, 'success')
   }
 
-  return <div className="virus-scanner">
-    <header className="virus-scanner__header">
-      <div><span className="eyebrow">SECURITY</span><h1>Virus Scanner</h1><p>Check mods without launching or extracting them.</p></div>
-      <Button icon="shield" tone="primary" disabled={eligibleSelected.length === 0 || running} onClick={() => setModeOpen(true)}>Scan selected ({eligibleSelected.length})</Button>
-    </header>
+  return <Page
+    title="Virus Scanner"
+    className="virus-scanner"
+    actions={[{
+      key: 'scan-selected',
+      label: `Scan selected (${eligibleSelected.length})`,
+      icon: 'shield',
+      role: 'primary',
+      disabled: eligibleSelected.length === 0 || running,
+      onClick: () => setModeOpen(true),
+    }]}
+  >
+    <nav className="glass-tabs scanner-tabs" role="tablist" aria-label="Virus scanner sections">
+      <button type="button" role="tab" id="scanner-tab-scan" aria-controls="scanner-scan-panel" aria-selected={tab === 'scan'} className={tab === 'scan' ? 'is-active' : ''} onClick={() => setTab('scan')}>Scan</button>
+      <button type="button" role="tab" id="scanner-tab-history" aria-controls="scanner-history-panel" aria-selected={tab === 'history'} className={tab === 'history' ? 'is-active' : ''} onClick={() => setTab('history')}>History</button>
+    </nav>
 
-    {queueEntries.length > 0 && <section className="scan-queue" aria-label="Scan queue">
-      <header><h2>{running ? 'Scanning mods' : 'Latest scan queue'}</h2><span>{queueEntries.filter(entry => entry.status === 'complete').length}/{queueEntries.length} complete</span></header>
-      <div>{queueEntries.map(entry => {
-        const item = itemsByID.get(entry.entityID)
-        const progress = entry.status === 'queued' ? 0 : entry.status === 'complete' ? 100 : Math.max(8, Math.round((entry.stageIndex / Math.max(1, entry.stageTotal)) * 100))
-        return <article className={`scan-queue__row scan-queue__row--${entry.status}`} key={entry.entityID}>
-          <Icon name={entry.status === 'complete' ? healthIcon(entry.verdict) : entry.status === 'failed' ? 'error' : entry.status === 'queued' ? 'activity' : 'scan'} size={17}/>
-          <div className="scan-queue__identity"><strong>{item?.displayName || entry.entityID}</strong><span>{entry.status === 'running' ? `${stageLabel(entry.stage)} · ${entry.message}` : entry.error || entry.message}</span></div>
-          <div className="scan-progress"><span style={{ width: `${progress}%` }}/></div>
-          <b>{entry.status === 'complete' ? healthLabel(entry.verdict) : entry.status === 'failed' ? 'Failed' : entry.status === 'queued' ? 'Queued' : `${entry.stageIndex}/${entry.stageTotal}`}</b>
-        </article>
-      })}</div>
-    </section>}
+    {tab === 'scan' && <div id="scanner-scan-panel" role="tabpanel" aria-labelledby="scanner-tab-scan">
+      {queueEntries.length > 0 && <section className="scan-queue" aria-label="Scan queue">
+        <header><h2>{running ? 'Scanning mods' : 'Latest scan queue'}</h2><span>{queueEntries.filter(entry => entry.status === 'complete').length}/{queueEntries.length} complete</span></header>
+        <div>{queueEntries.map(entry => {
+          const item = itemsByID.get(entry.entityID)
+          const progress = entry.status === 'queued' ? 0 : entry.status === 'complete' ? 100 : Math.max(8, Math.round((entry.stageIndex / Math.max(1, entry.stageTotal)) * 100))
+          return <article className={`scan-queue__row scan-queue__row--${entry.status}`} key={entry.entityID}>
+            <Icon name={entry.status === 'complete' ? healthIcon(entry.verdict) : entry.status === 'failed' ? 'error' : entry.status === 'queued' ? 'activity' : 'scan'} size={17}/>
+            <div className="scan-queue__identity"><strong>{item?.displayName || entry.entityID}</strong><span>{entry.status === 'running' ? `${stageLabel(entry.stage)} · ${entry.message}` : entry.error || entry.message}</span></div>
+            <div className="scan-progress"><span style={{ width: `${progress}%` }}/></div>
+            <b>{entry.status === 'complete' ? healthLabel(entry.verdict) : entry.status === 'failed' ? 'Failed' : entry.status === 'queued' ? 'Queued' : `${entry.stageIndex}/${entry.stageTotal}`}</b>
+          </article>
+        })}</div>
+      </section>}
 
-    <section className="scanner-library">
-      <header>
-        <div><h2>Mod library</h2><span>Select one or more available source archives.</span></div>
-        <label className="scanner-search"><Icon name="search" size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a mod"/></label>
-      </header>
-      <div className="scanner-table" role="table">
-        <div className="scanner-table__head" role="row">
-          <button className="scanner-check" onClick={toggleVisible} aria-label="Select all visible mods"><span className={visibleItems.filter(item => item.linked).length > 0 && visibleItems.filter(item => item.linked).every(item => selected.has(item.entityId)) ? 'is-checked' : ''}/></button>
-          <span>Mod</span><span>Type</span><span>Health</span><span>Last scan</span>
-        </div>
-        {visibleItems.length === 0 ? <div className="scanner-table__empty">No mods match this search.</div> : visibleItems.map(item => <button className={`scanner-table__row ${selected.has(item.entityId) ? 'is-selected' : ''}`} key={item.entityId} disabled={!item.linked || running} onClick={() => toggleItem(item.entityId)} role="row">
-          <span className="scanner-check"><span className={selected.has(item.entityId) ? 'is-checked' : ''}/></span>
-          <span className="scanner-table__mod"><Icon name="archive" size={16}/><span><strong>{item.displayName}</strong>{!item.linked && <small>Source unavailable</small>}</span></span>
-          <span>{kindLabel(String(item.kind))}</span>
-          <span className={`health-pill health-pill--${item.healthStatus || 'unscanned'}`}><Icon name={healthIcon(item.healthStatus)} size={14}/>{item.healthLabel || 'Not scanned'}</span>
-          <time>{item.lastSecurityScanAt ? formatDate(item.lastSecurityScanAt) : 'Never'}</time>
-        </button>)}
-      </div>
-    </section>
+      <section className="scanner-library" aria-label="Mods available to scan">
+        <header className="scanner-library__toolbar">
+          <label className="scanner-search"><Icon name="search" size={16}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Find a mod"/></label>
+        </header>
+        <ModTable
+          surface="virus-scanner"
+          className="scanner-mod-table"
+          ariaLabel="Mods available to scan"
+          items={visibleItems}
+          emptyTitle="No mods match this search."
+          resetKey={query}
+          interaction={{
+            kind: 'select',
+            selectedIDs: selected,
+            disabled: running,
+            isSelectable: item => item.linked,
+            onToggle: item => toggleItem(item.entityId),
+            onToggleAll: toggleVisible,
+          }}
+        />
+      </section>
+    </div>}
 
-    <section className="scan-history">
-      <header><div><h2>Scan history</h2><span>Every run and stage remains attached to its mod metadata.</span></div><button onClick={() => void loadHistory()} disabled={historyLoading} aria-label="Refresh scan history"><Icon name="refresh" size={15}/></button></header>
-      {historyLoading && runs.length === 0 ? <div className="scanner-loading"><Spinner/><span>Loading scan history</span></div> : runs.length === 0 ? <p className="scan-history__empty">No virus scans have run yet.</p> : <div className="scan-history__rows">{runs.map(run => <article key={run.id}>
-        <Icon name={run.status === 'failed' ? 'error' : healthIcon(run.verdict)} size={16}/>
-        <div><strong>{itemsByID.get(run.entityId)?.displayName || 'Unknown mod'}</strong><span>{run.mode === 'full' ? 'Full Virgil scan' : 'Signature-based scan'} · {(run.stages?.length ?? 0).toLocaleString()} {(run.stages?.length ?? 0) === 1 ? 'stage' : 'stages'}</span></div>
-        <time>{formatDate(run.createdAt)}</time>
-        <b className={`health-text health-text--${run.status === 'failed' ? 'scan_failed' : run.verdict}`}>{run.status === 'failed' ? 'Scan failed' : healthLabel(run.verdict)}</b>
-      </article>)}</div>}
-    </section>
+    {tab === 'history' && <div id="scanner-history-panel" role="tabpanel" aria-labelledby="scanner-tab-history">
+      <section className="scan-history">
+        <header><h2>Scan history</h2><button onClick={() => void loadHistory()} disabled={historyLoading} aria-label="Refresh scan history"><Icon name="refresh" size={15}/></button></header>
+        {historyLoading && runs.length === 0 ? <div className="scanner-loading"><Spinner/><span>Loading scan history</span></div> : runs.length === 0 ? <p className="scan-history__empty">No virus scans have run yet.</p> : <div className="scan-history__rows">{runs.map(run => <article key={run.id}>
+          <Icon name={run.status === 'failed' ? 'error' : healthIcon(run.verdict)} size={16}/>
+          <div><strong>{itemsByID.get(run.entityId)?.displayName || 'Unknown mod'}</strong><span>{run.mode === 'full' ? 'Full Virgil scan' : 'Signature-based scan'} · {(run.stages?.length ?? 0).toLocaleString()} {(run.stages?.length ?? 0) === 1 ? 'stage' : 'stages'}</span></div>
+          <time>{formatDate(run.createdAt)}</time>
+          <b className={`health-text health-text--${run.status === 'failed' ? 'scan_failed' : run.verdict}`}>{run.status === 'failed' ? 'Scan failed' : healthLabel(run.verdict)}</b>
+        </article>)}</div>}
+      </section>
+    </div>}
 
     {modeOpen && <div className="scan-mode-backdrop" role="presentation" onMouseDown={event => { if (event.currentTarget === event.target && !running) setModeOpen(false) }}>
       <section className="scan-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="scan-mode-title">
@@ -220,7 +240,7 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
         </button>
       </section>
     </div>}
-  </div>
+</Page>
 }
 
 function stageLabel(stage: string) {

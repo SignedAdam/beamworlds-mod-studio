@@ -19,13 +19,21 @@ includes:
   android: ./build/android/Taskfile.yml
 
 tasks:
+  ai-runtime:fetch:
+    summary: Stages the pinned private AI runtime payload
+    cmds:
+      - go run ./tools/fetch-ai-runtime
   build:
     summary: Builds the application
+    deps:
+      - task: ai-runtime:fetch
     cmds:
       - task: "{{.GOOS}}:build"
 
   package:
     summary: Packages a production build of the application
+    deps:
+      - task: ai-runtime:fetch
     cmds:
       - task: "{{.GOOS}}:package"
 
@@ -36,6 +44,8 @@ tasks:
 
   dev:
     summary: Runs the application in development mode
+    deps:
+      - task: ai-runtime:fetch
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 

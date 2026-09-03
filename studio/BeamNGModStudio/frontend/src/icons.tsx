@@ -2,10 +2,10 @@ import type { SVGProps } from 'react'
 
 export type IconName =
   | 'library' | 'workspace' | 'activity' | 'scan' | 'search' | 'vehicle' | 'map'
-  | 'code' | 'mixed' | 'unknown' | 'link' | 'unlink' | 'archive' | 'files'
+  | 'code' | 'mixed' | 'unknown' | 'link' | 'unlink' | 'archive' | 'files' | 'filePlus'
   | 'warning' | 'check' | 'error' | 'arrow' | 'plus' | 'save' | 'trash'
   | 'edit' | 'diff' | 'agent' | 'play' | 'export' | 'install' | 'terminal'
-  | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'settings' | 'chevron'
+  | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'folderPlus' | 'settings' | 'chevron'
   | 'sun' | 'moon' | 'collapse' | 'more' | 'columns' | 'shield' | 'tag' | 'filter' | 'user'
 
 const paths: Record<IconName, JSX.Element> = {
@@ -23,6 +23,7 @@ const paths: Record<IconName, JSX.Element> = {
   unlink: <><path d="m3 3 18 18M10.5 6.5a5 5 0 0 1 6.8-2l2.2 2a5 5 0 0 1 .5 6.8M13.5 17.5a5 5 0 0 1-6.8 2l-2.2-2A5 5 0 0 1 4 10.7"/></>,
   archive: <><path d="M4 7h16v13H4zM3 4h18v3H3z"/><path d="M9 11h6"/></>,
   files: <><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></>,
+  filePlus: <><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5M12 13v6M9 16h6"/></>,
   warning: <><path d="M12 3 2.8 20h18.4z"/><path d="M12 9v5M12 17h.01"/></>,
   check: <path d="m4 12 5 5L20 6"/>,
   error: <><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></>,
@@ -43,6 +44,7 @@ const paths: Record<IconName, JSX.Element> = {
   refresh: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.2 9A7 7 0 0 0 6.4 6.4L4 9M5.8 15A7 7 0 0 0 17.6 17.6L20 15"/></>,
   settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.13.38.35.72.64 1 .3.28.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15z"/></>,
   folder: <path d="M3 6h7l2 2h9v11H3z"/>,
+  folderPlus: <><path d="M3 6h7l2 2h9v11H3z"/><path d="M12 11v6M9 14h6"/></>,
   chevron: <path d="m8 10 4 4 4-4"/>,
   sun: <><circle cx="12" cy="12" r="3.5"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></>,
   moon: <path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"/>,

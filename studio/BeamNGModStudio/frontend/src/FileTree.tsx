@@ -7,6 +7,7 @@ export interface TreeSelection {
   path: string
   kind: 'file' | 'directory'
 }
+export type TreeSeverity = 'error' | 'warning'
 
 interface FileTreeProps {
   files: FileSnapshot[]
@@ -14,6 +15,7 @@ interface FileTreeProps {
   query: string
   selected: TreeSelection | null
   showSizes: boolean
+  severityByPath?: Readonly<Record<string, TreeSeverity>>
   onSelectFile: (path: string) => void
   onMove: (oldPath: string, newPath: string) => void
   onRename: (selection: TreeSelection) => void
@@ -29,7 +31,17 @@ interface TreeNode {
   children: TreeNode[]
 }
 
-export function FileTree({ files, directories, query, selected, showSizes, onSelectFile, onMove, onRename, onDelete, onReveal }: FileTreeProps) {
+export function countMatchingFiles(files: FileSnapshot[], query: string): number {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return files.length
+  let count = 0
+  for (const file of files) {
+    if (file.path.toLowerCase().includes(normalizedQuery)) count += 1
+  }
+  return count
+}
+
+export function FileTree({ files, directories, query, selected, showSizes, severityByPath = {}, onSelectFile, onMove, onRename, onDelete, onReveal }: FileTreeProps) {
   const roots = useMemo(() => buildTree(files, directories), [files, directories])
   const normalizedQuery = query.trim().toLowerCase()
   const visible = useMemo(() => normalizedQuery ? filterTree(roots, normalizedQuery) : roots, [roots, normalizedQuery])
@@ -94,7 +106,7 @@ export function FileTree({ files, directories, query, selected, showSizes, onSel
   }
 
   return <div className="project-tree" role="tree" onDragOver={event => event.preventDefault()} onDrop={event => dropInto(event, '')}>
-    {visible.length === 0 ? <p className="project-tree__empty">No matching project paths.</p> : visible.map(node => <TreeRow key={`${node.kind}-${node.path}`} node={node} depth={0} expanded={expanded} selected={selected} queryActive={Boolean(normalizedQuery)} showSizes={showSizes} onToggle={toggle} onSelectFile={onSelectFile} onDrop={dropInto} onContextMenu={showContextMenu}/>)}
+    {visible.length === 0 ? <p className="project-tree__empty">No matching workspace paths.</p> : visible.map(node => <TreeRow key={`${node.kind}-${node.path}`} node={node} depth={0} expanded={expanded} selected={selected} queryActive={Boolean(normalizedQuery)} showSizes={showSizes} severityByPath={severityByPath} onToggle={toggle} onSelectFile={onSelectFile} onDrop={dropInto} onContextMenu={showContextMenu}/>)}
     {contextMenu && <div className="context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onPointerDown={event => event.stopPropagation()}>
       <button role="menuitem" onClick={() => runContextAction(onRename)}><Icon name="edit" size={15}/>Rename</button>
       <button role="menuitem" onClick={() => runContextAction(onReveal)}><Icon name="folder" size={15}/>Reveal in file manager</button>
@@ -104,13 +116,14 @@ export function FileTree({ files, directories, query, selected, showSizes, onSel
   </div>
 }
 
-function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, onToggle, onSelectFile, onDrop, onContextMenu }: {
+function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, severityByPath, onToggle, onSelectFile, onDrop, onContextMenu }: {
   node: TreeNode
   depth: number
   expanded: Set<string>
   selected: TreeSelection | null
   queryActive: boolean
   showSizes: boolean
+  severityByPath: Readonly<Record<string, TreeSeverity>>
   onToggle: (path: string) => void
   onSelectFile: (path: string) => void
   onDrop: (event: React.DragEvent, directory: string) => void
@@ -118,11 +131,15 @@ function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, onTo
 }) {
   const open = queryActive || expanded.has(node.path)
   const active = node.kind === 'file' && selected?.path === node.path
+  const severity = node.kind === 'file' ? severityByPath[node.path] : undefined
+  const severityLabel = severity === 'error' ? 'Has errors' : severity === 'warning' ? 'Has warnings' : ''
+  const accessibleName = severityLabel ? `${node.name}, ${severityLabel}` : node.name
   return <>
     <div
-      className={`project-tree__row ${active ? 'is-active' : ''}`}
-      style={{ paddingLeft: 8 + depth * 15 }}
+      className={`project-tree__row ${active ? 'is-active' : ''}${severity ? ` is-${severity}` : ''}`}
+      style={{ paddingLeft: 4 + depth * 15 }}
       role="treeitem"
+      aria-label={accessibleName}
       aria-expanded={node.kind === 'directory' ? open : undefined}
       draggable
       onContextMenu={event => onContextMenu(event, node)}
@@ -135,11 +152,11 @@ function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, onTo
       onDrop={event => { if (node.kind === 'directory') onDrop(event, node.path) }}
     >
       {node.kind === 'directory' ? <button className={`tree-caret ${open ? 'is-open' : ''}`} onClick={() => onToggle(node.path)} aria-label={`${open ? 'Collapse' : 'Expand'} ${node.path}`}><Icon name="chevron" size={15}/></button> : <span className="tree-caret"/>}
-      <button className="tree-node" onClick={() => node.kind === 'directory' ? onToggle(node.path) : onSelectFile(node.path)} title={node.path}>
-        <Icon name={node.kind === 'directory' ? 'folder' : 'files'} size={15}/><span>{node.name}</span>{showSizes && <small>{formatBytes(node.size)}</small>}
+      <button className={`tree-node tree-node--${node.kind}`} onClick={() => node.kind === 'directory' ? onToggle(node.path) : onSelectFile(node.path)} title={severityLabel ? `${node.path} — ${severityLabel}` : node.path} aria-label={accessibleName}>
+        {node.kind === 'directory' && <Icon name="folder" size={15}/>}<span>{node.name}</span>{showSizes && <small>{formatBytes(node.size)}</small>}
       </button>
     </div>
-    {node.kind === 'directory' && open && node.children.map(child => <TreeRow key={`${child.kind}-${child.path}`} node={child} depth={depth + 1} expanded={expanded} selected={selected} queryActive={queryActive} showSizes={showSizes} onToggle={onToggle} onSelectFile={onSelectFile} onDrop={onDrop} onContextMenu={onContextMenu}/>)}
+    {node.kind === 'directory' && open && node.children.map(child => <TreeRow key={`${child.kind}-${child.path}`} node={child} depth={depth + 1} expanded={expanded} selected={selected} queryActive={queryActive} showSizes={showSizes} severityByPath={severityByPath} onToggle={onToggle} onSelectFile={onSelectFile} onDrop={onDrop} onContextMenu={onContextMenu}/>)}
   </>
 }
 

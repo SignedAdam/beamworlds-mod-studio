@@ -387,7 +387,7 @@ func TestDraftRecoveryAndWorkspaceTreeOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	draftContent := file.Content + "\n-- unsaved across restart\n"
-	if err := service.SaveWorkspaceDraft(workspaceID, originalPath, draftContent); err != nil {
+	if err := service.SaveWorkspaceDraft(workspaceID, originalPath, draftContent, file.SHA256); err != nil {
 		t.Fatal(err)
 	}
 
@@ -425,7 +425,7 @@ func TestDraftRecoveryAndWorkspaceTreeOperations(t *testing.T) {
 	if !slices.Contains(recovered.Directories, directory) || len(recovered.Drafts) != 1 || recovered.Drafts[0].Path != movedPath {
 		t.Fatalf("tree move did not migrate directory and draft state: directories=%#v drafts=%#v", recovered.Directories, recovered.Drafts)
 	}
-	if err := service.WriteWorkspaceFile(workspaceID, movedPath, draftContent); err != nil {
+	if err := service.WriteWorkspaceFile(workspaceID, movedPath, draftContent, file.SHA256); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err = service.GetWorkspace(workspaceID)

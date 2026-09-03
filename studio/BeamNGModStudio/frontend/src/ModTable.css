@@ -304,3 +304,318 @@ html[data-theme="light"] .mod-table-panel--library .center-loader svg {
   border-color: var(--library-table-divider);
   background: var(--library-table-header);
 }
+
+/* Virus Scanner table colors stay scoped to the scanner surface. */
+html[data-theme="light"] .virus-scanner .scanner-mod-table {
+  background: var(--scanner-surface);
+  border-color: var(--scanner-divider);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap {
+  background: var(--scanner-surface);
+  scrollbar-color: var(--scanner-divider) var(--scanner-page);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-track {
+  background: var(--scanner-page);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--scanner-divider);
+  border-color: var(--scanner-page);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--scanner-focus);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table {
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table thead,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table thead tr,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th {
+  background: var(--scanner-header);
+  border-color: var(--scanner-divider);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th button:hover:not(:disabled) {
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th button:focus-visible,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th:focus-within {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__column-label {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table td {
+  background-color: inherit;
+  border-right-color: var(--scanner-divider);
+  border-bottom-color: var(--scanner-divider);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr:nth-child(odd),
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr:nth-child(even) {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr:hover,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr:focus {
+  background: var(--scanner-hover);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-disabled,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-disabled:nth-child(odd),
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-disabled:nth-child(even),
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-disabled:hover,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-disabled:focus {
+  background: var(--scanner-surface);
+  opacity: 1;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected {
+  background: var(--scanner-selected);
+  outline: 1px solid var(--scanner-focus);
+  outline-offset: -1px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected:hover,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected:focus {
+  background: var(--scanner-selected-hover);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected:focus-visible {
+  background: var(--scanner-selected-hover);
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected.is-disabled,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected.is-disabled:hover,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected.is-disabled:focus {
+  background: var(--scanner-selected);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__name strong {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__path,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__tags em,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__workspace-status,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__virgil-status {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__icon {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+  box-shadow: 0 16px 44px rgba(20, 35, 56, 0.18);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu > header {
+  border-bottom-color: var(--scanner-divider);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu > label {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu > label:hover {
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu > label > svg {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu .icon-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu .icon-button:hover:not(:disabled) {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu .icon-button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 1px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .badge--neutral {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .badge--warning {
+  border-color: var(--scanner-warning);
+  background: var(--scanner-header);
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .mod-tag {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .mod-tag > svg {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--safe {
+  border-color: var(--scanner-safe);
+  color: var(--scanner-safe);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--review {
+  border-color: var(--scanner-warning);
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--threat,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--broken,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--scan_failed {
+  border-color: var(--scanner-danger);
+  color: var(--scanner-danger);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--scanning {
+  border-color: var(--scanner-info);
+  color: var(--scanner-info);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill > svg {
+  color: inherit;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected.is-disabled:focus-visible {
+  background: var(--scanner-selected);
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__selection input {
+  accent-color: var(--scanner-focus);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__selection input:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu input {
+  accent-color: var(--scanner-focus);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu input:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__selection input:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-resizer::after {
+  background: var(--scanner-divider);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-resizer:hover::after,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-resizer:focus-visible::after {
+  background: var(--scanner-focus);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination {
+  border-top-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .pagination__summary,
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .page-size {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .page-size button {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .page-size button:hover {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .page-size button.is-active {
+  border-bottom-color: var(--scanner-primary);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination .page-size button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state {
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state h3 {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state__icon,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader svg {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-focus);
+}

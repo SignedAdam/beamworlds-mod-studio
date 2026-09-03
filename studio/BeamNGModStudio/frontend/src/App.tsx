@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
@@ -41,6 +42,23 @@ type TextSize = "small" | "default" | "large" | "extra-large";
 
 const INTERFACE_SIZE_STORAGE_KEY = "beamworlds.interface-size";
 const TEXT_SIZE_STORAGE_KEY = "beamworlds.text-size";
+const INSPECTOR_WIDTH_STORAGE_KEY = "beamworlds.inspector-width";
+const INSPECTOR_DEFAULT_WIDTH = 480;
+const INSPECTOR_MIN_WIDTH = 320;
+const INSPECTOR_MAX_WIDTH = 720;
+
+function readInspectorWidth(): number {
+  try {
+    const raw = window.localStorage.getItem(INSPECTOR_WIDTH_STORAGE_KEY);
+    if (raw === null || raw.trim() === "") return INSPECTOR_DEFAULT_WIDTH;
+    const stored = Number(raw);
+    if (Number.isFinite(stored))
+      return Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, Math.round(stored)));
+  } catch {
+    // The default remains authoritative when storage is unavailable.
+  }
+  return INSPECTOR_DEFAULT_WIDTH;
+}
 
 function normalizeInterfaceSize(value: unknown): InterfaceSize {
   return value === "compact" ||
@@ -93,6 +111,8 @@ function App() {
       window.localStorage.getItem("beamworlds.sidebar-collapsed") === "true",
   );
   const [setupState, setSetupState] = useState<SetupState | null>(null);
+  const [inspectorPreferredWidth, setInspectorPreferredWidth] = useState(readInspectorWidth);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [setupOpen, setSetupOpen] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [lastSuccessfulScanAt, setLastSuccessfulScanAt] = useState("");
@@ -161,7 +181,38 @@ function App() {
   const scanRunVersionRef = useRef(0);
   const selectedWorkspaceIDRef = useRef("");
   const workspaceSetupID = useRef("");
+  const inspectorDirtyRef = useRef(false);
   const isWriteBlocked = useCallback(() => writeBlockedRef.current, []);
+  const inspectorMaxWidth = Math.min(
+    INSPECTOR_MAX_WIDTH,
+    Math.max(INSPECTOR_MIN_WIDTH, Math.floor(viewportWidth * 0.6)),
+  );
+  const inspectorWidth = Math.max(
+    INSPECTOR_MIN_WIDTH,
+    Math.min(inspectorMaxWidth, inspectorPreferredWidth),
+  );
+  const inspectorResizeDisabled = viewportWidth < 720;
+  const commitInspectorResize = useCallback(
+    (width: number) => {
+      const next = Math.max(
+        INSPECTOR_MIN_WIDTH,
+        Math.min(INSPECTOR_MAX_WIDTH, Math.round(width)),
+      );
+      setInspectorPreferredWidth(next);
+      try {
+        window.localStorage.setItem(
+          INSPECTOR_WIDTH_STORAGE_KEY,
+          String(next),
+        );
+      } catch {
+        // The in-memory preference remains authoritative when storage is unavailable.
+      }
+    },
+    [],
+  );
+  const resetInspectorWidth = useCallback(() => {
+    commitInspectorResize(INSPECTOR_DEFAULT_WIDTH);
+  }, [commitInspectorResize]);
   const advanceInspectorBaseline = useCallback(
     (item: LibraryItem, onlyIfNewer = false) => {
       if (inspectorStaleRef.current) return;
@@ -199,7 +250,6 @@ function App() {
       5000,
     );
   }, []);
-
   const handleError = useCallback(
     (error: unknown) => {
       let message = "Unexpected application error";
@@ -216,6 +266,16 @@ function App() {
     },
     [notify],
   );
+  const confirmInspectorLeave = useCallback(() => {
+    if (!inspectorDirtyRef.current) return true;
+    return window.confirm("Discard unsaved inspector changes?");
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
 
   useEffect(() => {
@@ -709,7 +769,10 @@ function App() {
       selectedItemRef.current?.entityId === item.entityId
     )
       return;
-    selectedItemRef.current = item;
+    if (selectedItemRef.current?.entityId !== item.entityId) {
+      if (!confirmInspectorLeave()) return;
+      inspectorDirtyRef.current = false;
+    }
     inspectorBaselineRef.current = {
       entityID: item.entityId,
       revision: item.revision,
@@ -765,6 +828,7 @@ function App() {
       inspectorStaleRef.current
     )
       return;
+    if (!confirmInspectorLeave()) return;
     const entityID = selectedItem.entityId;
     setCreatingWorkspace(true);
     try {
@@ -797,6 +861,7 @@ function App() {
       inspectorStaleRef.current = false;
       setSelectedItem(null);
       setEntityDetail(null);
+      inspectorDirtyRef.current = false;
       setInspectorStale(false);
       setView("workspaces");
       notify(`${detail.entity.displayName} mod workspace opened`, "success");
@@ -813,6 +878,8 @@ function App() {
       selectedItemRef.current?.entityId === item.entityId
     )
       return;
+    if (!confirmInspectorLeave()) return;
+    inspectorDirtyRef.current = false;
     setVirusScanRequest({
       entityIDs: [item.entityId],
       nonce: ++virusScanRequestVersion.current,
@@ -981,49 +1048,24 @@ function App() {
       handleError(error);
     }
   };
-  const moveSelectedItem = async (nextFolderID: string) => {
-    const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
-    const entityID = current.entityId;
-    try {
-      await API.MoveLibraryItem(entityID, nextFolderID);
-      const latest = selectedItemRef.current;
-      if (inspectorStaleRef.current || latest?.entityId !== entityID) return;
-      const nextItem = { ...latest, folderId: nextFolderID };
-      selectedItemRef.current = nextItem;
-      setSelectedItem(nextItem);
-      advanceInspectorBaseline(nextItem);
-      await Promise.all([loadLibrary(), loadOrganization()]);
-      notify(
-        nextFolderID ? "Mod moved to collection" : "Mod moved to Unfiled",
-        "success",
-      );
-    } catch (error) {
-      handleError(error);
-    }
-  };
   const createTag = async (
     name: string,
     color: string,
     icon: string,
   ): Promise<ModTag | null> => {
-    if (writeBlockedRef.current || inspectorStaleRef.current) return null;
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
     const next = await API.CreateModTag(name, color, icon);
-    setOrganization(next);
-    if (inspectorStaleRef.current) return null;
-    notify(`Created tag ${name}`, "success");
-    return (
+    const createdTag =
       (next.tags ?? []).find(
         (tag) =>
           tag.name.localeCompare(name, undefined, { sensitivity: "base" }) ===
           0,
-      ) ?? null
-    );
+      ) ?? null;
+    if (writeBlockedRef.current || inspectorStaleRef.current) return createdTag;
+    setOrganization(next);
+    notify(`Created tag ${name}`, "success");
+    return createdTag;
   };
   const updateSelectedTag = (tagID: string, replacement: ModTag | null) => {
     if (inspectorStaleRef.current) return;
@@ -1038,6 +1080,16 @@ function App() {
     const nextItem = updateItem(current);
     selectedItemRef.current = nextItem;
     setSelectedItem(nextItem);
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.entityId === nextItem.entityId ? updateItem(item) : item,
+      ),
+    );
+    setAllItems((currentItems) =>
+      currentItems.map((item) =>
+        item.entityId === nextItem.entityId ? updateItem(item) : item,
+      ),
+    );
     setEntityDetail((currentDetail) =>
       currentDetail?.item.entityId === nextItem.entityId
         ? { ...currentDetail, item: updateItem(currentDetail.item) }
@@ -1050,137 +1102,140 @@ function App() {
     color: string,
     icon: string,
   ): Promise<void> => {
-    if (writeBlockedRef.current || inspectorStaleRef.current) return;
-    const entityID = selectedItemRef.current?.entityId;
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+    if (!selectedItemRef.current) return;
+    const entityID = selectedItemRef.current.entityId;
     const next = await API.UpdateModTagVisual(tagID, color, icon);
-    setOrganization(next);
-    if (
-      !inspectorStaleRef.current &&
-      selectedItemRef.current?.entityId === entityID
-    ) {
-      const currentTag = selectedItemRef.current?.tags?.find(
-        (tag) => tag.id === tagID,
-      );
-      const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
-      updateSelectedTag(
-        tagID,
-        updatedTag ??
-          (currentTag
-            ? { ...currentTag, color, icon }
-            : { id: tagID, name: "", modCount: 0, color, icon }),
-      );
-    }
-    await Promise.all([loadLibrary(), loadOrganization()]);
-  };
-  const renameTag = async (tagID: string, name: string) => {
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
-    const entityID = selectedItemRef.current?.entityId;
-    const next = await API.RenameModTag(tagID, name);
     setOrganization(next);
-    if (
-      !inspectorStaleRef.current &&
-      selectedItemRef.current?.entityId === entityID
-    ) {
-      const currentTag = selectedItemRef.current?.tags?.find(
-        (tag) => tag.id === tagID,
-      );
-      const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
-      updateSelectedTag(
-        tagID,
-        updatedTag ??
-          (currentTag
-            ? { ...currentTag, name }
-            : { id: tagID, name, modCount: 0, color: "", icon: "" }),
-      );
-    }
-    await Promise.all([loadLibrary(), loadOrganization()]);
-    notify("Tag renamed", "success");
+    if (selectedItemRef.current?.entityId !== entityID)
+      throw new Error("Inspector selection changed before the tag update completed.");
+    const currentTag = selectedItemRef.current.tags?.find(
+      (tag) => tag.id === tagID,
+    );
+    const updatedTag = (next.tags ?? []).find((tag) => tag.id === tagID);
+    updateSelectedTag(
+      tagID,
+      updatedTag ??
+        (currentTag
+          ? { ...currentTag, color, icon }
+          : { id: tagID, name: "", modCount: 0, color, icon }),
+    );
   };
-  const deleteTag = async (tagID: string) => {
-    if (writeBlockedRef.current || inspectorStaleRef.current) return;
-    const entityID = selectedItemRef.current?.entityId;
+  const deleteTag = async (tagID: string): Promise<void> => {
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+    if (!selectedItemRef.current) return;
     const next = await API.DeleteModTag(tagID);
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
     setOrganization(next);
-    if (
-      !inspectorStaleRef.current &&
-      selectedItemRef.current?.entityId === entityID
-    )
-      updateSelectedTag(tagID, null);
-    await Promise.all([loadLibrary(), loadOrganization()]);
+    setItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        tags: (item.tags ?? []).filter((tag) => tag.id !== tagID),
+      })),
+    );
+    setAllItems((currentItems) =>
+      currentItems.map((item) => ({
+        ...item,
+        tags: (item.tags ?? []).filter((tag) => tag.id !== tagID),
+      })),
+    );
+    updateSelectedTag(tagID, null);
     notify("Tag deleted", "success");
   };
-  const setSelectedTags = async (tagIDs: string[]) => {
+  const setSelectedTags = async (tagIDs: string[]): Promise<ModTag[]> => {
     const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
+    if (!current) return [];
+    const confirmedTags = [...(current.tags ?? [])];
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
     const entityID = current.entityId;
     const next = await API.SetLibraryItemTags(entityID, tagIDs);
-    if (
-      inspectorStaleRef.current ||
-      selectedItemRef.current?.entityId !== entityID
-    )
-      return;
+    const assignedTags = next.tags ?? [];
+    if (writeBlockedRef.current || inspectorStaleRef.current) return confirmedTags;
+    if (selectedItemRef.current?.entityId !== entityID) return assignedTags;
     advanceInspectorBaseline(next);
     selectedItemRef.current = next;
     setSelectedItem(next);
-    try {
-      const nextDetail = await API.GetEntity(entityID);
-      if (
-        !inspectorStaleRef.current &&
-        selectedItemRef.current?.entityId === entityID
-      ) {
-        advanceInspectorBaseline(nextDetail.item, true);
-        selectedItemRef.current = nextDetail.item;
-        setSelectedItem(nextDetail.item);
-        setEntityDetail(nextDetail);
-      }
-    } catch (error) {
-      handleError(error);
-    }
-    await Promise.all([loadLibrary(), loadOrganization()]);
+    setItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next : item)),
+    );
+    setAllItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next : item)),
+    );
+    setEntityDetail((currentDetail) =>
+      currentDetail?.item.entityId === entityID
+        ? { ...currentDetail, item: next }
+        : currentDetail,
+    );
+    const previousTagIDs = new Set((current.tags ?? []).map((tag) => tag.id));
+    const assignedTagIDs = new Set(assignedTags.map((tag) => tag.id));
+    setOrganization((currentOrganization) => {
+      if (!currentOrganization) return currentOrganization;
+      const assignedByID = new Map(assignedTags.map((tag) => [tag.id, tag]));
+      return {
+        ...currentOrganization,
+        tags: (currentOrganization.tags ?? []).map((tag) => {
+          const wasAssigned = previousTagIDs.has(tag.id);
+          const isAssigned = assignedTagIDs.has(tag.id);
+          const nextModCount =
+            tag.modCount + (isAssigned ? 1 : 0) - (wasAssigned ? 1 : 0);
+          const assigned = assignedByID.get(tag.id);
+          return {
+            ...tag,
+            ...(assigned ? { color: assigned.color, icon: assigned.icon } : {}),
+            modCount: Math.max(0, nextModCount),
+          };
+        }),
+      };
+    });
+    return assignedTags;
   };
   const saveDetails = async (
     update: LibraryItemDetailsUpdate,
   ): Promise<void> => {
     const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
+    if (!current) return;
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
     const entityID = current.entityId;
     const next = await API.UpdateLibraryItemDetails(entityID, update);
-    if (inspectorStaleRef.current || selectedItemRef.current?.entityId !== entityID)
-      return;
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
+    if (selectedItemRef.current?.entityId !== entityID) return;
     advanceInspectorBaseline(next.item);
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
+    setItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+    );
+    setAllItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+    );
     setEntityDetail(next);
-    await Promise.all([loadLibrary(), loadOrganization()]);
   };
   const saveVariant = async (update: LibraryVariantUpdate): Promise<void> => {
     const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
+    if (!current) return;
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
     const entityID = current.entityId;
     const next = await API.UpdateLibraryVariant(entityID, update);
-    if (inspectorStaleRef.current || selectedItemRef.current?.entityId !== entityID)
-      return;
+    if (writeBlockedRef.current || inspectorStaleRef.current) return;
+    if (selectedItemRef.current?.entityId !== entityID) return;
     advanceInspectorBaseline(next.item);
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
+    setItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+    );
+    setAllItems((currentItems) =>
+      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+    );
     setEntityDetail(next);
-    await Promise.all([loadLibrary(), loadOrganization()]);
   };
+
   const previewMember = async (
     path: string,
   ): Promise<ArchiveMemberPreview | null> => {
@@ -1193,32 +1248,6 @@ function App() {
       return null;
     }
   };
-  const extractMember = async (path: string): Promise<void> => {
-    const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
-    const savedPath = await API.ExtractLibraryArchiveMember(
-      current.entityId,
-      path,
-    );
-    if (savedPath) notify(`Extracted ${path} to ${savedPath}`, "success");
-  };
-  const revealArchive = async (): Promise<void> => {
-    const current = selectedItemRef.current;
-    if (
-      writeBlockedRef.current ||
-      !current ||
-      inspectorStaleRef.current
-    )
-      return;
-    await API.RevealLibraryArchive(current.entityId);
-    notify("Archive revealed", "success");
-  };
-
   const cancelScan = async () => {
     try {
       await API.CancelScan();
@@ -1236,6 +1265,10 @@ function App() {
     }
   };
   const changeView = (next: View) => {
+    if (next === view) return;
+    if (view === "library" && next !== "library" && !confirmInspectorLeave())
+      return;
+    inspectorDirtyRef.current = false;
     setView(next);
     selectedItemRef.current = null;
     inspectorBaselineRef.current = null;
@@ -1286,6 +1319,7 @@ function App() {
   return (
     <div
       className={`app-shell ${sidebarCollapsed ? "app-shell--sidebar-collapsed" : ""}`}
+      style={{ "--inspector-width": `${inspectorWidth}px` } as CSSProperties}
     >
       <aside id="app-sidebar" className="app-sidebar">
         <div className="brand-lockup" aria-label="BeamWorlds Mod Studio">
@@ -1499,11 +1533,21 @@ function App() {
           writeBlocked={writeBlocked}
           detail={entityDetail}
           stale={inspectorStale}
-          folders={organization?.folders ?? []}
           tags={organization?.tags ?? []}
           loading={entityLoading}
           creatingWorkspace={creatingWorkspace}
+          inspectorWidth={inspectorWidth}
+          inspectorMinWidth={INSPECTOR_MIN_WIDTH}
+          inspectorMaxWidth={inspectorMaxWidth}
+          inspectorResizeDisabled={inspectorResizeDisabled}
+          onResizeCommit={commitInspectorResize}
+          onResetWidth={resetInspectorWidth}
+          onDirtyChange={(dirty) => {
+            inspectorDirtyRef.current = dirty;
+          }}
           onClose={() => {
+            if (!confirmInspectorLeave()) return;
+            inspectorDirtyRef.current = false;
             selectedItemRef.current = null;
             inspectorBaselineRef.current = null;
             inspectorStaleRef.current = false;
@@ -1511,17 +1555,13 @@ function App() {
             setEntityDetail(null);
             setInspectorStale(false);
           }}
-          onMoveFolder={(folder) => void moveSelectedItem(folder)}
           onSetTags={setSelectedTags}
           onCreateTag={createTag}
           onUpdateTagVisual={updateTagVisual}
-          onRenameTag={renameTag}
           onDeleteTag={deleteTag}
           onSaveDetails={saveDetails}
           onSaveVariant={saveVariant}
           onPreviewMember={previewMember}
-          onExtractMember={extractMember}
-          onRevealArchive={revealArchive}
           onCreateWorkspace={() => void createWorkspace()}
           onVirusScan={openVirusScanner}
           onError={handleError}

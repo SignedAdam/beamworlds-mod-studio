@@ -71,9 +71,10 @@ type EventRecord struct {
 }
 
 type EntityDetail struct {
-	Item    LibraryItem   `json:"item"`
-	Links   []ArchiveLink `json:"links"`
-	History []EventRecord `json:"history"`
+	Item         LibraryItem   `json:"item"`
+	Links        []ArchiveLink `json:"links"`
+	History      []EventRecord `json:"history"`
+	HistoryTotal int           `json:"historyTotal"`
 }
 
 type ArchiveLink struct {
@@ -1659,8 +1660,12 @@ func (s *Store) GetEntityDetail(ctx context.Context, entityID string) (EntityDet
 	if err := rows.Close(); err != nil {
 		return EntityDetail{}, err
 	}
+	historyTotal := 0
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE entity_id=?`, entityID).Scan(&historyTotal); err != nil {
+		return EntityDetail{}, err
+	}
 	history, err := s.ListEvents(ctx, entityID, 100)
-	return EntityDetail{Item: item, Links: links, History: history}, err
+	return EntityDetail{Item: item, Links: links, History: history, HistoryTotal: historyTotal}, err
 }
 
 func (s *Store) ListEvents(ctx context.Context, entityID string, limit int) ([]EventRecord, error) {

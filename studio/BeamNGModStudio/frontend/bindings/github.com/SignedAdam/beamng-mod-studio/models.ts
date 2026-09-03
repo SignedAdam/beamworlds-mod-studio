@@ -3,178 +3,45 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import { Create as $Create } from "@wailsio/runtime";
-
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
 import * as modkit$0 from "../beamworlds-modkit/models.js";
 
-export class AIConnectionEvent {
+export interface AIConnectionEvent {
     "loginId": string;
     "providerId": string;
     "status": string;
     "message"?: string;
     "requestId"?: string;
     "inputLabel"?: string;
-
-    /** Creates a new AIConnectionEvent instance. */
-    constructor($$source: Partial<AIConnectionEvent> = {}) {
-        if (!("loginId" in $$source)) {
-            this["loginId"] = "";
-        }
-        if (!("providerId" in $$source)) {
-            this["providerId"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AIConnectionEvent instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AIConnectionEvent {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AIConnectionEvent($$parsedSource as Partial<AIConnectionEvent>);
-    }
 }
 
-export class AIConnectionStart {
+export interface AIConnectionStart {
     "loginId": string;
     "providerId": string;
     "url": string;
     "instructions": string;
-
-    /** Creates a new AIConnectionStart instance. */
-    constructor($$source: Partial<AIConnectionStart> = {}) {
-        if (!("loginId" in $$source)) {
-            this["loginId"] = "";
-        }
-        if (!("providerId" in $$source)) {
-            this["providerId"] = "";
-        }
-        if (!("url" in $$source)) {
-            this["url"] = "";
-        }
-        if (!("instructions" in $$source)) {
-            this["instructions"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AIConnectionStart instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AIConnectionStart {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AIConnectionStart($$parsedSource as Partial<AIConnectionStart>);
-    }
 }
 
-export class AIConnectionState {
-    "providers": AIProviderConnection[];
+export interface AIConnectionState {
+    "providers": AIProviderConnection[] | null;
     "activeProfile": string;
-
-    /** Creates a new AIConnectionState instance. */
-    constructor($$source: Partial<AIConnectionState> = {}) {
-        if (!("providers" in $$source)) {
-            this["providers"] = [];
-        }
-        if (!("activeProfile" in $$source)) {
-            this["activeProfile"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AIConnectionState instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AIConnectionState {
-        const $$createField0_0 = $$createType1;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("providers" in $$parsedSource) {
-            $$parsedSource["providers"] = $$createField0_0($$parsedSource["providers"]);
-        }
-        return new AIConnectionState($$parsedSource as Partial<AIConnectionState>);
-    }
 }
 
-export class AIProviderConnection {
+export interface AIProviderConnection {
     "id": string;
     "label": string;
     "method": string;
     "connected": boolean;
-
-    /** Creates a new AIProviderConnection instance. */
-    constructor($$source: Partial<AIProviderConnection> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("label" in $$source)) {
-            this["label"] = "";
-        }
-        if (!("method" in $$source)) {
-            this["method"] = "";
-        }
-        if (!("connected" in $$source)) {
-            this["connected"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AIProviderConnection instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AIProviderConnection {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AIProviderConnection($$parsedSource as Partial<AIProviderConnection>);
-    }
 }
 
-export class AIUsage {
+export interface AIUsage {
     "hasRuns": boolean;
     "runCount": number;
     "totalTokens": number;
-    "limits": UsageLimit[];
+    "limits": UsageLimit[] | null;
     "usageError"?: string;
-
-    /** Creates a new AIUsage instance. */
-    constructor($$source: Partial<AIUsage> = {}) {
-        if (!("hasRuns" in $$source)) {
-            this["hasRuns"] = false;
-        }
-        if (!("runCount" in $$source)) {
-            this["runCount"] = 0;
-        }
-        if (!("totalTokens" in $$source)) {
-            this["totalTokens"] = 0;
-        }
-        if (!("limits" in $$source)) {
-            this["limits"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AIUsage instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AIUsage {
-        const $$createField3_0 = $$createType3;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("limits" in $$parsedSource) {
-            $$parsedSource["limits"] = $$createField3_0($$parsedSource["limits"]);
-        }
-        return new AIUsage($$parsedSource as Partial<AIUsage>);
-    }
 }
 
-export class AgentActivity {
+export interface AgentActivity {
     "runId": string;
     "sessionId": string;
     "workspaceId": string;
@@ -184,129 +51,28 @@ export class AgentActivity {
     "delta"?: string;
     "toolName"?: string;
     "isError"?: boolean;
-    "data"?: { [_ in string]?: any };
-
-    /** Creates a new AgentActivity instance. */
-    constructor($$source: Partial<AgentActivity> = {}) {
-        if (!("runId" in $$source)) {
-            this["runId"] = "";
-        }
-        if (!("sessionId" in $$source)) {
-            this["sessionId"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("at" in $$source)) {
-            this["at"] = "";
-        }
-        if (!("type" in $$source)) {
-            this["type"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AgentActivity instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AgentActivity {
-        const $$createField9_0 = $$createType4;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("data" in $$parsedSource) {
-            $$parsedSource["data"] = $$createField9_0($$parsedSource["data"]);
-        }
-        return new AgentActivity($$parsedSource as Partial<AgentActivity>);
-    }
+    "data"?: { [_ in string]?: any } | null;
 }
 
-export class AgentEventRecord {
+export interface AgentEventRecord {
     "id": number;
     "runId": string;
     "at": string;
     "type": string;
     "message": string;
-    "data": { [_ in string]?: any };
-
-    /** Creates a new AgentEventRecord instance. */
-    constructor($$source: Partial<AgentEventRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = 0;
-        }
-        if (!("runId" in $$source)) {
-            this["runId"] = "";
-        }
-        if (!("at" in $$source)) {
-            this["at"] = "";
-        }
-        if (!("type" in $$source)) {
-            this["type"] = "";
-        }
-        if (!("message" in $$source)) {
-            this["message"] = "";
-        }
-        if (!("data" in $$source)) {
-            this["data"] = {};
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AgentEventRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AgentEventRecord {
-        const $$createField5_0 = $$createType4;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("data" in $$parsedSource) {
-            $$parsedSource["data"] = $$createField5_0($$parsedSource["data"]);
-        }
-        return new AgentEventRecord($$parsedSource as Partial<AgentEventRecord>);
-    }
+    "data": { [_ in string]?: any } | null;
 }
 
-export class AgentModelOption {
+export interface AgentModelOption {
     "provider": string;
     "id": string;
     "selector": string;
     "name": string;
     "contextWindow": number;
     "reasoning": boolean;
-
-    /** Creates a new AgentModelOption instance. */
-    constructor($$source: Partial<AgentModelOption> = {}) {
-        if (!("provider" in $$source)) {
-            this["provider"] = "";
-        }
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("selector" in $$source)) {
-            this["selector"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("contextWindow" in $$source)) {
-            this["contextWindow"] = 0;
-        }
-        if (!("reasoning" in $$source)) {
-            this["reasoning"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AgentModelOption instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AgentModelOption {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AgentModelOption($$parsedSource as Partial<AgentModelOption>);
-    }
 }
 
-export class AgentRunRecord {
+export interface AgentRunRecord {
     "id": string;
     "sessionId": string;
     "workspaceId": string;
@@ -316,56 +82,15 @@ export class AgentRunRecord {
     "finishedAt": string;
     "finalText": string;
     "error": string;
-
-    /** Creates a new AgentRunRecord instance. */
-    constructor($$source: Partial<AgentRunRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("sessionId" in $$source)) {
-            this["sessionId"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("prompt" in $$source)) {
-            this["prompt"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("startedAt" in $$source)) {
-            this["startedAt"] = "";
-        }
-        if (!("finishedAt" in $$source)) {
-            this["finishedAt"] = "";
-        }
-        if (!("finalText" in $$source)) {
-            this["finalText"] = "";
-        }
-        if (!("error" in $$source)) {
-            this["error"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AgentRunRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AgentRunRecord {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AgentRunRecord($$parsedSource as Partial<AgentRunRecord>);
-    }
 }
 
-export class AppConfig {
+export interface AppConfig {
     "setupComplete"?: boolean;
     "beamngRoot": string;
     "activeModsDir": string;
     "libraryDir": string;
     "gameInstallDir": string;
-    "scanRoots": string[];
+    "scanRoots": string[] | null;
     "scanConcurrency": number;
     "dataDir"?: string;
     "configPath": string;
@@ -377,72 +102,9 @@ export class AppConfig {
     "profileDir": string;
     "testInstallDir": string;
     "gameExecutable": string;
-
-    /** Creates a new AppConfig instance. */
-    constructor($$source: Partial<AppConfig> = {}) {
-        if (!("beamngRoot" in $$source)) {
-            this["beamngRoot"] = "";
-        }
-        if (!("activeModsDir" in $$source)) {
-            this["activeModsDir"] = "";
-        }
-        if (!("libraryDir" in $$source)) {
-            this["libraryDir"] = "";
-        }
-        if (!("gameInstallDir" in $$source)) {
-            this["gameInstallDir"] = "";
-        }
-        if (!("scanRoots" in $$source)) {
-            this["scanRoots"] = [];
-        }
-        if (!("scanConcurrency" in $$source)) {
-            this["scanConcurrency"] = 0;
-        }
-        if (!("configPath" in $$source)) {
-            this["configPath"] = "";
-        }
-        if (!("projectRoot" in $$source)) {
-            this["projectRoot"] = "";
-        }
-        if (!("databasePath" in $$source)) {
-            this["databasePath"] = "";
-        }
-        if (!("imageCacheDir" in $$source)) {
-            this["imageCacheDir"] = "";
-        }
-        if (!("workspaceDir" in $$source)) {
-            this["workspaceDir"] = "";
-        }
-        if (!("exportDir" in $$source)) {
-            this["exportDir"] = "";
-        }
-        if (!("profileDir" in $$source)) {
-            this["profileDir"] = "";
-        }
-        if (!("testInstallDir" in $$source)) {
-            this["testInstallDir"] = "";
-        }
-        if (!("gameExecutable" in $$source)) {
-            this["gameExecutable"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AppConfig instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AppConfig {
-        const $$createField5_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("scanRoots" in $$parsedSource) {
-            $$parsedSource["scanRoots"] = $$createField5_0($$parsedSource["scanRoots"]);
-        }
-        return new AppConfig($$parsedSource as Partial<AppConfig>);
-    }
 }
 
-export class AppSettings {
+export interface AppSettings {
     "theme": string;
     "interfaceSize": string;
     "textSize": string;
@@ -469,101 +131,9 @@ export class AppSettings {
     "hasOpenRouterApiKey": boolean;
     "hasOpenAIApiKey": boolean;
     "hasAnthropicApiKey": boolean;
-
-    /** Creates a new AppSettings instance. */
-    constructor($$source: Partial<AppSettings> = {}) {
-        if (!("theme" in $$source)) {
-            this["theme"] = "";
-        }
-        if (!("interfaceSize" in $$source)) {
-            this["interfaceSize"] = "";
-        }
-        if (!("textSize" in $$source)) {
-            this["textSize"] = "";
-        }
-        if (!("defaultAuthor" in $$source)) {
-            this["defaultAuthor"] = "";
-        }
-        if (!("agentProfile" in $$source)) {
-            this["agentProfile"] = "";
-        }
-        if (!("agentModel" in $$source)) {
-            this["agentModel"] = "";
-        }
-        if (!("contextMode" in $$source)) {
-            this["contextMode"] = "";
-        }
-        if (!("showAIUsage" in $$source)) {
-            this["showAIUsage"] = false;
-        }
-        if (!("showFileSizes" in $$source)) {
-            this["showFileSizes"] = false;
-        }
-        if (!("autoFormatDelayMs" in $$source)) {
-            this["autoFormatDelayMs"] = 0;
-        }
-        if (!("emphasisColor" in $$source)) {
-            this["emphasisColor"] = "";
-        }
-        if (!("activeTabColor" in $$source)) {
-            this["activeTabColor"] = "";
-        }
-        if (!("subsectionTitleColor" in $$source)) {
-            this["subsectionTitleColor"] = "";
-        }
-        if (!("darkSurfaceColor" in $$source)) {
-            this["darkSurfaceColor"] = "";
-        }
-        if (!("darkBorderColor" in $$source)) {
-            this["darkBorderColor"] = "";
-        }
-        if (!("darkTextColor" in $$source)) {
-            this["darkTextColor"] = "";
-        }
-        if (!("lightSurfaceColor" in $$source)) {
-            this["lightSurfaceColor"] = "";
-        }
-        if (!("lightBorderColor" in $$source)) {
-            this["lightBorderColor"] = "";
-        }
-        if (!("lightTextColor" in $$source)) {
-            this["lightTextColor"] = "";
-        }
-        if (!("preScanModel" in $$source)) {
-            this["preScanModel"] = "";
-        }
-        if (!("preScanReasoning" in $$source)) {
-            this["preScanReasoning"] = "";
-        }
-        if (!("fullScanModel" in $$source)) {
-            this["fullScanModel"] = "";
-        }
-        if (!("fullScanReasoning" in $$source)) {
-            this["fullScanReasoning"] = "";
-        }
-        if (!("hasOpenRouterApiKey" in $$source)) {
-            this["hasOpenRouterApiKey"] = false;
-        }
-        if (!("hasOpenAIApiKey" in $$source)) {
-            this["hasOpenAIApiKey"] = false;
-        }
-        if (!("hasAnthropicApiKey" in $$source)) {
-            this["hasAnthropicApiKey"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new AppSettings instance from a string or object.
-     */
-    static createFrom($$source: any = {}): AppSettings {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new AppSettings($$parsedSource as Partial<AppSettings>);
-    }
 }
 
-export class ArchiveLink {
+export interface ArchiveLink {
     "id": string;
     "artifactId": string;
     "path": string;
@@ -573,50 +143,9 @@ export class ArchiveLink {
     "modifiedAt": string;
     "discoveredAt": string;
     "lastSeenAt": string;
-
-    /** Creates a new ArchiveLink instance. */
-    constructor($$source: Partial<ArchiveLink> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("rootPath" in $$source)) {
-            this["rootPath"] = "";
-        }
-        if (!("linked" in $$source)) {
-            this["linked"] = false;
-        }
-        if (!("sizeBytes" in $$source)) {
-            this["sizeBytes"] = 0;
-        }
-        if (!("modifiedAt" in $$source)) {
-            this["modifiedAt"] = "";
-        }
-        if (!("discoveredAt" in $$source)) {
-            this["discoveredAt"] = "";
-        }
-        if (!("lastSeenAt" in $$source)) {
-            this["lastSeenAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ArchiveLink instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ArchiveLink {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ArchiveLink($$parsedSource as Partial<ArchiveLink>);
-    }
 }
 
-export class ArchiveMemberPreview {
+export interface ArchiveMemberPreview {
     "path": string;
     "kind": string;
     "mime": string;
@@ -624,44 +153,9 @@ export class ArchiveMemberPreview {
     "dataUrl": string;
     "sizeBytes": number;
     "truncated": boolean;
-
-    /** Creates a new ArchiveMemberPreview instance. */
-    constructor($$source: Partial<ArchiveMemberPreview> = {}) {
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = "";
-        }
-        if (!("mime" in $$source)) {
-            this["mime"] = "";
-        }
-        if (!("text" in $$source)) {
-            this["text"] = "";
-        }
-        if (!("dataUrl" in $$source)) {
-            this["dataUrl"] = "";
-        }
-        if (!("sizeBytes" in $$source)) {
-            this["sizeBytes"] = 0;
-        }
-        if (!("truncated" in $$source)) {
-            this["truncated"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ArchiveMemberPreview instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ArchiveMemberPreview {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ArchiveMemberPreview($$parsedSource as Partial<ArchiveMemberPreview>);
-    }
 }
 
-export class Dashboard {
+export interface Dashboard {
     "linked": number;
     "unlinked": number;
     "vehicles": number;
@@ -678,165 +172,26 @@ export class Dashboard {
     "lastScanFound": number;
     "lastScanAnalyzed": number;
     "lastScanFailed": number;
-    "latestEvents": EventRecord[];
+    "latestEvents": EventRecord[] | null;
     "databaseBytes": number;
-
-    /** Creates a new Dashboard instance. */
-    constructor($$source: Partial<Dashboard> = {}) {
-        if (!("linked" in $$source)) {
-            this["linked"] = 0;
-        }
-        if (!("unlinked" in $$source)) {
-            this["unlinked"] = 0;
-        }
-        if (!("vehicles" in $$source)) {
-            this["vehicles"] = 0;
-        }
-        if (!("maps" in $$source)) {
-            this["maps"] = 0;
-        }
-        if (!("uiAndScripts" in $$source)) {
-            this["uiAndScripts"] = 0;
-        }
-        if (!("workspaces" in $$source)) {
-            this["workspaces"] = 0;
-        }
-        if (!("entities" in $$source)) {
-            this["entities"] = 0;
-        }
-        if (!("artifacts" in $$source)) {
-            this["artifacts"] = 0;
-        }
-        if (!("cachedAssets" in $$source)) {
-            this["cachedAssets"] = 0;
-        }
-        if (!("cachedAssetBytes" in $$source)) {
-            this["cachedAssetBytes"] = 0;
-        }
-        if (!("lastScanAt" in $$source)) {
-            this["lastScanAt"] = "";
-        }
-        if (!("lastSuccessfulScanAt" in $$source)) {
-            this["lastSuccessfulScanAt"] = "";
-        }
-        if (!("lastScanStatus" in $$source)) {
-            this["lastScanStatus"] = "";
-        }
-        if (!("lastScanFound" in $$source)) {
-            this["lastScanFound"] = 0;
-        }
-        if (!("lastScanAnalyzed" in $$source)) {
-            this["lastScanAnalyzed"] = 0;
-        }
-        if (!("lastScanFailed" in $$source)) {
-            this["lastScanFailed"] = 0;
-        }
-        if (!("latestEvents" in $$source)) {
-            this["latestEvents"] = [];
-        }
-        if (!("databaseBytes" in $$source)) {
-            this["databaseBytes"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new Dashboard instance from a string or object.
-     */
-    static createFrom($$source: any = {}): Dashboard {
-        const $$createField16_0 = $$createType7;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("latestEvents" in $$parsedSource) {
-            $$parsedSource["latestEvents"] = $$createField16_0($$parsedSource["latestEvents"]);
-        }
-        return new Dashboard($$parsedSource as Partial<Dashboard>);
-    }
 }
 
-export class EntityDetail {
+export interface EntityDetail {
     "item": LibraryItem;
-    "links": ArchiveLink[];
-    "history": EventRecord[];
-
-    /** Creates a new EntityDetail instance. */
-    constructor($$source: Partial<EntityDetail> = {}) {
-        if (!("item" in $$source)) {
-            this["item"] = (new LibraryItem());
-        }
-        if (!("links" in $$source)) {
-            this["links"] = [];
-        }
-        if (!("history" in $$source)) {
-            this["history"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new EntityDetail instance from a string or object.
-     */
-    static createFrom($$source: any = {}): EntityDetail {
-        const $$createField0_0 = $$createType8;
-        const $$createField1_0 = $$createType10;
-        const $$createField2_0 = $$createType7;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("item" in $$parsedSource) {
-            $$parsedSource["item"] = $$createField0_0($$parsedSource["item"]);
-        }
-        if ("links" in $$parsedSource) {
-            $$parsedSource["links"] = $$createField1_0($$parsedSource["links"]);
-        }
-        if ("history" in $$parsedSource) {
-            $$parsedSource["history"] = $$createField2_0($$parsedSource["history"]);
-        }
-        return new EntityDetail($$parsedSource as Partial<EntityDetail>);
-    }
+    "links": ArchiveLink[] | null;
+    "history": EventRecord[] | null;
+    "historyTotal": number;
 }
 
-export class EventRecord {
+export interface EventRecord {
     "id": number;
     "at": string;
     "entityId": string;
     "type": string;
-    "data": { [_ in string]?: any };
-
-    /** Creates a new EventRecord instance. */
-    constructor($$source: Partial<EventRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = 0;
-        }
-        if (!("at" in $$source)) {
-            this["at"] = "";
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("type" in $$source)) {
-            this["type"] = "";
-        }
-        if (!("data" in $$source)) {
-            this["data"] = {};
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new EventRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): EventRecord {
-        const $$createField4_0 = $$createType4;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("data" in $$parsedSource) {
-            $$parsedSource["data"] = $$createField4_0($$parsedSource["data"]);
-        }
-        return new EventRecord($$parsedSource as Partial<EventRecord>);
-    }
+    "data": { [_ in string]?: any } | null;
 }
 
-export class ExportRecord {
+export interface ExportRecord {
     "id": string;
     "workspaceId": string;
     "artifactId": string;
@@ -844,74 +199,250 @@ export class ExportRecord {
     "sha256": string;
     "kind": string;
     "createdAt": string;
-
-    /** Creates a new ExportRecord instance. */
-    constructor($$source: Partial<ExportRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("sha256" in $$source)) {
-            this["sha256"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = "";
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ExportRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ExportRecord {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ExportRecord($$parsedSource as Partial<ExportRecord>);
-    }
 }
 
-export class ExportResponse {
+export interface ExportResponse {
     "record": ExportRecord;
     "result": modkit$0.ExportResult;
+}
 
-    /** Creates a new ExportResponse instance. */
-    constructor($$source: Partial<ExportResponse> = {}) {
-        if (!("record" in $$source)) {
-            this["record"] = (new ExportRecord());
-        }
-        if (!("result" in $$source)) {
-            this["result"] = (new modkit$0.ExportResult());
-        }
+export interface GitBranch {
+    "name": string;
+    "commit": string;
+    "current": boolean;
+}
 
-        Object.assign(this, $$source);
-    }
+/**
+ * GitCommitResult reports the commit made from the staged index only.
+ */
+export interface GitCommitResult {
+    "hash": string;
+    "shortHash": string;
+    "message": string;
+    "branch": string;
+    "detached": boolean;
+    "amended": boolean;
+    "status": GitStatus;
+    "outputTruncated": boolean;
+}
 
-    /**
-     * Creates a new ExportResponse instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ExportResponse {
-        const $$createField0_0 = $$createType11;
-        const $$createField1_0 = $$createType12;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("record" in $$parsedSource) {
-            $$parsedSource["record"] = $$createField0_0($$parsedSource["record"]);
-        }
-        if ("result" in $$parsedSource) {
-            $$parsedSource["result"] = $$createField1_0($$parsedSource["result"]);
-        }
-        return new ExportResponse($$parsedSource as Partial<ExportResponse>);
-    }
+/**
+ * GitDiff is a real Git diff for one path. Patch is empty when Git has no
+ * textual patch to show; Binary, Unsupported, and Conflict explain why.
+ */
+export interface GitDiff {
+    "path": string;
+    "originalPath"?: string;
+    "comparison": string;
+    "available": boolean;
+    "binary": boolean;
+    "unsupported": boolean;
+    "conflict": boolean;
+    "status": string;
+    "patch": string;
+    "message": string;
+    "outputTruncated": boolean;
+}
+
+/**
+ * GitDiscardFailure identifies a selected path that could not be discarded.
+ * Completed paths are reported separately so a partial command failure cannot
+ * be mistaken for an atomic batch.
+ */
+export interface GitDiscardFailure {
+    "path": string;
+    "error": string;
+}
+
+export interface GitDiscardResult {
+    "success": boolean;
+    "stale": boolean;
+    "completed": string[] | null;
+    "failed": GitDiscardFailure[] | null;
+    "error": string;
+    "status": GitStatus;
+    "outputTruncated": boolean;
+}
+
+/**
+ * GitHubPublishAuthSession is the device-flow state exposed to the UI. Device
+ * and access tokens are deliberately absent; only the user code intended for
+ * display and the verified account are returned.
+ */
+export interface GitHubPublishAuthSession {
+    "sessionId": string;
+    "configured": boolean;
+    "state": string;
+    "login": string;
+    "userCode": string;
+    "verificationUri": string;
+    "expiresAt": string;
+    "expiresInSeconds": number;
+    "pollIntervalSeconds": number;
+    "nextPollAt": string;
+    "grantedScopes": string[] | null;
+    "errorCode": string;
+    "error": string;
+    "action": string;
+    "retryable": boolean;
+}
+
+/**
+ * GitHubPublishConfiguration describes only non-secret integration setup.
+ */
+export interface GitHubPublishConfiguration {
+    "provider": string;
+    "configured": boolean;
+    "clientIdConfigured": boolean;
+    "scope": string;
+    "visibilityOptions": string[] | null;
+    "message": string;
+    "action": string;
+}
+
+/**
+ * GitHubPublishDraft is a fresh repository draft. Visibility is normalized to
+ * exactly "private" or "public" by the backend; an empty value means private.
+ */
+export interface GitHubPublishDraft {
+    "sessionId": string;
+    "workspaceId": string;
+    "name": string;
+    "description": string;
+    "visibility": string;
+    "publicConfirmed": boolean;
+}
+
+/**
+ * GitHubPublishLocalState captures the exact local state used for the
+ * preflight and reconciliation decision.
+ */
+export interface GitHubPublishLocalState {
+    "root": string;
+    "gitDirectory": string;
+    "repository": boolean;
+    "currentBranch": string;
+    "detached": boolean;
+    "mainAvailable": boolean;
+    "mainOid": string;
+    "remotes": GitHubPublishRemote[] | null;
+}
+
+/**
+ * GitHubPublishOperation is the asynchronously polled operation/result.
+ */
+export interface GitHubPublishOperation {
+    "operationId": string;
+    "sessionId": string;
+    "state": string;
+    "steps": GitHubPublishStep[] | null;
+    "partial": GitHubPublishPartialState;
+    "error": string;
+    "action": string;
+    "retryable": boolean;
+    "reconciliationRequired": boolean;
+    "cancelled": boolean;
+    "completed": boolean;
+}
+
+/**
+ * GitHubPublishPartialState remains truthful after cancellation or a partial
+ * transfer. It intentionally contains no credential or provider token.
+ */
+export interface GitHubPublishPartialState {
+    "createdUrl": string;
+    "repositoryUrl": string;
+    "remoteName": string;
+    "remoteUrl": string;
+    "remoteState": string;
+    "remoteAdded": boolean;
+    "remoteReused": boolean;
+    "pushState": string;
+    "upstreamVerified": boolean;
+    "upstreamRemote": string;
+    "upstreamMerge": string;
+}
+
+/**
+ * GitHubPublishPreflight is a read-only plan. Nothing in this call creates a
+ * repository or changes the local Git configuration.
+ */
+export interface GitHubPublishPreflight {
+    "planId": string;
+    "sessionId": string;
+    "ready": boolean;
+    "visibility": string;
+    "visibilityOptions": string[] | null;
+    "owner": string;
+    "name": string;
+    "description": string;
+    "targetUrl": string;
+    "local": GitHubPublishLocalState;
+    "target": GitHubPublishTarget;
+    "proposedRemoteName": string;
+    "proposedRemoteUrl": string;
+    "existingOrigin"?: GitHubPublishRemote | null;
+    "requiresFinalConfirmation": boolean;
+    "requiresPublicConfirmation": boolean;
+    "requiresConnectConfirmation": boolean;
+    "creationUnknown": boolean;
+    "reconciliationRequired": boolean;
+    "retryable": boolean;
+    "error": string;
+    "action": string;
+}
+
+/**
+ * GitHubPublishRemote is a secret-free view of one local remote.
+ */
+export interface GitHubPublishRemote {
+    "name": string;
+    "fetchUrl": string;
+    "pushUrl": string;
+    "matchesTarget": boolean;
+}
+
+/**
+ * GitHubPublishStartRequest is the final, explicit confirmation boundary.
+ */
+export interface GitHubPublishStartRequest {
+    "planId": string;
+    "sessionId": string;
+    "confirmed": boolean;
+    "publicConfirmed": boolean;
+    "connectExisting": boolean;
+    "retryUnknownCreation": boolean;
+}
+
+/**
+ * GitHubPublishStep is one ordered state-machine step.
+ */
+export interface GitHubPublishStep {
+    "name": string;
+    "state": string;
+    "attempt": number;
+    "message": string;
+}
+
+/**
+ * GitHubPublishTarget distinguishes an accessible collision from GitHub's
+ * deliberately ambiguous not-found response.
+ */
+export interface GitHubPublishTarget {
+    "owner": string;
+    "name": string;
+    "url": string;
+    "cloneUrl": string;
+    "repositoryId": number;
+    "state": string;
+    "exists": boolean;
+    "accessKnown": boolean;
+    "accessible": boolean;
+    "canPush": boolean;
+    "private": boolean;
+    "description": string;
+    "error": string;
+    "action": string;
 }
 
 /**
@@ -919,106 +450,112 @@ export class ExportResponse {
  * setup for a new mod. A failed result never implies that the scaffold was
  * removed; the path remains available for manual recovery.
  */
-export class GitInitializationResult {
+export interface GitInitializationResult {
     "status": string;
     "stage": string;
     "path": string;
     "message": string;
     "nextAction": string;
-
-    /** Creates a new GitInitializationResult instance. */
-    constructor($$source: Partial<GitInitializationResult> = {}) {
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("stage" in $$source)) {
-            this["stage"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("message" in $$source)) {
-            this["message"] = "";
-        }
-        if (!("nextAction" in $$source)) {
-            this["nextAction"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new GitInitializationResult instance from a string or object.
-     */
-    static createFrom($$source: any = {}): GitInitializationResult {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new GitInitializationResult($$parsedSource as Partial<GitInitializationResult>);
-    }
 }
 
-export class KnowledgeDocument {
+/**
+ * GitOperationResult reports a remote operation and its refreshed status.
+ */
+export interface GitOperationResult {
+    "operation": string;
+    "success": boolean;
+    "output": string;
+    "stderr": string;
+    "error": string;
+    "steps": GitOperationStep[] | null;
+    "status": GitStatus;
+    "outputTruncated": boolean;
+}
+
+/**
+ * GitOperationStep records one conventional Git command in a remote or sync
+ * operation. Sync always records fetch, then pull, then push until a step
+ * fails.
+ */
+export interface GitOperationStep {
+    "operation": string;
+    "success": boolean;
+    "output": string;
+    "stderr": string;
+    "error": string;
+    "outputTruncated": boolean;
+}
+
+/**
+ * GitRemote describes one remote configured in the workspace repository.
+ */
+export interface GitRemote {
+    "name": string;
+    "fetchURL": string;
+    "pushURL": string;
+}
+
+/**
+ * GitStatus is a snapshot of the exact repository rooted at a workspace's
+ * FilesRoot. Fingerprint is stable for an unchanged poll and changes when Git
+ * state or the relevant working-tree metadata changes.
+ */
+export interface GitStatus {
+    "repository": boolean;
+    "state": string;
+    "clean": boolean;
+    "root": string;
+    "branch": string;
+    "detached": boolean;
+    "upstream": string;
+    "ahead": number;
+    "behind": number;
+    "remotes": GitRemote[] | null;
+    "conflicts": GitStatusEntry[] | null;
+    "staged": GitStatusEntry[] | null;
+    "unstaged": GitStatusEntry[] | null;
+    "untracked": GitStatusEntry[] | null;
+    "fingerprint": string;
+    "outputTruncated": boolean;
+}
+
+/**
+ * GitStatusEntry is one path in a Git status group. IndexCode and
+ * WorktreeCode retain Git's two-column porcelain state so a path can be in
+ * both Staged and Unstaged at the same time.
+ */
+export interface GitStatusEntry {
+    "path": string;
+    "originalPath"?: string;
+    "status": string;
+    "indexCode": string;
+    "worktreeCode": string;
+    "statusCode": string;
+    "staged": boolean;
+    "unstaged": boolean;
+    "untracked": boolean;
+    "conflict": boolean;
+    "renamed": boolean;
+    "copied": boolean;
+    "binary": boolean;
+    "deleted": boolean;
+    "unsupported": boolean;
+}
+
+export interface KnowledgeDocument {
     "id": string;
     "title": string;
     "content": string;
-
-    /** Creates a new KnowledgeDocument instance. */
-    constructor($$source: Partial<KnowledgeDocument> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("title" in $$source)) {
-            this["title"] = "";
-        }
-        if (!("content" in $$source)) {
-            this["content"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new KnowledgeDocument instance from a string or object.
-     */
-    static createFrom($$source: any = {}): KnowledgeDocument {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new KnowledgeDocument($$parsedSource as Partial<KnowledgeDocument>);
-    }
 }
 
-export class LibraryFolder {
+export interface LibraryFolder {
     "id": string;
     "name": string;
     "parentId": string;
     "modCount": number;
-
-    /** Creates a new LibraryFolder instance. */
-    constructor($$source: Partial<LibraryFolder> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("parentId" in $$source)) {
-            this["parentId"] = "";
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new LibraryFolder instance from a string or object.
-     */
-    static createFrom($$source: any = {}): LibraryFolder {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new LibraryFolder($$parsedSource as Partial<LibraryFolder>);
-    }
 }
 
-export class LibraryItem {
+export interface LibraryItem {
     "entityId": string;
     "revision": string;
     "artifactId": string;
@@ -1048,151 +585,16 @@ export class LibraryItem {
     "lastSecurityScanSha256": string;
     "securityScanChanged": boolean;
     "manifest": modkit$0.Manifest;
-    "tags": ModTag[];
-
-    /** Creates a new LibraryItem instance. */
-    constructor($$source: Partial<LibraryItem> = {}) {
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("revision" in $$source)) {
-            this["revision"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("linkId" in $$source)) {
-            this["linkId"] = "";
-        }
-        if (!("folderId" in $$source)) {
-            this["folderId"] = "";
-        }
-        if (!("displayName" in $$source)) {
-            this["displayName"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = modkit$0.Kind.$zero;
-        }
-        if (!("sourceId" in $$source)) {
-            this["sourceId"] = "";
-        }
-        if (!("source" in $$source)) {
-            this["source"] = "";
-        }
-        if (!("archivePath" in $$source)) {
-            this["archivePath"] = "";
-        }
-        if (!("rootPath" in $$source)) {
-            this["rootPath"] = "";
-        }
-        if (!("linked" in $$source)) {
-            this["linked"] = false;
-        }
-        if (!("sizeBytes" in $$source)) {
-            this["sizeBytes"] = 0;
-        }
-        if (!("modifiedAt" in $$source)) {
-            this["modifiedAt"] = "";
-        }
-        if (!("lastSeenAt" in $$source)) {
-            this["lastSeenAt"] = "";
-        }
-        if (!("fingerprint" in $$source)) {
-            this["fingerprint"] = "";
-        }
-        if (!("sha256" in $$source)) {
-            this["sha256"] = "";
-        }
-        if (!("thumbnailUrl" in $$source)) {
-            this["thumbnailUrl"] = "";
-        }
-        if (!("memberCount" in $$source)) {
-            this["memberCount"] = 0;
-        }
-        if (!("namespaceCount" in $$source)) {
-            this["namespaceCount"] = 0;
-        }
-        if (!("variantCount" in $$source)) {
-            this["variantCount"] = 0;
-        }
-        if (!("issueCount" in $$source)) {
-            this["issueCount"] = 0;
-        }
-        if (!("healthStatus" in $$source)) {
-            this["healthStatus"] = "";
-        }
-        if (!("healthLabel" in $$source)) {
-            this["healthLabel"] = "";
-        }
-        if (!("lastSecurityScanAt" in $$source)) {
-            this["lastSecurityScanAt"] = "";
-        }
-        if (!("lastSecurityScanVerdict" in $$source)) {
-            this["lastSecurityScanVerdict"] = "";
-        }
-        if (!("lastSecurityScanSha256" in $$source)) {
-            this["lastSecurityScanSha256"] = "";
-        }
-        if (!("securityScanChanged" in $$source)) {
-            this["securityScanChanged"] = false;
-        }
-        if (!("manifest" in $$source)) {
-            this["manifest"] = (new modkit$0.Manifest());
-        }
-        if (!("tags" in $$source)) {
-            this["tags"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new LibraryItem instance from a string or object.
-     */
-    static createFrom($$source: any = {}): LibraryItem {
-        const $$createField28_0 = $$createType13;
-        const $$createField29_0 = $$createType15;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("manifest" in $$parsedSource) {
-            $$parsedSource["manifest"] = $$createField28_0($$parsedSource["manifest"]);
-        }
-        if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField29_0($$parsedSource["tags"]);
-        }
-        return new LibraryItem($$parsedSource as Partial<LibraryItem>);
-    }
+    "tags": ModTag[] | null;
 }
 
-export class LibraryItemDetailsUpdate {
+export interface LibraryItemDetailsUpdate {
     "description": string;
     "author": string;
     "version": string;
-
-    /** Creates a new LibraryItemDetailsUpdate instance. */
-    constructor($$source: Partial<LibraryItemDetailsUpdate> = {}) {
-        if (!("description" in $$source)) {
-            this["description"] = "";
-        }
-        if (!("author" in $$source)) {
-            this["author"] = "";
-        }
-        if (!("version" in $$source)) {
-            this["version"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new LibraryItemDetailsUpdate instance from a string or object.
-     */
-    static createFrom($$source: any = {}): LibraryItemDetailsUpdate {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new LibraryItemDetailsUpdate($$parsedSource as Partial<LibraryItemDetailsUpdate>);
-    }
 }
 
-export class LibraryVariantUpdate {
+export interface LibraryVariantUpdate {
     "configPath": string;
     "configuration": string;
     "description": string;
@@ -1207,570 +609,106 @@ export class LibraryVariantUpdate {
     "weight": string;
     "value": string;
     "topSpeed": string;
-
-    /** Creates a new LibraryVariantUpdate instance. */
-    constructor($$source: Partial<LibraryVariantUpdate> = {}) {
-        if (!("configPath" in $$source)) {
-            this["configPath"] = "";
-        }
-        if (!("configuration" in $$source)) {
-            this["configuration"] = "";
-        }
-        if (!("description" in $$source)) {
-            this["description"] = "";
-        }
-        if (!("configType" in $$source)) {
-            this["configType"] = "";
-        }
-        if (!("bodyStyle" in $$source)) {
-            this["bodyStyle"] = "";
-        }
-        if (!("drivetrain" in $$source)) {
-            this["drivetrain"] = "";
-        }
-        if (!("transmission" in $$source)) {
-            this["transmission"] = "";
-        }
-        if (!("fuelType" in $$source)) {
-            this["fuelType"] = "";
-        }
-        if (!("propulsion" in $$source)) {
-            this["propulsion"] = "";
-        }
-        if (!("power" in $$source)) {
-            this["power"] = "";
-        }
-        if (!("torque" in $$source)) {
-            this["torque"] = "";
-        }
-        if (!("weight" in $$source)) {
-            this["weight"] = "";
-        }
-        if (!("value" in $$source)) {
-            this["value"] = "";
-        }
-        if (!("topSpeed" in $$source)) {
-            this["topSpeed"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new LibraryVariantUpdate instance from a string or object.
-     */
-    static createFrom($$source: any = {}): LibraryVariantUpdate {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new LibraryVariantUpdate($$parsedSource as Partial<LibraryVariantUpdate>);
-    }
 }
 
-export class ModPreset {
+export interface ModPreset {
     "id": string;
     "name": string;
     "description": string;
     "modCount": number;
     "defaultForProfileCount": number;
-
-    /** Creates a new ModPreset instance. */
-    constructor($$source: Partial<ModPreset> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("description" in $$source)) {
-            this["description"] = "";
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-        if (!("defaultForProfileCount" in $$source)) {
-            this["defaultForProfileCount"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ModPreset instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ModPreset {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ModPreset($$parsedSource as Partial<ModPreset>);
-    }
 }
 
-export class ModProfile {
+export interface ModProfile {
     "id": string;
     "name": string;
     "defaultPresetId": string;
     "presetCount": number;
     "modCount": number;
-
-    /** Creates a new ModProfile instance. */
-    constructor($$source: Partial<ModProfile> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("defaultPresetId" in $$source)) {
-            this["defaultPresetId"] = "";
-        }
-        if (!("presetCount" in $$source)) {
-            this["presetCount"] = 0;
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ModProfile instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ModProfile {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ModProfile($$parsedSource as Partial<ModProfile>);
-    }
 }
 
-export class ModSecurityMetadata {
+export interface ModSecurityMetadata {
     "schemaVersion": number;
     "entityId": string;
     "updatedAt": string;
-    "securityScans": VirusScanStageReference[];
-
-    /** Creates a new ModSecurityMetadata instance. */
-    constructor($$source: Partial<ModSecurityMetadata> = {}) {
-        if (!("schemaVersion" in $$source)) {
-            this["schemaVersion"] = 0;
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("updatedAt" in $$source)) {
-            this["updatedAt"] = "";
-        }
-        if (!("securityScans" in $$source)) {
-            this["securityScans"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ModSecurityMetadata instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ModSecurityMetadata {
-        const $$createField3_0 = $$createType17;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("securityScans" in $$parsedSource) {
-            $$parsedSource["securityScans"] = $$createField3_0($$parsedSource["securityScans"]);
-        }
-        return new ModSecurityMetadata($$parsedSource as Partial<ModSecurityMetadata>);
-    }
+    "securityScans": VirusScanStageReference[] | null;
 }
 
-export class ModTag {
+export interface ModTag {
     "id": string;
     "name": string;
     "color": string;
     "icon": string;
     "modCount": number;
-
-    /** Creates a new ModTag instance. */
-    constructor($$source: Partial<ModTag> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("color" in $$source)) {
-            this["color"] = "";
-        }
-        if (!("icon" in $$source)) {
-            this["icon"] = "";
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ModTag instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ModTag {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ModTag($$parsedSource as Partial<ModTag>);
-    }
 }
 
-export class NewModRequest {
+export interface NewModRequest {
     "name": string;
     "modId": string;
     "kind": string;
     "author": string;
     "version": string;
     "description": string;
-
-    /** Creates a new NewModRequest instance. */
-    constructor($$source: Partial<NewModRequest> = {}) {
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("modId" in $$source)) {
-            this["modId"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = "";
-        }
-        if (!("author" in $$source)) {
-            this["author"] = "";
-        }
-        if (!("version" in $$source)) {
-            this["version"] = "";
-        }
-        if (!("description" in $$source)) {
-            this["description"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new NewModRequest instance from a string or object.
-     */
-    static createFrom($$source: any = {}): NewModRequest {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new NewModRequest($$parsedSource as Partial<NewModRequest>);
-    }
 }
 
-export class OrganizationState {
-    "folders": LibraryFolder[];
-    "tags": ModTag[];
-    "presets": ModPreset[];
-    "profiles": ModProfile[];
-
-    /** Creates a new OrganizationState instance. */
-    constructor($$source: Partial<OrganizationState> = {}) {
-        if (!("folders" in $$source)) {
-            this["folders"] = [];
-        }
-        if (!("tags" in $$source)) {
-            this["tags"] = [];
-        }
-        if (!("presets" in $$source)) {
-            this["presets"] = [];
-        }
-        if (!("profiles" in $$source)) {
-            this["profiles"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new OrganizationState instance from a string or object.
-     */
-    static createFrom($$source: any = {}): OrganizationState {
-        const $$createField0_0 = $$createType19;
-        const $$createField1_0 = $$createType15;
-        const $$createField2_0 = $$createType21;
-        const $$createField3_0 = $$createType23;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("folders" in $$parsedSource) {
-            $$parsedSource["folders"] = $$createField0_0($$parsedSource["folders"]);
-        }
-        if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField1_0($$parsedSource["tags"]);
-        }
-        if ("presets" in $$parsedSource) {
-            $$parsedSource["presets"] = $$createField2_0($$parsedSource["presets"]);
-        }
-        if ("profiles" in $$parsedSource) {
-            $$parsedSource["profiles"] = $$createField3_0($$parsedSource["profiles"]);
-        }
-        return new OrganizationState($$parsedSource as Partial<OrganizationState>);
-    }
+export interface OrganizationState {
+    "folders": LibraryFolder[] | null;
+    "tags": ModTag[] | null;
+    "presets": ModPreset[] | null;
+    "profiles": ModProfile[] | null;
 }
 
-export class PresetDetail {
+export interface PresetDetail {
     "preset": ModPreset;
-    "entityIds": string[];
-
-    /** Creates a new PresetDetail instance. */
-    constructor($$source: Partial<PresetDetail> = {}) {
-        if (!("preset" in $$source)) {
-            this["preset"] = (new ModPreset());
-        }
-        if (!("entityIds" in $$source)) {
-            this["entityIds"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new PresetDetail instance from a string or object.
-     */
-    static createFrom($$source: any = {}): PresetDetail {
-        const $$createField0_0 = $$createType20;
-        const $$createField1_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("preset" in $$parsedSource) {
-            $$parsedSource["preset"] = $$createField0_0($$parsedSource["preset"]);
-        }
-        if ("entityIds" in $$parsedSource) {
-            $$parsedSource["entityIds"] = $$createField1_0($$parsedSource["entityIds"]);
-        }
-        return new PresetDetail($$parsedSource as Partial<PresetDetail>);
-    }
+    "entityIds": string[] | null;
 }
 
-export class ProcessLaunch {
+export interface ProcessLaunch {
     "pid": number;
     "executable": string;
     "startedAt": string;
-
-    /** Creates a new ProcessLaunch instance. */
-    constructor($$source: Partial<ProcessLaunch> = {}) {
-        if (!("pid" in $$source)) {
-            this["pid"] = 0;
-        }
-        if (!("executable" in $$source)) {
-            this["executable"] = "";
-        }
-        if (!("startedAt" in $$source)) {
-            this["startedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProcessLaunch instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProcessLaunch {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ProcessLaunch($$parsedSource as Partial<ProcessLaunch>);
-    }
 }
 
-export class ProfileActivation {
+export interface ProfileActivation {
     "profileId": string;
     "profileName": string;
     "userPath": string;
     "modsPath": string;
     "modCount": number;
     "activatedAt": string;
-
-    /** Creates a new ProfileActivation instance. */
-    constructor($$source: Partial<ProfileActivation> = {}) {
-        if (!("profileId" in $$source)) {
-            this["profileId"] = "";
-        }
-        if (!("profileName" in $$source)) {
-            this["profileName"] = "";
-        }
-        if (!("userPath" in $$source)) {
-            this["userPath"] = "";
-        }
-        if (!("modsPath" in $$source)) {
-            this["modsPath"] = "";
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-        if (!("activatedAt" in $$source)) {
-            this["activatedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfileActivation instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfileActivation {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ProfileActivation($$parsedSource as Partial<ProfileActivation>);
-    }
 }
 
-export class ProfileDetail {
+export interface ProfileDetail {
     "profile": ModProfile;
-    "presets": ProfilePreset[];
-    "mods": ProfileMod[];
-
-    /** Creates a new ProfileDetail instance. */
-    constructor($$source: Partial<ProfileDetail> = {}) {
-        if (!("profile" in $$source)) {
-            this["profile"] = (new ModProfile());
-        }
-        if (!("presets" in $$source)) {
-            this["presets"] = [];
-        }
-        if (!("mods" in $$source)) {
-            this["mods"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfileDetail instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfileDetail {
-        const $$createField0_0 = $$createType22;
-        const $$createField1_0 = $$createType25;
-        const $$createField2_0 = $$createType27;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("profile" in $$parsedSource) {
-            $$parsedSource["profile"] = $$createField0_0($$parsedSource["profile"]);
-        }
-        if ("presets" in $$parsedSource) {
-            $$parsedSource["presets"] = $$createField1_0($$parsedSource["presets"]);
-        }
-        if ("mods" in $$parsedSource) {
-            $$parsedSource["mods"] = $$createField2_0($$parsedSource["mods"]);
-        }
-        return new ProfileDetail($$parsedSource as Partial<ProfileDetail>);
-    }
+    "presets": ProfilePreset[] | null;
+    "mods": ProfileMod[] | null;
 }
 
-export class ProfileLaunch {
+export interface ProfileLaunch {
     "activation": ProfileActivation;
     "process": ProcessLaunch;
-
-    /** Creates a new ProfileLaunch instance. */
-    constructor($$source: Partial<ProfileLaunch> = {}) {
-        if (!("activation" in $$source)) {
-            this["activation"] = (new ProfileActivation());
-        }
-        if (!("process" in $$source)) {
-            this["process"] = (new ProcessLaunch());
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfileLaunch instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfileLaunch {
-        const $$createField0_0 = $$createType28;
-        const $$createField1_0 = $$createType29;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("activation" in $$parsedSource) {
-            $$parsedSource["activation"] = $$createField0_0($$parsedSource["activation"]);
-        }
-        if ("process" in $$parsedSource) {
-            $$parsedSource["process"] = $$createField1_0($$parsedSource["process"]);
-        }
-        return new ProfileLaunch($$parsedSource as Partial<ProfileLaunch>);
-    }
 }
 
-export class ProfileMod {
+export interface ProfileMod {
     "entityId": string;
     "displayName": string;
     "kind": modkit$0.Kind;
     "archivePath": string;
     "sha256": string;
     "sizeBytes": number;
-    "presetIds": string[];
-
-    /** Creates a new ProfileMod instance. */
-    constructor($$source: Partial<ProfileMod> = {}) {
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("displayName" in $$source)) {
-            this["displayName"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = modkit$0.Kind.$zero;
-        }
-        if (!("archivePath" in $$source)) {
-            this["archivePath"] = "";
-        }
-        if (!("sha256" in $$source)) {
-            this["sha256"] = "";
-        }
-        if (!("sizeBytes" in $$source)) {
-            this["sizeBytes"] = 0;
-        }
-        if (!("presetIds" in $$source)) {
-            this["presetIds"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfileMod instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfileMod {
-        const $$createField6_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("presetIds" in $$parsedSource) {
-            $$parsedSource["presetIds"] = $$createField6_0($$parsedSource["presetIds"]);
-        }
-        return new ProfileMod($$parsedSource as Partial<ProfileMod>);
-    }
+    "presetIds": string[] | null;
 }
 
-export class ProfilePreset {
+export interface ProfilePreset {
     "id": string;
     "name": string;
     "description": string;
     "modCount": number;
     "selected": boolean;
     "default": boolean;
-
-    /** Creates a new ProfilePreset instance. */
-    constructor($$source: Partial<ProfilePreset> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("description" in $$source)) {
-            this["description"] = "";
-        }
-        if (!("modCount" in $$source)) {
-            this["modCount"] = 0;
-        }
-        if (!("selected" in $$source)) {
-            this["selected"] = false;
-        }
-        if (!("default" in $$source)) {
-            this["default"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfilePreset instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfilePreset {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ProfilePreset($$parsedSource as Partial<ProfilePreset>);
-    }
 }
 
-export class ProfileProgress {
+export interface ProfileProgress {
     "profileId": string;
     "phase": string;
     "current": string;
@@ -1780,84 +718,17 @@ export class ProfileProgress {
     "totalBytes": number;
     "done": boolean;
     "error"?: string;
-
-    /** Creates a new ProfileProgress instance. */
-    constructor($$source: Partial<ProfileProgress> = {}) {
-        if (!("profileId" in $$source)) {
-            this["profileId"] = "";
-        }
-        if (!("phase" in $$source)) {
-            this["phase"] = "";
-        }
-        if (!("current" in $$source)) {
-            this["current"] = "";
-        }
-        if (!("completed" in $$source)) {
-            this["completed"] = 0;
-        }
-        if (!("total" in $$source)) {
-            this["total"] = 0;
-        }
-        if (!("bytesCopied" in $$source)) {
-            this["bytesCopied"] = 0;
-        }
-        if (!("totalBytes" in $$source)) {
-            this["totalBytes"] = 0;
-        }
-        if (!("done" in $$source)) {
-            this["done"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ProfileProgress instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ProfileProgress {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ProfileProgress($$parsedSource as Partial<ProfileProgress>);
-    }
 }
 
-export class RuntimeDiagnostic {
+export interface RuntimeDiagnostic {
     "severity": string;
     "component": string;
     "message": string;
     "line": number;
     "relevant": boolean;
-
-    /** Creates a new RuntimeDiagnostic instance. */
-    constructor($$source: Partial<RuntimeDiagnostic> = {}) {
-        if (!("severity" in $$source)) {
-            this["severity"] = "";
-        }
-        if (!("component" in $$source)) {
-            this["component"] = "";
-        }
-        if (!("message" in $$source)) {
-            this["message"] = "";
-        }
-        if (!("line" in $$source)) {
-            this["line"] = 0;
-        }
-        if (!("relevant" in $$source)) {
-            this["relevant"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new RuntimeDiagnostic instance from a string or object.
-     */
-    static createFrom($$source: any = {}): RuntimeDiagnostic {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new RuntimeDiagnostic($$parsedSource as Partial<RuntimeDiagnostic>);
-    }
 }
 
-export class RuntimeReport {
+export interface RuntimeReport {
     "logPath": string;
     "fromOffset": number;
     "toOffset": number;
@@ -1866,59 +737,11 @@ export class RuntimeReport {
     "errors": number;
     "warnings": number;
     "relevantHits": number;
-    "diagnostics": RuntimeDiagnostic[];
+    "diagnostics": RuntimeDiagnostic[] | null;
     "analyzedAt": string;
-
-    /** Creates a new RuntimeReport instance. */
-    constructor($$source: Partial<RuntimeReport> = {}) {
-        if (!("logPath" in $$source)) {
-            this["logPath"] = "";
-        }
-        if (!("fromOffset" in $$source)) {
-            this["fromOffset"] = 0;
-        }
-        if (!("toOffset" in $$source)) {
-            this["toOffset"] = 0;
-        }
-        if (!("freshBytes" in $$source)) {
-            this["freshBytes"] = 0;
-        }
-        if (!("truncated" in $$source)) {
-            this["truncated"] = false;
-        }
-        if (!("errors" in $$source)) {
-            this["errors"] = 0;
-        }
-        if (!("warnings" in $$source)) {
-            this["warnings"] = 0;
-        }
-        if (!("relevantHits" in $$source)) {
-            this["relevantHits"] = 0;
-        }
-        if (!("diagnostics" in $$source)) {
-            this["diagnostics"] = [];
-        }
-        if (!("analyzedAt" in $$source)) {
-            this["analyzedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new RuntimeReport instance from a string or object.
-     */
-    static createFrom($$source: any = {}): RuntimeReport {
-        const $$createField8_0 = $$createType31;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("diagnostics" in $$parsedSource) {
-            $$parsedSource["diagnostics"] = $$createField8_0($$parsedSource["diagnostics"]);
-        }
-        return new RuntimeReport($$parsedSource as Partial<RuntimeReport>);
-    }
 }
 
-export class ScanProgress {
+export interface ScanProgress {
     "scanId": string;
     "phase": string;
     "path": string;
@@ -1928,47 +751,9 @@ export class ScanProgress {
     "failed": number;
     "done": boolean;
     "error"?: string;
-
-    /** Creates a new ScanProgress instance. */
-    constructor($$source: Partial<ScanProgress> = {}) {
-        if (!("scanId" in $$source)) {
-            this["scanId"] = "";
-        }
-        if (!("phase" in $$source)) {
-            this["phase"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("discovered" in $$source)) {
-            this["discovered"] = 0;
-        }
-        if (!("analyzed" in $$source)) {
-            this["analyzed"] = 0;
-        }
-        if (!("cached" in $$source)) {
-            this["cached"] = 0;
-        }
-        if (!("failed" in $$source)) {
-            this["failed"] = 0;
-        }
-        if (!("done" in $$source)) {
-            this["done"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ScanProgress instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ScanProgress {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ScanProgress($$parsedSource as Partial<ScanProgress>);
-    }
 }
 
-export class ScanSummary {
+export interface ScanSummary {
     "scanId": string;
     "startedAt": string;
     "finishedAt": string;
@@ -1978,47 +763,9 @@ export class ScanSummary {
     "failed": number;
     "cancelled": boolean;
     "error"?: string;
-
-    /** Creates a new ScanSummary instance. */
-    constructor($$source: Partial<ScanSummary> = {}) {
-        if (!("scanId" in $$source)) {
-            this["scanId"] = "";
-        }
-        if (!("startedAt" in $$source)) {
-            this["startedAt"] = "0001-01-01T00:00:00.000Z";
-        }
-        if (!("finishedAt" in $$source)) {
-            this["finishedAt"] = "0001-01-01T00:00:00.000Z";
-        }
-        if (!("discovered" in $$source)) {
-            this["discovered"] = 0;
-        }
-        if (!("analyzed" in $$source)) {
-            this["analyzed"] = 0;
-        }
-        if (!("cached" in $$source)) {
-            this["cached"] = 0;
-        }
-        if (!("failed" in $$source)) {
-            this["failed"] = 0;
-        }
-        if (!("cancelled" in $$source)) {
-            this["cancelled"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new ScanSummary instance from a string or object.
-     */
-    static createFrom($$source: any = {}): ScanSummary {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new ScanSummary($$parsedSource as Partial<ScanSummary>);
-    }
 }
 
-export class SettingsUpdate {
+export interface SettingsUpdate {
     "theme": string;
     "interfaceSize": string;
     "textSize": string;
@@ -2048,225 +795,31 @@ export class SettingsUpdate {
     "clearOpenAIAPIKey": boolean;
     "anthropicApiKey": string;
     "clearAnthropicAPIKey": boolean;
-
-    /** Creates a new SettingsUpdate instance. */
-    constructor($$source: Partial<SettingsUpdate> = {}) {
-        if (!("theme" in $$source)) {
-            this["theme"] = "";
-        }
-        if (!("interfaceSize" in $$source)) {
-            this["interfaceSize"] = "";
-        }
-        if (!("textSize" in $$source)) {
-            this["textSize"] = "";
-        }
-        if (!("defaultAuthor" in $$source)) {
-            this["defaultAuthor"] = "";
-        }
-        if (!("agentProfile" in $$source)) {
-            this["agentProfile"] = "";
-        }
-        if (!("agentModel" in $$source)) {
-            this["agentModel"] = "";
-        }
-        if (!("contextMode" in $$source)) {
-            this["contextMode"] = "";
-        }
-        if (!("showAIUsage" in $$source)) {
-            this["showAIUsage"] = false;
-        }
-        if (!("showFileSizes" in $$source)) {
-            this["showFileSizes"] = false;
-        }
-        if (!("autoFormatDelayMs" in $$source)) {
-            this["autoFormatDelayMs"] = 0;
-        }
-        if (!("emphasisColor" in $$source)) {
-            this["emphasisColor"] = "";
-        }
-        if (!("activeTabColor" in $$source)) {
-            this["activeTabColor"] = "";
-        }
-        if (!("subsectionTitleColor" in $$source)) {
-            this["subsectionTitleColor"] = "";
-        }
-        if (!("darkSurfaceColor" in $$source)) {
-            this["darkSurfaceColor"] = "";
-        }
-        if (!("darkBorderColor" in $$source)) {
-            this["darkBorderColor"] = "";
-        }
-        if (!("darkTextColor" in $$source)) {
-            this["darkTextColor"] = "";
-        }
-        if (!("lightSurfaceColor" in $$source)) {
-            this["lightSurfaceColor"] = "";
-        }
-        if (!("lightBorderColor" in $$source)) {
-            this["lightBorderColor"] = "";
-        }
-        if (!("lightTextColor" in $$source)) {
-            this["lightTextColor"] = "";
-        }
-        if (!("preScanModel" in $$source)) {
-            this["preScanModel"] = "";
-        }
-        if (!("preScanReasoning" in $$source)) {
-            this["preScanReasoning"] = "";
-        }
-        if (!("fullScanModel" in $$source)) {
-            this["fullScanModel"] = "";
-        }
-        if (!("fullScanReasoning" in $$source)) {
-            this["fullScanReasoning"] = "";
-        }
-        if (!("openRouterApiKey" in $$source)) {
-            this["openRouterApiKey"] = "";
-        }
-        if (!("clearOpenRouterApiKey" in $$source)) {
-            this["clearOpenRouterApiKey"] = false;
-        }
-        if (!("openAIApiKey" in $$source)) {
-            this["openAIApiKey"] = "";
-        }
-        if (!("clearOpenAIAPIKey" in $$source)) {
-            this["clearOpenAIAPIKey"] = false;
-        }
-        if (!("anthropicApiKey" in $$source)) {
-            this["anthropicApiKey"] = "";
-        }
-        if (!("clearAnthropicAPIKey" in $$source)) {
-            this["clearAnthropicAPIKey"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SettingsUpdate instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SettingsUpdate {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new SettingsUpdate($$parsedSource as Partial<SettingsUpdate>);
-    }
 }
 
-export class SetupInput {
+export interface SetupInput {
     "beamngRoot": string;
     "activeModsDir": string;
     "libraryDir": string;
     "gameInstallDir": string;
     "dataDir": string;
-    "additionalScanRoots": string[];
-
-    /** Creates a new SetupInput instance. */
-    constructor($$source: Partial<SetupInput> = {}) {
-        if (!("beamngRoot" in $$source)) {
-            this["beamngRoot"] = "";
-        }
-        if (!("activeModsDir" in $$source)) {
-            this["activeModsDir"] = "";
-        }
-        if (!("libraryDir" in $$source)) {
-            this["libraryDir"] = "";
-        }
-        if (!("gameInstallDir" in $$source)) {
-            this["gameInstallDir"] = "";
-        }
-        if (!("dataDir" in $$source)) {
-            this["dataDir"] = "";
-        }
-        if (!("additionalScanRoots" in $$source)) {
-            this["additionalScanRoots"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SetupInput instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SetupInput {
-        const $$createField5_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("additionalScanRoots" in $$parsedSource) {
-            $$parsedSource["additionalScanRoots"] = $$createField5_0($$parsedSource["additionalScanRoots"]);
-        }
-        return new SetupInput($$parsedSource as Partial<SetupInput>);
-    }
+    "additionalScanRoots": string[] | null;
 }
 
-export class SetupResult {
+export interface SetupResult {
     "config": AppConfig;
     "restartRequired": boolean;
-
-    /** Creates a new SetupResult instance. */
-    constructor($$source: Partial<SetupResult> = {}) {
-        if (!("config" in $$source)) {
-            this["config"] = (new AppConfig());
-        }
-        if (!("restartRequired" in $$source)) {
-            this["restartRequired"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SetupResult instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SetupResult {
-        const $$createField0_0 = $$createType32;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("config" in $$parsedSource) {
-            $$parsedSource["config"] = $$createField0_0($$parsedSource["config"]);
-        }
-        return new SetupResult($$parsedSource as Partial<SetupResult>);
-    }
 }
 
-export class SetupState {
+export interface SetupState {
     "required": boolean;
     "suggested": SetupInput;
     "configPath": string;
     "nativeModCount": number;
     "nativeEnabledCount": number;
-
-    /** Creates a new SetupState instance. */
-    constructor($$source: Partial<SetupState> = {}) {
-        if (!("required" in $$source)) {
-            this["required"] = false;
-        }
-        if (!("suggested" in $$source)) {
-            this["suggested"] = (new SetupInput());
-        }
-        if (!("configPath" in $$source)) {
-            this["configPath"] = "";
-        }
-        if (!("nativeModCount" in $$source)) {
-            this["nativeModCount"] = 0;
-        }
-        if (!("nativeEnabledCount" in $$source)) {
-            this["nativeEnabledCount"] = 0;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SetupState instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SetupState {
-        const $$createField1_0 = $$createType33;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("suggested" in $$parsedSource) {
-            $$parsedSource["suggested"] = $$createField1_0($$parsedSource["suggested"]);
-        }
-        return new SetupState($$parsedSource as Partial<SetupState>);
-    }
 }
 
-export class TestInstallRecord {
+export interface TestInstallRecord {
     "id": string;
     "workspaceId": string;
     "exportId": string;
@@ -2277,53 +830,9 @@ export class TestInstallRecord {
     "logPath": string;
     "logOffset": number;
     "active": boolean;
-
-    /** Creates a new TestInstallRecord instance. */
-    constructor($$source: Partial<TestInstallRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("exportId" in $$source)) {
-            this["exportId"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("sha256" in $$source)) {
-            this["sha256"] = "";
-        }
-        if (!("installedAt" in $$source)) {
-            this["installedAt"] = "";
-        }
-        if (!("logBaselineAt" in $$source)) {
-            this["logBaselineAt"] = "";
-        }
-        if (!("logPath" in $$source)) {
-            this["logPath"] = "";
-        }
-        if (!("logOffset" in $$source)) {
-            this["logOffset"] = 0;
-        }
-        if (!("active" in $$source)) {
-            this["active"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new TestInstallRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): TestInstallRecord {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new TestInstallRecord($$parsedSource as Partial<TestInstallRecord>);
-    }
 }
 
-export class UsageLimit {
+export interface UsageLimit {
     "provider": string;
     "label": string;
     "windowId": string;
@@ -2333,50 +842,9 @@ export class UsageLimit {
     "unit": string;
     "resetsAt": number;
     "status": string;
-
-    /** Creates a new UsageLimit instance. */
-    constructor($$source: Partial<UsageLimit> = {}) {
-        if (!("provider" in $$source)) {
-            this["provider"] = "";
-        }
-        if (!("label" in $$source)) {
-            this["label"] = "";
-        }
-        if (!("windowId" in $$source)) {
-            this["windowId"] = "";
-        }
-        if (!("used" in $$source)) {
-            this["used"] = 0;
-        }
-        if (!("remaining" in $$source)) {
-            this["remaining"] = 0;
-        }
-        if (!("limit" in $$source)) {
-            this["limit"] = 0;
-        }
-        if (!("unit" in $$source)) {
-            this["unit"] = "";
-        }
-        if (!("resetsAt" in $$source)) {
-            this["resetsAt"] = 0;
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new UsageLimit instance from a string or object.
-     */
-    static createFrom($$source: any = {}): UsageLimit {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new UsageLimit($$parsedSource as Partial<UsageLimit>);
-    }
 }
 
-export class VirgilSessionRecord {
+export interface VirgilSessionRecord {
     "id": string;
     "workspaceId": string;
     "profile": string;
@@ -2389,69 +857,8 @@ export class VirgilSessionRecord {
     "tabOrder": number;
     "createdAt": string;
     "updatedAt": string;
-    "runs": AgentRunRecord[];
+    "runs": AgentRunRecord[] | null;
     "summary"?: VirgilSessionSummary | null;
-
-    /** Creates a new VirgilSessionRecord instance. */
-    constructor($$source: Partial<VirgilSessionRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("profile" in $$source)) {
-            this["profile"] = "";
-        }
-        if (!("runtimeSessionId" in $$source)) {
-            this["runtimeSessionId"] = "";
-        }
-        if (!("title" in $$source)) {
-            this["title"] = "";
-        }
-        if (!("runtimeTitle" in $$source)) {
-            this["runtimeTitle"] = "";
-        }
-        if (!("userTitle" in $$source)) {
-            this["userTitle"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("lastError" in $$source)) {
-            this["lastError"] = "";
-        }
-        if (!("tabOrder" in $$source)) {
-            this["tabOrder"] = 0;
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-        if (!("updatedAt" in $$source)) {
-            this["updatedAt"] = "";
-        }
-        if (!("runs" in $$source)) {
-            this["runs"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirgilSessionRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirgilSessionRecord {
-        const $$createField12_0 = $$createType35;
-        const $$createField13_0 = $$createType37;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("runs" in $$parsedSource) {
-            $$parsedSource["runs"] = $$createField12_0($$parsedSource["runs"]);
-        }
-        if ("summary" in $$parsedSource) {
-            $$parsedSource["summary"] = $$createField13_0($$parsedSource["summary"]);
-        }
-        return new VirgilSessionRecord($$parsedSource as Partial<VirgilSessionRecord>);
-    }
 }
 
 /**
@@ -2459,7 +866,7 @@ export class VirgilSessionRecord {
  * mutations. It is intentionally not stored in the durable session row: the
  * values are a read model for the editor status bar.
  */
-export class VirgilSessionSummary {
+export interface VirgilSessionSummary {
     "sessionId": string;
     "workspaceId": string;
     "status": string;
@@ -2473,38 +880,9 @@ export class VirgilSessionSummary {
     "totalTokens"?: number | null;
     "contextUsed"?: number | null;
     "contextLimit"?: number | null;
-
-    /** Creates a new VirgilSessionSummary instance. */
-    constructor($$source: Partial<VirgilSessionSummary> = {}) {
-        if (!("sessionId" in $$source)) {
-            this["sessionId"] = "";
-        }
-        if (!("workspaceId" in $$source)) {
-            this["workspaceId"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("startedAt" in $$source)) {
-            this["startedAt"] = "";
-        }
-        if (!("finishedAt" in $$source)) {
-            this["finishedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirgilSessionSummary instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirgilSessionSummary {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new VirgilSessionSummary($$parsedSource as Partial<VirgilSessionSummary>);
-    }
 }
 
-export class VirusScanProgress {
+export interface VirusScanProgress {
     "scanId": string;
     "entityId": string;
     "mode": string;
@@ -2514,50 +892,9 @@ export class VirusScanProgress {
     "stageTotal": number;
     "message": string;
     "error": string;
-
-    /** Creates a new VirusScanProgress instance. */
-    constructor($$source: Partial<VirusScanProgress> = {}) {
-        if (!("scanId" in $$source)) {
-            this["scanId"] = "";
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("mode" in $$source)) {
-            this["mode"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("stage" in $$source)) {
-            this["stage"] = "";
-        }
-        if (!("stageIndex" in $$source)) {
-            this["stageIndex"] = 0;
-        }
-        if (!("stageTotal" in $$source)) {
-            this["stageTotal"] = 0;
-        }
-        if (!("message" in $$source)) {
-            this["message"] = "";
-        }
-        if (!("error" in $$source)) {
-            this["error"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirusScanProgress instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirusScanProgress {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new VirusScanProgress($$parsedSource as Partial<VirusScanProgress>);
-    }
 }
 
-export class VirusScanRun {
+export interface VirusScanRun {
     "id": string;
     "entityId": string;
     "artifactId": string;
@@ -2569,64 +906,10 @@ export class VirusScanRun {
     "createdAt": string;
     "updatedAt": string;
     "error": string;
-    "stages": VirusScanStage[];
-
-    /** Creates a new VirusScanRun instance. */
-    constructor($$source: Partial<VirusScanRun> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("fileSha256" in $$source)) {
-            this["fileSha256"] = "";
-        }
-        if (!("mode" in $$source)) {
-            this["mode"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("currentStage" in $$source)) {
-            this["currentStage"] = "";
-        }
-        if (!("verdict" in $$source)) {
-            this["verdict"] = "";
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-        if (!("updatedAt" in $$source)) {
-            this["updatedAt"] = "";
-        }
-        if (!("error" in $$source)) {
-            this["error"] = "";
-        }
-        if (!("stages" in $$source)) {
-            this["stages"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirusScanRun instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirusScanRun {
-        const $$createField11_0 = $$createType39;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("stages" in $$parsedSource) {
-            $$parsedSource["stages"] = $$createField11_0($$parsedSource["stages"]);
-        }
-        return new VirusScanRun($$parsedSource as Partial<VirusScanRun>);
-    }
+    "stages": VirusScanStage[] | null;
 }
 
-export class VirusScanStage {
+export interface VirusScanStage {
     "id": string;
     "scanId": string;
     "entityId": string;
@@ -2636,270 +919,47 @@ export class VirusScanStage {
     "status": string;
     "createdAt": string;
     "completedAt": string;
-    "parameters": { [_ in string]?: string };
-    "inputs": string[];
+    "parameters": { [_ in string]?: string } | null;
+    "inputs": string[] | null;
     "metadataFile": string;
     "auditId": string;
     "summary": string;
     "error": string;
-
-    /** Creates a new VirusScanStage instance. */
-    constructor($$source: Partial<VirusScanStage> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("scanId" in $$source)) {
-            this["scanId"] = "";
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("fileSha256" in $$source)) {
-            this["fileSha256"] = "";
-        }
-        if (!("stage" in $$source)) {
-            this["stage"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-        if (!("completedAt" in $$source)) {
-            this["completedAt"] = "";
-        }
-        if (!("parameters" in $$source)) {
-            this["parameters"] = {};
-        }
-        if (!("inputs" in $$source)) {
-            this["inputs"] = [];
-        }
-        if (!("metadataFile" in $$source)) {
-            this["metadataFile"] = "";
-        }
-        if (!("auditId" in $$source)) {
-            this["auditId"] = "";
-        }
-        if (!("summary" in $$source)) {
-            this["summary"] = "";
-        }
-        if (!("error" in $$source)) {
-            this["error"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirusScanStage instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirusScanStage {
-        const $$createField9_0 = $$createType40;
-        const $$createField10_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("parameters" in $$parsedSource) {
-            $$parsedSource["parameters"] = $$createField9_0($$parsedSource["parameters"]);
-        }
-        if ("inputs" in $$parsedSource) {
-            $$parsedSource["inputs"] = $$createField10_0($$parsedSource["inputs"]);
-        }
-        return new VirusScanStage($$parsedSource as Partial<VirusScanStage>);
-    }
 }
 
-export class VirusScanStageReference {
+export interface VirusScanStageReference {
     "id": string;
     "scanId": string;
     "artifactId": string;
     "stage": string;
     "createdAt": string;
     "metadataFile": string;
-    "inputs": string[];
-
-    /** Creates a new VirusScanStageReference instance. */
-    constructor($$source: Partial<VirusScanStageReference> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("scanId" in $$source)) {
-            this["scanId"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("stage" in $$source)) {
-            this["stage"] = "";
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-        if (!("metadataFile" in $$source)) {
-            this["metadataFile"] = "";
-        }
-        if (!("inputs" in $$source)) {
-            this["inputs"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new VirusScanStageReference instance from a string or object.
-     */
-    static createFrom($$source: any = {}): VirusScanStageReference {
-        const $$createField6_0 = $$createType5;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("inputs" in $$parsedSource) {
-            $$parsedSource["inputs"] = $$createField6_0($$parsedSource["inputs"]);
-        }
-        return new VirusScanStageReference($$parsedSource as Partial<VirusScanStageReference>);
-    }
+    "inputs": string[] | null;
 }
 
-export class WorkspaceDetail {
+export interface WorkspaceDetail {
     "workspace": WorkspaceRecord;
     "entity": LibraryItem;
-    "files": modkit$0.FileSnapshot[];
-    "directories": string[];
-    "drafts": WorkspaceDraft[];
+    "files": modkit$0.FileSnapshot[] | null;
+    "directories": string[] | null;
+    "drafts": WorkspaceDraft[] | null;
     "validation": modkit$0.ValidationResult;
-    "exports": ExportRecord[];
-    "virgilSessions": VirgilSessionRecord[];
-    "knowledge": KnowledgeDocument[];
+    "exports": ExportRecord[] | null;
+    "virgilSessions": VirgilSessionRecord[] | null;
+    "knowledge": KnowledgeDocument[] | null;
     "activeTest"?: TestInstallRecord | null;
     "diskBytes": number;
     "gitInitialization": GitInitializationResult;
-
-    /** Creates a new WorkspaceDetail instance. */
-    constructor($$source: Partial<WorkspaceDetail> = {}) {
-        if (!("workspace" in $$source)) {
-            this["workspace"] = (new WorkspaceRecord());
-        }
-        if (!("entity" in $$source)) {
-            this["entity"] = (new LibraryItem());
-        }
-        if (!("files" in $$source)) {
-            this["files"] = [];
-        }
-        if (!("directories" in $$source)) {
-            this["directories"] = [];
-        }
-        if (!("drafts" in $$source)) {
-            this["drafts"] = [];
-        }
-        if (!("validation" in $$source)) {
-            this["validation"] = (new modkit$0.ValidationResult());
-        }
-        if (!("exports" in $$source)) {
-            this["exports"] = [];
-        }
-        if (!("virgilSessions" in $$source)) {
-            this["virgilSessions"] = [];
-        }
-        if (!("knowledge" in $$source)) {
-            this["knowledge"] = [];
-        }
-        if (!("diskBytes" in $$source)) {
-            this["diskBytes"] = 0;
-        }
-        if (!("gitInitialization" in $$source)) {
-            this["gitInitialization"] = (new GitInitializationResult());
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceDetail instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceDetail {
-        const $$createField0_0 = $$createType41;
-        const $$createField1_0 = $$createType8;
-        const $$createField2_0 = $$createType43;
-        const $$createField3_0 = $$createType5;
-        const $$createField4_0 = $$createType45;
-        const $$createField5_0 = $$createType46;
-        const $$createField6_0 = $$createType47;
-        const $$createField7_0 = $$createType49;
-        const $$createField8_0 = $$createType51;
-        const $$createField9_0 = $$createType53;
-        const $$createField11_0 = $$createType54;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("workspace" in $$parsedSource) {
-            $$parsedSource["workspace"] = $$createField0_0($$parsedSource["workspace"]);
-        }
-        if ("entity" in $$parsedSource) {
-            $$parsedSource["entity"] = $$createField1_0($$parsedSource["entity"]);
-        }
-        if ("files" in $$parsedSource) {
-            $$parsedSource["files"] = $$createField2_0($$parsedSource["files"]);
-        }
-        if ("directories" in $$parsedSource) {
-            $$parsedSource["directories"] = $$createField3_0($$parsedSource["directories"]);
-        }
-        if ("drafts" in $$parsedSource) {
-            $$parsedSource["drafts"] = $$createField4_0($$parsedSource["drafts"]);
-        }
-        if ("validation" in $$parsedSource) {
-            $$parsedSource["validation"] = $$createField5_0($$parsedSource["validation"]);
-        }
-        if ("exports" in $$parsedSource) {
-            $$parsedSource["exports"] = $$createField6_0($$parsedSource["exports"]);
-        }
-        if ("virgilSessions" in $$parsedSource) {
-            $$parsedSource["virgilSessions"] = $$createField7_0($$parsedSource["virgilSessions"]);
-        }
-        if ("knowledge" in $$parsedSource) {
-            $$parsedSource["knowledge"] = $$createField8_0($$parsedSource["knowledge"]);
-        }
-        if ("activeTest" in $$parsedSource) {
-            $$parsedSource["activeTest"] = $$createField9_0($$parsedSource["activeTest"]);
-        }
-        if ("gitInitialization" in $$parsedSource) {
-            $$parsedSource["gitInitialization"] = $$createField11_0($$parsedSource["gitInitialization"]);
-        }
-        return new WorkspaceDetail($$parsedSource as Partial<WorkspaceDetail>);
-    }
 }
 
-export class WorkspaceDraft {
+export interface WorkspaceDraft {
     "path": string;
     "content": string;
     "baseSha256": string;
     "updatedAt": string;
-
-    /** Creates a new WorkspaceDraft instance. */
-    constructor($$source: Partial<WorkspaceDraft> = {}) {
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("content" in $$source)) {
-            this["content"] = "";
-        }
-        if (!("baseSha256" in $$source)) {
-            this["baseSha256"] = "";
-        }
-        if (!("updatedAt" in $$source)) {
-            this["updatedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceDraft instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceDraft {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkspaceDraft($$parsedSource as Partial<WorkspaceDraft>);
-    }
 }
 
-export class WorkspaceRecord {
+export interface WorkspaceRecord {
     "id": string;
     "entityId": string;
     "artifactId": string;
@@ -2920,230 +980,24 @@ export class WorkspaceRecord {
     "agentStatus": string;
     "agentProcess": string;
     "agentUpdatedAt": string;
-
-    /** Creates a new WorkspaceRecord instance. */
-    constructor($$source: Partial<WorkspaceRecord> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("entityId" in $$source)) {
-            this["entityId"] = "";
-        }
-        if (!("artifactId" in $$source)) {
-            this["artifactId"] = "";
-        }
-        if (!("root" in $$source)) {
-            this["root"] = "";
-        }
-        if (!("filesRoot" in $$source)) {
-            this["filesRoot"] = "";
-        }
-        if (!("sourcePath" in $$source)) {
-            this["sourcePath"] = "";
-        }
-        if (!("sourceSha256" in $$source)) {
-            this["sourceSha256"] = "";
-        }
-        if (!("createdAt" in $$source)) {
-            this["createdAt"] = "";
-        }
-        if (!("updatedAt" in $$source)) {
-            this["updatedAt"] = "";
-        }
-        if (!("status" in $$source)) {
-            this["status"] = "";
-        }
-        if (!("lastValidation" in $$source)) {
-            this["lastValidation"] = "";
-        }
-        if (!("displayName" in $$source)) {
-            this["displayName"] = "";
-        }
-        if (!("kind" in $$source)) {
-            this["kind"] = modkit$0.Kind.$zero;
-        }
-        if (!("virgilConfigured" in $$source)) {
-            this["virgilConfigured"] = false;
-        }
-        if (!("virgilEnabled" in $$source)) {
-            this["virgilEnabled"] = false;
-        }
-        if (!("agentRunId" in $$source)) {
-            this["agentRunId"] = "";
-        }
-        if (!("agentGoal" in $$source)) {
-            this["agentGoal"] = "";
-        }
-        if (!("agentStatus" in $$source)) {
-            this["agentStatus"] = "";
-        }
-        if (!("agentProcess" in $$source)) {
-            this["agentProcess"] = "";
-        }
-        if (!("agentUpdatedAt" in $$source)) {
-            this["agentUpdatedAt"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceRecord instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceRecord {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkspaceRecord($$parsedSource as Partial<WorkspaceRecord>);
-    }
 }
 
-export class WorkspaceSearchMatch {
+export interface WorkspaceSearchMatch {
     "relativePath": string;
     "line": number;
     "column": number;
     "matchLength": number;
     "preview": string;
-
-    /** Creates a new WorkspaceSearchMatch instance. */
-    constructor($$source: Partial<WorkspaceSearchMatch> = {}) {
-        if (!("relativePath" in $$source)) {
-            this["relativePath"] = "";
-        }
-        if (!("line" in $$source)) {
-            this["line"] = 0;
-        }
-        if (!("column" in $$source)) {
-            this["column"] = 0;
-        }
-        if (!("matchLength" in $$source)) {
-            this["matchLength"] = 0;
-        }
-        if (!("preview" in $$source)) {
-            this["preview"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceSearchMatch instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceSearchMatch {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkspaceSearchMatch($$parsedSource as Partial<WorkspaceSearchMatch>);
-    }
 }
 
-export class WorkspaceSearchOptions {
+export interface WorkspaceSearchOptions {
     "query": string;
     "regex": boolean;
     "caseSensitive": boolean;
-
-    /** Creates a new WorkspaceSearchOptions instance. */
-    constructor($$source: Partial<WorkspaceSearchOptions> = {}) {
-        if (!("query" in $$source)) {
-            this["query"] = "";
-        }
-        if (!("regex" in $$source)) {
-            this["regex"] = false;
-        }
-        if (!("caseSensitive" in $$source)) {
-            this["caseSensitive"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceSearchOptions instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceSearchOptions {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkspaceSearchOptions($$parsedSource as Partial<WorkspaceSearchOptions>);
-    }
 }
 
-export class WorkspaceTextFile {
+export interface WorkspaceTextFile {
     "path": string;
     "content": string;
     "sha256": string;
-
-    /** Creates a new WorkspaceTextFile instance. */
-    constructor($$source: Partial<WorkspaceTextFile> = {}) {
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("content" in $$source)) {
-            this["content"] = "";
-        }
-        if (!("sha256" in $$source)) {
-            this["sha256"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new WorkspaceTextFile instance from a string or object.
-     */
-    static createFrom($$source: any = {}): WorkspaceTextFile {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new WorkspaceTextFile($$parsedSource as Partial<WorkspaceTextFile>);
-    }
 }
-
-// Private type creation functions
-const $$createType0 = AIProviderConnection.createFrom;
-const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = UsageLimit.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = $Create.Map($Create.Any, $Create.Any);
-const $$createType5 = $Create.Array($Create.Any);
-const $$createType6 = EventRecord.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = LibraryItem.createFrom;
-const $$createType9 = ArchiveLink.createFrom;
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = ExportRecord.createFrom;
-const $$createType12 = modkit$0.ExportResult.createFrom;
-const $$createType13 = modkit$0.Manifest.createFrom;
-const $$createType14 = ModTag.createFrom;
-const $$createType15 = $Create.Array($$createType14);
-const $$createType16 = VirusScanStageReference.createFrom;
-const $$createType17 = $Create.Array($$createType16);
-const $$createType18 = LibraryFolder.createFrom;
-const $$createType19 = $Create.Array($$createType18);
-const $$createType20 = ModPreset.createFrom;
-const $$createType21 = $Create.Array($$createType20);
-const $$createType22 = ModProfile.createFrom;
-const $$createType23 = $Create.Array($$createType22);
-const $$createType24 = ProfilePreset.createFrom;
-const $$createType25 = $Create.Array($$createType24);
-const $$createType26 = ProfileMod.createFrom;
-const $$createType27 = $Create.Array($$createType26);
-const $$createType28 = ProfileActivation.createFrom;
-const $$createType29 = ProcessLaunch.createFrom;
-const $$createType30 = RuntimeDiagnostic.createFrom;
-const $$createType31 = $Create.Array($$createType30);
-const $$createType32 = AppConfig.createFrom;
-const $$createType33 = SetupInput.createFrom;
-const $$createType34 = AgentRunRecord.createFrom;
-const $$createType35 = $Create.Array($$createType34);
-const $$createType36 = VirgilSessionSummary.createFrom;
-const $$createType37 = $Create.Nullable($$createType36);
-const $$createType38 = VirusScanStage.createFrom;
-const $$createType39 = $Create.Array($$createType38);
-const $$createType40 = $Create.Map($Create.Any, $Create.Any);
-const $$createType41 = WorkspaceRecord.createFrom;
-const $$createType42 = modkit$0.FileSnapshot.createFrom;
-const $$createType43 = $Create.Array($$createType42);
-const $$createType44 = WorkspaceDraft.createFrom;
-const $$createType45 = $Create.Array($$createType44);
-const $$createType46 = modkit$0.ValidationResult.createFrom;
-const $$createType47 = $Create.Array($$createType11);
-const $$createType48 = VirgilSessionRecord.createFrom;
-const $$createType49 = $Create.Array($$createType48);
-const $$createType50 = KnowledgeDocument.createFrom;
-const $$createType51 = $Create.Array($$createType50);
-const $$createType52 = TestInstallRecord.createFrom;
-const $$createType53 = $Create.Nullable($$createType52);
-const $$createType54 = GitInitializationResult.createFrom;

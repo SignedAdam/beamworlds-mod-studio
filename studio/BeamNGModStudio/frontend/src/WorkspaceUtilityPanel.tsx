@@ -2,33 +2,29 @@ import type {
   RuntimeReport,
   WorkspaceDetail,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
-import type { WorkspaceChange } from "../bindings/github.com/SignedAdam/beamworlds-modkit/models.js";
 import { Icon } from "./icons";
 import {
   Badge,
   Button,
   EmptyState,
   HelpTip,
-  Spinner,
   formatDate,
   issueTone,
 } from "./ui";
 
-export type WorkspaceTool = "changes" | "build" | "context" | "game";
+export type WorkspaceTool = "source" | "build" | "context" | "game";
+type WorkspaceUtilityTool = Exclude<WorkspaceTool, "source">;
 
 type BusyKey = string;
 
 export interface WorkspaceUtilityPanelProps {
-  active: WorkspaceTool;
+  active: WorkspaceUtilityTool;
   detail: WorkspaceDetail;
-  changes: WorkspaceChange[];
-  diffLoading: boolean;
   runtime: RuntimeReport | null;
   exportLabel: string;
   busy: BusyKey;
   onClose: () => void;
   onExportLabelChange: (label: string) => void;
-  onRefreshDiff: () => void | Promise<void>;
   onValidate: () => void | Promise<void>;
   onExport: () => void | Promise<void>;
   onInstall: () => void | Promise<void>;
@@ -37,8 +33,7 @@ export interface WorkspaceUtilityPanelProps {
   onAnalyze: () => void | Promise<void>;
 }
 
-const titles: Record<WorkspaceTool, string> = {
-  changes: "Change history",
+const titles: Record<WorkspaceUtilityTool, string> = {
   build: "Build",
   context: "Context",
   game: "Game test",
@@ -47,14 +42,11 @@ const titles: Record<WorkspaceTool, string> = {
 export function WorkspaceUtilityPanel({
   active,
   detail,
-  changes,
-  diffLoading,
   runtime,
   exportLabel,
   busy,
   onClose,
   onExportLabelChange,
-  onRefreshDiff,
   onValidate,
   onExport,
   onInstall,
@@ -74,72 +66,17 @@ export function WorkspaceUtilityPanel({
       <header className="workspace-utility__header">
         <strong>{titles[active]}</strong>
         <HelpTip label={`About ${titles[active]}`}>
-          {active === "changes"
-            ? "Added, modified, and deleted files are calculated against the immutable source ZIP."
-            : active === "build"
-              ? "Validation checks workspace structure. Export creates a verified immutable ZIP without modifying the original source."
-              : active === "context"
-                ? "Reference material supplied to Virgil according to context depth in settings."
-                : "Install an exact export into the managed test location, exercise it in BeamNG, then analyze only fresh log bytes."}
+          {active === "build"
+            ? "Validation checks workspace structure. Export creates a verified immutable ZIP without modifying the original source."
+            : active === "context"
+              ? "Reference material supplied to Virgil according to context depth in settings."
+              : "Install an exact export into the managed test location, exercise it in BeamNG, then analyze only fresh log bytes."}
         </HelpTip>
         <span />
-        {active === "changes" && (
-          <Button icon="refresh" onClick={() => void onRefreshDiff()}>
-            Refresh
-          </Button>
-        )}
         <Button tone="quiet" icon="close" onClick={onClose}>
           Close
         </Button>
       </header>
-      {active === "changes" && (
-        <div className="maker-pane">
-          {diffLoading ? (
-            <div className="center-loader">
-              <Spinner />
-              <span>Computing hashes</span>
-            </div>
-          ) : changes.length === 0 ? (
-            <EmptyState
-              icon="diff"
-              title="No source changes"
-              detail="The workspace currently matches its immutable source."
-            />
-          ) : (
-            <div className="change-list">
-              {changes.map((change) => (
-                <article
-                  key={change.path}
-                  className={`change change--${change.type}`}
-                >
-                  <Badge
-                    tone={
-                      change.type === "added"
-                        ? "success"
-                        : change.type === "deleted"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {change.type}
-                  </Badge>
-                  <code>{change.path}</code>
-                  <span>
-                    {change.type === "modified"
-                      ? "Content changed"
-                      : change.type === "added"
-                        ? "New workspace file"
-                        : "Removed from workspace"}
-                  </span>
-                  {change.textDiff && (
-                    <pre className="change-diff">{change.textDiff}</pre>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       {active === "build" && (
         <div className="maker-pane">
           <section className="build-section">

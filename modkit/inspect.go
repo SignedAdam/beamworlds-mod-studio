@@ -40,6 +40,28 @@ var imageExtensions = map[string]string{
 	".gif": "image/gif", ".webp": "image/webp",
 }
 
+var sharedAssetExtensions = map[string]bool{
+	".bmp":  true,
+	".cdae": true,
+	".dae":  true,
+	".dds":  true,
+	".fbx":  true,
+	".flac": true,
+	".gif":  true,
+	".glb":  true,
+	".gltf": true,
+	".jpeg": true,
+	".jpg":  true,
+	".mp3":  true,
+	".mp4":  true,
+	".obj":  true,
+	".ogg":  true,
+	".png":  true,
+	".tga":  true,
+	".wav":  true,
+	".webm": true,
+}
+
 func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -75,6 +97,7 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 		MetadataDocuments: []MetadataDocument{},
 		Images:            []ImageCandidate{},
 		Variants:          []Variant{},
+		SharedAssets:      &SharedAssetStats{},
 		Issues:            []Issue{},
 	}
 
@@ -180,6 +203,7 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	manifest.Variants = findVariants(logicalNames, actualByLogical, filesByLower, metadataByLower)
 	manifest.JBeam = analyzeJBeam(ctx, logicalNames, actualByLogical, filesByLower, &manifest.Issues)
 	analyzeMapAndUI(&manifest, logicalNames)
+	analyzeSharedAssets(&manifest, logicalNames, actualByLogical, filesByLower)
 
 	if len(actualNames) == 0 {
 		manifest.ValidArchive = false
@@ -697,6 +721,49 @@ func collectControllerNames(value any, result map[string]bool) {
 			collectControllerNames(child, result)
 		}
 	}
+}
+
+func analyzeSharedAssets(manifest *Manifest, logical []string, actualByLogical map[string]string, filesByLower map[string]*zip.File) {
+	if manifest == nil {
+		return
+	}
+	stats := &SharedAssetStats{}
+	for _, name := range logical {
+		normalized := normalizeSharedAssetName(name)
+		if normalized == "" || !isSharedAssetName(normalized) {
+			continue
+		}
+		actualName := actualByLogical[normalized]
+		if file := filesByLower[strings.ToLower(actualName)]; file != nil && file.FileInfo().IsDir() {
+			continue
+		}
+		stats.Files++
+	}
+	manifest.SharedAssets = stats
+}
+
+func normalizeSharedAssetName(name string) string {
+	normalized := strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimLeft(normalized, "/")
+	if normalized == "" || strings.HasSuffix(normalized, "/") {
+		return ""
+	}
+	cleaned := path.Clean(normalized)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return ""
+	}
+	return strings.ToLower(cleaned)
+}
+
+func isSharedAssetName(name string) bool {
+	if !strings.HasPrefix(name, "assets/") &&
+		!strings.HasPrefix(name, "art/") &&
+		!strings.HasPrefix(name, "common/") &&
+		!strings.HasPrefix(name, "vehicles/common/") {
+		return false
+	}
+	return strings.HasSuffix(name, ".materials.json") || sharedAssetExtensions[path.Ext(name)]
 }
 
 func analyzeMapAndUI(manifest *Manifest, logical []string) {

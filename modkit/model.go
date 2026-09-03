@@ -108,6 +108,10 @@ type MapStats struct {
 	SpawnPoints      int      `json:"spawnPoints"`
 }
 
+type SharedAssetStats struct {
+	Files int `json:"files"`
+}
+
 type UIStats struct {
 	AppRoots        []string `json:"appRoots,omitempty"`
 	HTMLFiles       int      `json:"htmlFiles"`
@@ -148,6 +152,7 @@ type Manifest struct {
 	JBeam              JBeamStats          `json:"jbeam"`
 	Map                MapStats            `json:"map"`
 	UI                 UIStats             `json:"ui"`
+	SharedAssets       *SharedAssetStats   `json:"sharedAssets,omitempty"`
 	Issues             []Issue             `json:"issues,omitempty"`
 }
 

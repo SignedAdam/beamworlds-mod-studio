@@ -41,6 +41,12 @@ var imageExtensions = map[string]string{
 }
 
 func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, err
+	}
 	stat, err := os.Stat(archivePath)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("stat archive: %w", err)
@@ -123,11 +129,11 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 
 	logicalNames, wrapper := unwrapLogicalPaths(logicalCandidates)
 	manifest.Wrapper = wrapper
-	if wrapper != "" {
-		manifest.Issues = append(manifest.Issues, Issue{Code: "nested-root", Severity: SeverityWarning, Message: "Content is wrapped in a top-level directory", Path: wrapper})
-	}
 	actualByLogical := make(map[string]string, len(logicalNames))
 	for i, logical := range logicalNames {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
 		actualByLogical[strings.ToLower(logical)] = actualNames[i]
 	}
 
@@ -136,6 +142,9 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	metadataByLower := map[string]map[string]any{}
 	metadataBytes := uint64(0)
 	for _, candidate := range metadataFiles {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, err
+		}
 		if len(manifest.MetadataDocuments) >= maxMetadataDocuments {
 			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-limit", Severity: SeverityInfo, Message: "Additional metadata documents were omitted from normalized analysis"})
 			break
@@ -144,8 +153,11 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-too-large", Severity: SeverityWarning, Message: "Metadata document exceeds analysis limits", Path: candidate.Name})
 			continue
 		}
-		data, readErr := readZipEntry(candidate, maxMetadataFile)
+		data, readErr := readZipEntryContext(ctx, candidate, maxMetadataFile)
 		if readErr != nil {
+			if err := ctx.Err(); err != nil {
+				return Manifest{}, err
+			}
 			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-unreadable", Severity: SeverityWarning, Message: readErr.Error(), Path: candidate.Name})
 			continue
 		}
@@ -591,8 +603,11 @@ func analyzeJBeam(ctx context.Context, logical []string, actual map[string]strin
 			*issues = append(*issues, Issue{Code: "jbeam-limit", Severity: SeverityInfo, Message: "JBeam file omitted from deep counts due to analysis limits", Path: actualName})
 			continue
 		}
-		raw, err := readZipEntry(file, maxJBeamFile)
+		raw, err := readZipEntryContext(ctx, file, maxJBeamFile)
 		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
 			*issues = append(*issues, Issue{Code: "jbeam-unreadable", Severity: SeverityWarning, Message: err.Error(), Path: actualName})
 			continue
 		}
@@ -606,6 +621,9 @@ func analyzeJBeam(ctx context.Context, logical []string, actual map[string]strin
 		walkJBeam(parsed, &stats, controllerSet)
 	}
 	for controller := range controllerSet {
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		stats.Controllers = append(stats.Controllers, controller)
 	}
 	sort.Strings(stats.Controllers)
@@ -750,6 +768,16 @@ func analyzeMapAndUI(manifest *Manifest, logical []string) {
 }
 
 func readZipEntry(file *zip.File, limit int64) ([]byte, error) {
+	return readZipEntryContext(context.Background(), file, limit)
+}
+
+func readZipEntryContext(ctx context.Context, file *zip.File, limit int64) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if file.UncompressedSize64 > uint64(limit) {
 		return nil, fmt.Errorf("entry is %d bytes; limit is %d", file.UncompressedSize64, limit)
 	}
@@ -758,7 +786,7 @@ func readZipEntry(file *zip.File, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	defer reader.Close()
-	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	data, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: reader}, limit+1))
 	if err != nil {
 		return nil, err
 	}

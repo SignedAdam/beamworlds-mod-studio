@@ -13,9 +13,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -180,15 +182,34 @@ func ReadWorkspaceManifest(workspaceRoot string) (WorkspaceManifest, error) {
 }
 
 func ListWorkspaceFiles(filesRoot string) ([]FileSnapshot, error) {
-	return listWorkspaceFiles(filesRoot, true)
+	return ListWorkspaceFilesContext(context.Background(), filesRoot)
+}
+
+func ListWorkspaceFilesContext(ctx context.Context, filesRoot string) ([]FileSnapshot, error) {
+	return listWorkspaceFiles(ctx, filesRoot, true)
 }
 
 func ListWorkspaceFileInfo(filesRoot string) ([]FileSnapshot, error) {
-	return listWorkspaceFiles(filesRoot, false)
+	return ListWorkspaceFileInfoContext(context.Background(), filesRoot)
 }
+
+func ListWorkspaceFileInfoContext(ctx context.Context, filesRoot string) ([]FileSnapshot, error) {
+	return listWorkspaceFiles(ctx, filesRoot, false)
+}
+
 func ListWorkspaceDirectories(filesRoot string) ([]string, error) {
+	return ListWorkspaceDirectoriesContext(context.Background(), filesRoot)
+}
+
+func ListWorkspaceDirectoriesContext(ctx context.Context, filesRoot string) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := []string{}
 	err := filepath.WalkDir(filesRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -209,9 +230,15 @@ func ListWorkspaceDirectories(filesRoot string) ([]string, error) {
 	return result, nil
 }
 
-func listWorkspaceFiles(filesRoot string, includeHashes bool) ([]FileSnapshot, error) {
+func listWorkspaceFiles(ctx context.Context, filesRoot string, includeHashes bool) ([]FileSnapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := []FileSnapshot{}
 	err := filepath.WalkDir(filesRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -228,7 +255,7 @@ func listWorkspaceFiles(filesRoot string, includeHashes bool) ([]FileSnapshot, e
 		}
 		hash := ""
 		if includeHashes {
-			hash, err = hashFile(filename)
+			hash, err = hashFileContext(ctx, filename)
 			if err != nil {
 				return err
 			}
@@ -243,7 +270,68 @@ func listWorkspaceFiles(filesRoot string, includeHashes bool) ([]FileSnapshot, e
 	return result, nil
 }
 
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(buffer []byte) (int, error) {
+	if reader.ctx != nil {
+		if err := reader.ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
+	count, err := reader.reader.Read(buffer)
+	if reader.ctx != nil {
+		if contextErr := reader.ctx.Err(); contextErr != nil {
+			return count, contextErr
+		}
+	}
+	return count, err
+}
+
+func hashFileContext(ctx context.Context, filename string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	buffer := make([]byte, 4<<20)
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		count, readErr := file.Read(buffer)
+		if count > 0 {
+			if _, err := hash.Write(buffer[:count]); err != nil {
+				return "", err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", readErr
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 func ReadWorkspaceText(filesRoot, relativePath string) (string, error) {
+	return ReadWorkspaceTextContext(context.Background(), filesRoot, relativePath)
+}
+
+func ReadWorkspaceTextContext(ctx context.Context, filesRoot, relativePath string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	filename, err := safeJoin(filesRoot, relativePath)
 	if err != nil {
 		return "", err
@@ -255,9 +343,17 @@ func ReadWorkspaceText(filesRoot, relativePath string) (string, error) {
 	if info.Size() > maxEditorBytes {
 		return "", fmt.Errorf("file is %d bytes; editor limit is %d", info.Size(), maxEditorBytes)
 	}
-	data, err := os.ReadFile(filename)
+	file, err := os.Open(filename)
 	if err != nil {
 		return "", err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, maxEditorBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > maxEditorBytes {
+		return "", fmt.Errorf("file is %d bytes; editor limit is %d", len(data), maxEditorBytes)
 	}
 	if !isText(data) {
 		return "", fmt.Errorf("file is binary")
@@ -266,6 +362,16 @@ func ReadWorkspaceText(filesRoot, relativePath string) (string, error) {
 }
 
 func WriteWorkspaceText(filesRoot, relativePath, content string) error {
+	return WriteWorkspaceTextContext(context.Background(), filesRoot, relativePath, content)
+}
+
+func WriteWorkspaceTextContext(ctx context.Context, filesRoot, relativePath, content string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if int64(len(content)) > maxEditorBytes {
 		return fmt.Errorf("content exceeds %d-byte editor limit", maxEditorBytes)
 	}
@@ -282,7 +388,11 @@ func WriteWorkspaceText(filesRoot, relativePath, content string) error {
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
-	if _, err := temporary.WriteString(content); err != nil {
+	if _, err := io.Copy(temporary, contextReader{ctx: ctx, reader: strings.NewReader(content)}); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		_ = temporary.Close()
 		return err
 	}
@@ -293,12 +403,25 @@ func WriteWorkspaceText(filesRoot, relativePath, content string) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return os.Rename(temporaryName, filename)
 }
 
 func ReplaceWorkspaceText(filesRoot, relativePath, oldText, newText string, all bool) (int, error) {
-	content, err := ReadWorkspaceText(filesRoot, relativePath)
+	return ReplaceWorkspaceTextContext(context.Background(), filesRoot, relativePath, oldText, newText, all)
+}
+
+func ReplaceWorkspaceTextContext(ctx context.Context, filesRoot, relativePath, oldText, newText string, all bool) (int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	content, err := ReadWorkspaceTextContext(ctx, filesRoot, relativePath)
 	if err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
 	count := strings.Count(content, oldText)
@@ -312,7 +435,8 @@ func ReplaceWorkspaceText(filesRoot, relativePath, oldText, newText string, all 
 	if all {
 		limit = -1
 	}
-	if err := WriteWorkspaceText(filesRoot, relativePath, strings.Replace(content, oldText, newText, limit)); err != nil {
+	replacement := strings.Replace(content, oldText, newText, limit)
+	if err := WriteWorkspaceTextContext(ctx, filesRoot, relativePath, replacement); err != nil {
 		return 0, err
 	}
 	if all {
@@ -322,27 +446,48 @@ func ReplaceWorkspaceText(filesRoot, relativePath, oldText, newText string, all 
 }
 
 func DiffWorkspace(sourceArchive, filesRoot string, baseline []FileSnapshot) ([]WorkspaceChange, error) {
-	current, err := ListWorkspaceFiles(filesRoot)
+	return DiffWorkspaceContext(context.Background(), sourceArchive, filesRoot, baseline)
+}
+
+func DiffWorkspaceContext(ctx context.Context, sourceArchive, filesRoot string, baseline []FileSnapshot) ([]WorkspaceChange, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	current, err := ListWorkspaceFilesContext(ctx, filesRoot)
 	if err != nil {
 		return nil, err
 	}
 	before := make(map[string]FileSnapshot, len(baseline))
 	after := make(map[string]FileSnapshot, len(current))
 	for _, item := range baseline {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		before[strings.ToLower(item.Path)] = item
 	}
 	for _, item := range current {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		after[strings.ToLower(item.Path)] = item
 	}
 	differ := diffmatchpatch.New()
 	changes := []WorkspaceChange{}
 	for key, oldItem := range before {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		newItem, exists := after[key]
 		if !exists {
 			change := WorkspaceChange{Path: oldItem.Path, Type: "deleted", BeforeSHA: oldItem.SHA256, SizeBytes: oldItem.SizeBytes}
 			if oldItem.SizeBytes <= maxDiffBytes {
-				if oldText, oldErr := readArchiveText(sourceArchive, oldItem.Path, maxDiffBytes); oldErr == nil {
+				if oldText, oldErr := readArchiveTextContext(ctx, sourceArchive, oldItem.Path, maxDiffBytes); oldErr == nil {
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
 					change.TextDiff = semanticTextDiff(differ, oldItem.Path, oldText, "")
+				} else if err := ctx.Err(); err != nil {
+					return nil, err
 				}
 			}
 			changes = append(changes, change)
@@ -353,8 +498,11 @@ func DiffWorkspace(sourceArchive, filesRoot string, baseline []FileSnapshot) ([]
 		}
 		change := WorkspaceChange{Path: newItem.Path, Type: "modified", BeforeSHA: oldItem.SHA256, AfterSHA: newItem.SHA256, SizeBytes: newItem.SizeBytes}
 		if oldItem.SizeBytes <= maxDiffBytes && newItem.SizeBytes <= maxDiffBytes {
-			oldText, oldErr := readArchiveText(sourceArchive, oldItem.Path, maxDiffBytes)
-			newText, newErr := ReadWorkspaceText(filesRoot, newItem.Path)
+			oldText, oldErr := readArchiveTextContext(ctx, sourceArchive, oldItem.Path, maxDiffBytes)
+			newText, newErr := ReadWorkspaceTextContext(ctx, filesRoot, newItem.Path)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if oldErr == nil && newErr == nil {
 				change.TextDiff = semanticTextDiff(differ, newItem.Path, oldText, newText)
 			}
@@ -362,16 +510,27 @@ func DiffWorkspace(sourceArchive, filesRoot string, baseline []FileSnapshot) ([]
 		changes = append(changes, change)
 	}
 	for key, newItem := range after {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, exists := before[key]; exists {
 			continue
 		}
 		change := WorkspaceChange{Path: newItem.Path, Type: "added", AfterSHA: newItem.SHA256, SizeBytes: newItem.SizeBytes}
 		if newItem.SizeBytes <= maxDiffBytes {
-			if newText, newErr := ReadWorkspaceText(filesRoot, newItem.Path); newErr == nil {
+			if newText, newErr := ReadWorkspaceTextContext(ctx, filesRoot, newItem.Path); newErr == nil {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				change.TextDiff = semanticTextDiff(differ, newItem.Path, "", newText)
+			} else if err := ctx.Err(); err != nil {
+				return nil, err
 			}
 		}
 		changes = append(changes, change)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
 	return changes, nil
@@ -469,21 +628,33 @@ func semanticTextDiff(differ *diffmatchpatch.DiffMatchPatch, relativePath, befor
 }
 
 func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath string, baseline []FileSnapshot) (ExportResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ExportResult{}, err
+	}
 	if _, err := os.Stat(outputPath); err == nil {
 		return ExportResult{}, fmt.Errorf("export already exists: %s", outputPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return ExportResult{}, err
 	}
-	current, err := ListWorkspaceFiles(filesRoot)
+	current, err := ListWorkspaceFilesContext(ctx, filesRoot)
 	if err != nil {
 		return ExportResult{}, err
 	}
 	currentByLower := make(map[string]FileSnapshot, len(current))
 	baselineByLower := make(map[string]FileSnapshot, len(baseline))
 	for _, item := range current {
+		if err := ctx.Err(); err != nil {
+			return ExportResult{}, err
+		}
 		currentByLower[strings.ToLower(item.Path)] = item
 	}
 	for _, item := range baseline {
+		if err := ctx.Err(); err != nil {
+			return ExportResult{}, err
+		}
 		baselineByLower[strings.ToLower(item.Path)] = item
 	}
 	reader, err := zip.OpenReader(sourceArchive)
@@ -521,7 +692,7 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 		}
 		key := strings.ToLower(name)
 		if source.FileInfo().IsDir() {
-			if err := writer.Copy(source); err != nil {
+			if err := copyArchiveEntryContext(ctx, writer, source); err != nil {
 				_ = writer.Close()
 				return ExportResult{}, err
 			}
@@ -534,11 +705,11 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 		}
 		baselineItem := baselineByLower[key]
 		if baselineItem.SHA256 != "" && baselineItem.SHA256 == currentItem.SHA256 {
-			if err := writer.Copy(source); err != nil {
+			if err := copyArchiveEntryContext(ctx, writer, source); err != nil {
 				_ = writer.Close()
 				return ExportResult{}, err
 			}
-		} else if err := writeWorkspaceEntry(writer, source.FileHeader, filesRoot, currentItem.Path); err != nil {
+		} else if err := writeWorkspaceEntryContext(ctx, writer, source.FileHeader, filesRoot, currentItem.Path); err != nil {
 			_ = writer.Close()
 			return ExportResult{}, err
 		}
@@ -547,20 +718,31 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 	}
 	added := []FileSnapshot{}
 	for key, item := range currentByLower {
+		if err := ctx.Err(); err != nil {
+			_ = writer.Close()
+			return ExportResult{}, err
+		}
 		if !written[key] && baselineByLower[key].SHA256 == "" {
 			added = append(added, item)
 		}
 	}
 	sort.Slice(added, func(i, j int) bool { return added[i].Path < added[j].Path })
 	for _, item := range added {
+		if err := ctx.Err(); err != nil {
+			_ = writer.Close()
+			return ExportResult{}, err
+		}
 		header := zip.FileHeader{Name: item.Path, Method: zip.Deflate, Modified: time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)}
-		if err := writeWorkspaceEntry(writer, header, filesRoot, item.Path); err != nil {
+		if err := writeWorkspaceEntryContext(ctx, writer, header, filesRoot, item.Path); err != nil {
 			_ = writer.Close()
 			return ExportResult{}, err
 		}
 		entryCount++
 	}
 	if err := writer.Close(); err != nil {
+		return ExportResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return ExportResult{}, err
 	}
 	if err := temporary.Sync(); err != nil {
@@ -592,6 +774,16 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 }
 
 func writeWorkspaceEntry(writer *zip.Writer, original zip.FileHeader, filesRoot, relativePath string) error {
+	return writeWorkspaceEntryContext(context.Background(), writer, original, filesRoot, relativePath)
+}
+
+func writeWorkspaceEntryContext(ctx context.Context, writer *zip.Writer, original zip.FileHeader, filesRoot, relativePath string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	filename, err := safeJoin(filesRoot, relativePath)
 	if err != nil {
 		return err
@@ -616,22 +808,59 @@ func writeWorkspaceEntry(writer *zip.Writer, original zip.FileHeader, filesRoot,
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(output, input)
+	_, err = io.Copy(output, contextReader{ctx: ctx, reader: input})
+	return err
+}
+
+func copyArchiveEntryContext(ctx context.Context, writer *zip.Writer, source *zip.File) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if source.FileInfo().IsDir() {
+		return writer.Copy(source)
+	}
+	input, err := source.Open()
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	header := source.FileHeader
+	output, err := writer.CreateHeader(&header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(output, contextReader{ctx: ctx, reader: input})
 	return err
 }
 
 func readArchiveText(archivePath, memberPath string, limit int64) (string, error) {
+	return readArchiveTextContext(context.Background(), archivePath, memberPath, limit)
+}
+
+func readArchiveTextContext(ctx context.Context, archivePath, memberPath string, limit int64) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", err
 	}
 	defer reader.Close()
 	for _, file := range reader.File {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		name, pathErr := normalizeArchivePath(file.Name)
 		if pathErr != nil || !strings.EqualFold(name, memberPath) {
 			continue
 		}
-		data, err := readZipEntry(file, limit)
+		data, err := readZipEntryContext(ctx, file, limit)
 		if err != nil {
 			return "", err
 		}
@@ -664,16 +893,7 @@ func safeJoin(root, relativePath string) (string, error) {
 }
 
 func hashFile(filename string) (string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hashFileContext(context.Background(), filename)
 }
 
 func isText(data []byte) bool {
@@ -684,25 +904,121 @@ func isText(data []byte) bool {
 	if limit > 8_192 {
 		limit = 8_192
 	}
+	if !utf8.Valid(data[:limit]) {
+		return false
+	}
 	for _, value := range data[:limit] {
-		if value == 0 {
+		if value == 0 ||
+			(value < 0x20 &&
+				value != '\t' &&
+				value != '\n' &&
+				value != '\r' &&
+				value != '\f') ||
+			value == 0x7f {
 			return false
 		}
 	}
 	return true
 }
 
+type WorkspaceSearchMatch struct {
+	RelativePath string `json:"relativePath"`
+	Line         int    `json:"line"`
+	// Column is a one-based UTF-16 code-unit column, matching CodeMirror positions.
+	Column int `json:"column"`
+	// MatchLength is the UTF-16 code-unit length of the first match on the line.
+	MatchLength int    `json:"matchLength"`
+	Preview     string `json:"preview"`
+}
+
+func utf16Length(value string) int {
+	return len(utf16.Encode([]rune(value)))
+}
+
+func formatWorkspaceSearchMatches(matches []WorkspaceSearchMatch) []string {
+	results := make([]string, len(matches))
+	for index, match := range matches {
+		results[index] = fmt.Sprintf(
+			"%s:%d:%s",
+			match.RelativePath,
+			match.Line,
+			match.Preview,
+		)
+	}
+	return results
+}
+
 func SearchWorkspace(filesRoot, query string, maxResults int) ([]string, error) {
-	query = strings.ToLower(strings.TrimSpace(query))
+	return SearchWorkspaceWithOptions(filesRoot, query, maxResults, false, false)
+}
+
+func SearchWorkspaceContext(ctx context.Context, filesRoot, query string, maxResults int) ([]string, error) {
+	return SearchWorkspaceWithOptionsContext(ctx, filesRoot, query, maxResults, false, false)
+}
+
+func SearchWorkspaceWithOptions(filesRoot, query string, maxResults int, regex, caseSensitive bool) ([]string, error) {
+	return SearchWorkspaceWithOptionsContext(context.Background(), filesRoot, query, maxResults, regex, caseSensitive)
+}
+
+func SearchWorkspaceWithOptionsContext(ctx context.Context, filesRoot, query string, maxResults int, regex, caseSensitive bool) ([]string, error) {
+	matches, err := SearchWorkspaceMatchesContext(
+		ctx,
+		filesRoot,
+		query,
+		maxResults,
+		regex,
+		caseSensitive,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return formatWorkspaceSearchMatches(matches), nil
+}
+
+func SearchWorkspaceMatches(filesRoot, query string, maxResults int, regex, caseSensitive bool) ([]WorkspaceSearchMatch, error) {
+	return SearchWorkspaceMatchesContext(
+		context.Background(),
+		filesRoot,
+		query,
+		maxResults,
+		regex,
+		caseSensitive,
+	)
+}
+
+func SearchWorkspaceMatchesContext(ctx context.Context, filesRoot, query string, maxResults int, regex, caseSensitive bool) ([]WorkspaceSearchMatch, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 || maxResults > 500 {
 		maxResults = 200
 	}
-	results := []string{}
+
+	patternQuery := query
+	if !regex {
+		patternQuery = regexp.QuoteMeta(patternQuery)
+	}
+	if !caseSensitive {
+		patternQuery = "(?i)" + patternQuery
+	}
+	pattern, err := regexp.Compile(patternQuery)
+	if err != nil {
+		return nil, fmt.Errorf("invalid search pattern: %w", err)
+	}
+
+	results := []WorkspaceSearchMatch{}
 	errStop := errors.New("result limit reached")
-	err := filepath.WalkDir(filesRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(filesRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -717,21 +1033,50 @@ func SearchWorkspace(filesRoot, query string, maxResults int) ([]string, error) 
 		if err != nil {
 			return nil
 		}
+		probe := make([]byte, 8_192)
+		probeCount, probeErr := file.Read(probe)
+		if probeErr != nil && !errors.Is(probeErr, io.EOF) {
+			_ = file.Close()
+			return nil
+		}
+		if !isText(probe[:probeCount]) {
+			_ = file.Close()
+			return nil
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			_ = file.Close()
+			return nil
+		}
 		relative, _ := filepath.Rel(filesRoot, filename)
 		scanErr := func() error {
 			defer file.Close()
-			scanner := bufio.NewScanner(io.LimitReader(file, maxEditorBytes+1))
+			scanner := bufio.NewScanner(io.LimitReader(contextReader{ctx: ctx, reader: file}, maxEditorBytes+1))
 			scanner.Buffer(make([]byte, 64*1024), int(maxEditorBytes))
 			line := 0
 			for scanner.Scan() {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 				line++
 				text := scanner.Text()
-				if strings.Contains(strings.ToLower(text), query) {
-					results = append(results, fmt.Sprintf("%s:%d:%s", filepath.ToSlash(relative), line, searchSnippet(text, query)))
-					if len(results) >= maxResults {
-						return errStop
-					}
+				location := pattern.FindStringIndex(text)
+				if location == nil {
+					continue
 				}
+				matchIndex, matchEnd := location[0], location[1]
+				results = append(results, WorkspaceSearchMatch{
+					RelativePath: filepath.ToSlash(relative),
+					Line:         line,
+					Column:       utf16Length(text[:matchIndex]) + 1,
+					MatchLength:  utf16Length(text[matchIndex:matchEnd]),
+					Preview:      searchSnippetAt(text, matchIndex),
+				})
+				if len(results) >= maxResults {
+					return errStop
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			return scanner.Err()
 		}()
@@ -743,20 +1088,24 @@ func SearchWorkspace(filesRoot, query string, maxResults int) ([]string, error) 
 	return results, nil
 }
 
-func searchSnippet(text, query string) string {
+func searchSnippetAt(text string, matchIndex int) string {
 	const (
 		maxBytes     = 480
 		leadingBytes = 160
 	)
+	leadingTrimmed := len(text) - len(strings.TrimLeft(text, " \t\r\n"))
 	text = strings.TrimSpace(text)
+	matchIndex -= leadingTrimmed
 	if len(text) <= maxBytes {
 		return text
 	}
-	match := strings.Index(strings.ToLower(text), query)
-	if match < 0 {
-		match = 0
+	if matchIndex < 0 {
+		matchIndex = 0
 	}
-	start := max(match-leadingBytes, 0)
+	if matchIndex > len(text) {
+		matchIndex = len(text)
+	}
+	start := max(matchIndex-leadingBytes, 0)
 	end := min(start+maxBytes, len(text))
 	for start > 0 && !utf8.RuneStart(text[start]) {
 		start--

@@ -1,8 +1,10 @@
 package modkit
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,15 +15,28 @@ import (
 )
 
 func ValidateWorkspace(filesRoot string) ValidationResult {
+	return ValidateWorkspaceContext(context.Background(), filesRoot)
+}
+
+func ValidateWorkspaceContext(ctx context.Context, filesRoot string) ValidationResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	issues := []Issue{}
-	files, err := ListWorkspaceFiles(filesRoot)
+	files, err := ListWorkspaceFilesContext(ctx, filesRoot)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-cancelled", Severity: SeverityError, Message: ctx.Err().Error()}}}
+		}
 		return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-unreadable", Severity: SeverityError, Message: err.Error()}}}
 	}
 	seen := map[string]string{}
 	knownRootFound := false
 	fileSet := map[string]bool{}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-cancelled", Severity: SeverityError, Message: err.Error()}}}
+		}
 		normalized, pathErr := normalizeArchivePath(file.Path)
 		if pathErr != nil {
 			issues = append(issues, Issue{Code: "unsafe-path", Severity: SeverityError, Message: pathErr.Error(), Path: file.Path})
@@ -48,9 +63,26 @@ func ValidateWorkspace(filesRoot string) ValidationResult {
 				issues = append(issues, Issue{Code: "parse-limit", Severity: SeverityWarning, Message: "Structured file exceeds parser limit", Path: normalized})
 				continue
 			}
-			data, readErr := os.ReadFile(filename)
+			input, openErr := os.Open(filename)
+			if openErr != nil {
+				issues = append(issues, Issue{Code: "file-unreadable", Severity: SeverityError, Message: openErr.Error(), Path: normalized})
+				continue
+			}
+			data, readErr := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: input}, maxJBeamFile+1))
+			closeErr := input.Close()
 			if readErr != nil {
+				if ctx.Err() != nil {
+					return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-cancelled", Severity: SeverityError, Message: ctx.Err().Error()}}}
+				}
 				issues = append(issues, Issue{Code: "file-unreadable", Severity: SeverityError, Message: readErr.Error(), Path: normalized})
+				continue
+			}
+			if closeErr != nil {
+				issues = append(issues, Issue{Code: "file-unreadable", Severity: SeverityError, Message: closeErr.Error(), Path: normalized})
+				continue
+			}
+			if int64(len(data)) > maxJBeamFile {
+				issues = append(issues, Issue{Code: "parse-limit", Severity: SeverityWarning, Message: "Structured file exceeds parser limit", Path: normalized})
 				continue
 			}
 			var parsed any
@@ -63,6 +95,9 @@ func ValidateWorkspace(filesRoot string) ValidationResult {
 		issues = append(issues, Issue{Code: "unknown-content", Severity: SeverityError, Message: "Workspace has no recognized BeamNG content root"})
 	}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-cancelled", Severity: SeverityError, Message: err.Error()}}}
+		}
 		lower := strings.ToLower(file.Path)
 		if !strings.HasPrefix(lower, "vehicles/") || !strings.HasSuffix(lower, ".pc") {
 			continue
@@ -75,6 +110,9 @@ func ValidateWorkspace(filesRoot string) ValidationResult {
 		}
 		hasThumbnail := false
 		for _, extension := range []string{".jpg", ".jpeg", ".png", ".webp"} {
+			if err := ctx.Err(); err != nil {
+				return ValidationResult{Valid: false, Issues: []Issue{{Code: "workspace-cancelled", Severity: SeverityError, Message: err.Error()}}}
+			}
 			hasThumbnail = hasThumbnail || fileSet[path.Join(directory, base+extension)]
 		}
 		if !hasThumbnail {

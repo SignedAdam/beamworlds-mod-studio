@@ -168,6 +168,95 @@ func referenceListLibrary(ctx context.Context, store *Store, health, kind, query
 	return filtered, nil
 }
 
+func TestLibraryInlineScopedQuerySemantics(t *testing.T) {
+	store, root := openLibraryStorage(t)
+	ctx := context.Background()
+	archives := libraryFixtureArchives(root, 4, 100)
+	archives[0].Manifest.Title = "BMW Car"
+	archives[1].Manifest.Title = "BMW Racecar"
+	archives[2].Manifest.Title = "BMW Cargo"
+	archives[3].Manifest.Title = "BMW Drift"
+	archives[0].SourceClass = "beamng-repository"
+	archives[1].SourceClass = "user-added"
+	archives[2].SourceClass = "user-added"
+	archives[3].SourceClass = "user-added"
+	items := applyLibraryArchives(t, store, root, archives)
+	if len(items) != len(archives) {
+		t.Fatalf("inline query fixture items = %d, want %d", len(items), len(archives))
+	}
+
+	itemByTitle := make(map[string]LibraryItem, len(items))
+	for _, item := range items {
+		itemByTitle[item.DisplayName] = item
+	}
+	car := itemByTitle["BMW Car"]
+	racecar := itemByTitle["BMW Racecar"]
+	cargo := itemByTitle["BMW Cargo"]
+	drift := itemByTitle["BMW Drift"]
+	if car.EntityID == "" || racecar.EntityID == "" || cargo.EntityID == "" || drift.EntityID == "" {
+		t.Fatalf("inline query fixture titles were not hydrated: %#v", itemByTitle)
+	}
+
+	tagIDs := make(map[string]string)
+	for _, name := range []string{"Car", "Racecar", "Cargo", "Road Test Favorite"} {
+		if err := store.CreateModTag(ctx, name, "#7a8791", "tag"); err != nil &&
+			!strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			t.Fatal(err)
+		}
+		var tagID string
+		if err := store.db.QueryRowContext(ctx, `SELECT id FROM mod_tags WHERE name=?`, name).Scan(&tagID); err != nil {
+			t.Fatal(err)
+		}
+		tagIDs[name] = tagID
+	}
+	for item, tagName := range map[string]string{
+		car.EntityID:     "Car",
+		racecar.EntityID: "Racecar",
+		cargo.EntityID:   "Cargo",
+		drift.EntityID:   "Road Test Favorite",
+	} {
+		if err := store.SetLibraryItemTags(ctx, item, []string{tagIDs[tagName]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertQueryIDs := func(query string, want ...string) {
+		t.Helper()
+		got, err := store.ListLibrary(ctx, "all", "all", query, "all")
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		gotSet := make(map[string]struct{}, len(got))
+		for _, item := range got {
+			gotSet[item.EntityID] = struct{}{}
+		}
+		wantSet := make(map[string]struct{}, len(want))
+		for _, entityID := range want {
+			wantSet[entityID] = struct{}{}
+		}
+		if len(gotSet) != len(wantSet) {
+			t.Fatalf("query %q returned %v, want %v", query, libraryEntityIDs(got), want)
+		}
+		for entityID := range wantSet {
+			if _, ok := gotSet[entityID]; !ok {
+				t.Fatalf("query %q returned %v, want %v", query, libraryEntityIDs(got), want)
+			}
+		}
+	}
+
+	// Complete inline tag operators are one-shot and combine with ordinary
+	// text on either side, while matching the configured tag name exactly.
+	assertQueryIDs("tags:car bmw", car.EntityID)
+	assertQueryIDs("bmw tag:CAR", car.EntityID)
+	assertQueryIDs("tags:Car", car.EntityID)
+	assertQueryIDs(`tags:"Road Test Favorite" bmw`, drift.EntityID)
+	// The legacy in:tag form remains a sticky substring search.
+	assertQueryIDs("in:tag car", car.EntityID, racecar.EntityID, cargo.EntityID)
+	// A complete source token must also leave the following ordinary term in
+	// the default all-fields scope.
+	assertQueryIDs("source:repository bmw", car.EntityID)
+}
+
 func TestLibrarySQLFTSSemanticsMatchReference(t *testing.T) {
 	store, root := openLibraryStorage(t)
 	ctx := context.Background()

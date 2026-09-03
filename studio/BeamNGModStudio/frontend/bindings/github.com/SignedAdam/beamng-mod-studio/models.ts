@@ -673,6 +673,7 @@ export class Dashboard {
     "cachedAssets": number;
     "cachedAssetBytes": number;
     "lastScanAt": string;
+    "lastSuccessfulScanAt": string;
     "lastScanStatus": string;
     "lastScanFound": number;
     "lastScanAnalyzed": number;
@@ -715,6 +716,9 @@ export class Dashboard {
         if (!("lastScanAt" in $$source)) {
             this["lastScanAt"] = "";
         }
+        if (!("lastSuccessfulScanAt" in $$source)) {
+            this["lastSuccessfulScanAt"] = "";
+        }
         if (!("lastScanStatus" in $$source)) {
             this["lastScanStatus"] = "";
         }
@@ -741,10 +745,10 @@ export class Dashboard {
      * Creates a new Dashboard instance from a string or object.
      */
     static createFrom($$source: any = {}): Dashboard {
-        const $$createField15_0 = $$createType7;
+        const $$createField16_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("latestEvents" in $$parsedSource) {
-            $$parsedSource["latestEvents"] = $$createField15_0($$parsedSource["latestEvents"]);
+            $$parsedSource["latestEvents"] = $$createField16_0($$parsedSource["latestEvents"]);
         }
         return new Dashboard($$parsedSource as Partial<Dashboard>);
     }
@@ -910,6 +914,48 @@ export class ExportResponse {
     }
 }
 
+/**
+ * GitInitializationResult is the recoverable outcome of automatic repository
+ * setup for a new mod. A failed result never implies that the scaffold was
+ * removed; the path remains available for manual recovery.
+ */
+export class GitInitializationResult {
+    "status": string;
+    "stage": string;
+    "path": string;
+    "message": string;
+    "nextAction": string;
+
+    /** Creates a new GitInitializationResult instance. */
+    constructor($$source: Partial<GitInitializationResult> = {}) {
+        if (!("status" in $$source)) {
+            this["status"] = "";
+        }
+        if (!("stage" in $$source)) {
+            this["stage"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+        if (!("nextAction" in $$source)) {
+            this["nextAction"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitInitializationResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitInitializationResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitInitializationResult($$parsedSource as Partial<GitInitializationResult>);
+    }
+}
+
 export class KnowledgeDocument {
     "id": string;
     "title": string;
@@ -974,6 +1020,7 @@ export class LibraryFolder {
 
 export class LibraryItem {
     "entityId": string;
+    "revision": string;
     "artifactId": string;
     "linkId": string;
     "folderId": string;
@@ -1007,6 +1054,9 @@ export class LibraryItem {
     constructor($$source: Partial<LibraryItem> = {}) {
         if (!("entityId" in $$source)) {
             this["entityId"] = "";
+        }
+        if (!("revision" in $$source)) {
+            this["revision"] = "";
         }
         if (!("artifactId" in $$source)) {
             this["artifactId"] = "";
@@ -1100,14 +1150,14 @@ export class LibraryItem {
      * Creates a new LibraryItem instance from a string or object.
      */
     static createFrom($$source: any = {}): LibraryItem {
-        const $$createField27_0 = $$createType13;
-        const $$createField28_0 = $$createType15;
+        const $$createField28_0 = $$createType13;
+        const $$createField29_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("manifest" in $$parsedSource) {
-            $$parsedSource["manifest"] = $$createField27_0($$parsedSource["manifest"]);
+            $$parsedSource["manifest"] = $$createField28_0($$parsedSource["manifest"]);
         }
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField28_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField29_0($$parsedSource["tags"]);
         }
         return new LibraryItem($$parsedSource as Partial<LibraryItem>);
     }
@@ -2722,6 +2772,7 @@ export class WorkspaceDetail {
     "knowledge": KnowledgeDocument[];
     "activeTest"?: TestInstallRecord | null;
     "diskBytes": number;
+    "gitInitialization": GitInitializationResult;
 
     /** Creates a new WorkspaceDetail instance. */
     constructor($$source: Partial<WorkspaceDetail> = {}) {
@@ -2755,6 +2806,9 @@ export class WorkspaceDetail {
         if (!("diskBytes" in $$source)) {
             this["diskBytes"] = 0;
         }
+        if (!("gitInitialization" in $$source)) {
+            this["gitInitialization"] = (new GitInitializationResult());
+        }
 
         Object.assign(this, $$source);
     }
@@ -2773,6 +2827,7 @@ export class WorkspaceDetail {
         const $$createField7_0 = $$createType49;
         const $$createField8_0 = $$createType51;
         const $$createField9_0 = $$createType53;
+        const $$createField11_0 = $$createType54;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("workspace" in $$parsedSource) {
             $$parsedSource["workspace"] = $$createField0_0($$parsedSource["workspace"]);
@@ -2803,6 +2858,9 @@ export class WorkspaceDetail {
         }
         if ("activeTest" in $$parsedSource) {
             $$parsedSource["activeTest"] = $$createField9_0($$parsedSource["activeTest"]);
+        }
+        if ("gitInitialization" in $$parsedSource) {
+            $$parsedSource["gitInitialization"] = $$createField11_0($$parsedSource["gitInitialization"]);
         }
         return new WorkspaceDetail($$parsedSource as Partial<WorkspaceDetail>);
     }
@@ -3088,3 +3146,4 @@ const $$createType50 = KnowledgeDocument.createFrom;
 const $$createType51 = $Create.Array($$createType50);
 const $$createType52 = TestInstallRecord.createFrom;
 const $$createType53 = $Create.Nullable($$createType52);
+const $$createType54 = GitInitializationResult.createFrom;

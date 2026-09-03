@@ -12,6 +12,7 @@ import (
 
 const (
 	exampleTagSeedKey  = "library_example_tags_seeded_v1"
+	terrainTagSeedKey  = "library_default_terrain_tag_seeded_v1"
 	defaultModTagColor = "#7a8791"
 	defaultModTagIcon  = "tag"
 )
@@ -27,6 +28,7 @@ var exampleModTagNames = []string{
 	"Airplane",
 	"Helicopter",
 	"Mission",
+	"Terrain",
 }
 
 type ModTag struct {
@@ -142,28 +144,47 @@ func (s *Store) ensureModTagVisualColumns(ctx context.Context) error {
 }
 
 func (s *Store) ensureExampleModTags(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var seeded string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
+	err = tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		for _, name := range exampleModTagNames {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart(name), name, defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, exampleTagSeedKey, "1"); err != nil {
+			return err
+		}
+	}
+	if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func ensureTerrainDefaultModTagTx(ctx context.Context, tx *sql.Tx) error {
+	var seeded string
+	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, terrainTagSeedKey).Scan(&seeded)
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart("Terrain"), "Terrain", defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
-	for _, name := range exampleModTagNames {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart(name), name, defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, exampleTagSeedKey, "1"); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err = tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, terrainTagSeedKey, "1")
+	return err
 }
 
 func tagIDPart(value string) string {

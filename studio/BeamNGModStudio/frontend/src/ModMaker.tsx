@@ -484,12 +484,20 @@ function validationSaveIssue(path: string, source: string, diagnostics: readonly
   const column = from - lineStart + 1
   return { message: `${path}: Saved with ${severity} — ${message} (line ${line}, column ${column})`, severity }
 }
+const yieldToQueuedWork = () =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0);
+  });
+
 
 interface ModMakerProps {
   allItems: LibraryItem[];
   workspaces: WorkspaceRecord[];
   detail: WorkspaceDetail | null;
   selectedID: string;
+  stale: boolean;
+  writeBlocked: boolean;
+  isWriteBlocked: () => boolean;
   loading: boolean;
   defaultAuthor: string;
   showFileSizes: boolean;
@@ -510,11 +518,15 @@ interface ModMakerProps {
   onNotify: (message: string, tone?: "success" | "error" | "info") => void;
   onError: (error: unknown) => void;
 }
+
 export function ModMaker({
   workspaces,
   allItems,
   detail,
   selectedID,
+  stale,
+  writeBlocked,
+  isWriteBlocked,
   loading,
   defaultAuthor,
   showFileSizes,
@@ -587,6 +599,10 @@ export function ModMaker({
   const sessionTabsHydrationPending = useRef("");
   const activeEditorPathRef = useRef(activePath);
   const activeWorkspaceIDRef = useRef(selectedID);
+  const staleRef = useRef(stale);
+  staleRef.current = stale;
+  const mutationBlocked = () =>
+    staleRef.current || writeBlocked || isWriteBlocked();
   const activeTabRef = useRef<ActiveEditorTab | null>(activeTab);
   const editorInteractionVersion = useRef(0);
   const preferenceRequestVersion = useRef(0);
@@ -1087,6 +1103,7 @@ export function ModMaker({
       sessionTabsHydrationPending.current = "";
       return;
     }
+    if (mutationBlocked()) return;
     writePersistedSessionTabDescriptors(workspace.id, sessionTabs);
   }, [sessionTabs, workspace?.id, selectedID]);
 
@@ -1117,6 +1134,7 @@ export function ModMaker({
     if (!workspace) return;
     let active = true;
     const stop = Events.On("agent:event", (event) => {
+      if (staleRef.current) return;
       const activity = event.data as AgentActivity & { workspaceId?: string };
       if (activity.workspaceId && activity.workspaceId !== workspace.id) return;
       if (
@@ -1220,9 +1238,11 @@ export function ModMaker({
         activity.type !== "turn_end"
       )
         return;
+      if (staleRef.current) return;
       if (refreshTimer !== undefined) return;
       refreshTimer = window.setTimeout(() => {
         refreshTimer = undefined;
+        if (staleRef.current) return;
         void onReload().catch(onError);
       }, 180);
     });
@@ -1239,21 +1259,23 @@ export function ModMaker({
   useEffect(() => {
     if (draftTimer.current !== undefined)
       window.clearTimeout(draftTimer.current);
-    if (!workspace || documents.length === 0) return;
+    if (mutationBlocked() || !workspace || documents.length === 0) return;
 
     const snapshot = documents.map((document) => ({ ...document }));
     draftTimer.current = window.setTimeout(() => {
+      if (mutationBlocked()) return;
       void Promise.all(
-        snapshot.map((document) =>
-          document.content === document.savedContent
+        snapshot.map((document) => {
+          if (mutationBlocked()) return Promise.resolve();
+          return document.content === document.savedContent
             ? API.DeleteWorkspaceDraft(workspace.id, document.path)
             : API.SaveWorkspaceDraft(
                 workspace.id,
                 document.path,
                 document.content,
                 document.savedSHA256,
-              ),
-        ),
+              );
+        }),
       ).catch(onError);
     }, 450);
 
@@ -1261,9 +1283,10 @@ export function ModMaker({
       if (draftTimer.current !== undefined)
         window.clearTimeout(draftTimer.current);
     };
-  }, [documents, workspace?.id]);
+  }, [documents, stale, writeBlocked, workspace?.id]);
 
   const refreshDiff = async () => {
+    if (staleRef.current) return;
     if (!workspace) return;
     setDiffLoading(true);
     try {
@@ -1384,6 +1407,7 @@ export function ModMaker({
   }
 
   const saveFile = async (editorSnapshot?: CodeEditorSaveSnapshot) => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     const workspaceID = workspace.id;
     const targetPath = activeEditorPathRef.current;
@@ -1416,9 +1440,16 @@ export function ModMaker({
         if (activeWorkspaceIDRef.current !== workspaceID) return;
         if (!latest || latest.content !== source || documentRevisions.current[path] !== revision) continue;
         const expectedSHA256 = latest.externalContent !== undefined ? (latest.externalSHA256 ?? latest.savedSHA256) : latest.savedSHA256;
-        if (latest.externalContent !== undefined && !window.confirm(`Virgil changed ${path} on disk. Save your version and overwrite Virgil's change?`)) return;
+        if (mutationBlocked()) return;
+        if (latest.externalContent !== undefined) {
+          if (!window.confirm(`Virgil changed ${path} on disk. Save your version and overwrite Virgil's change?`)) return;
+          await yieldToQueuedWork();
+          if (mutationBlocked()) return;
+        }
+        if (mutationBlocked()) return;
         attemptPath = path;
         await API.WriteWorkspaceFile(workspaceID, path, contentToWrite, expectedSHA256);
+        if (mutationBlocked()) return;
         const savedSHA256 = await sha256Text(contentToWrite);
         const saveSeverity = severityFromSave(Boolean(formatError), diagnostics);
         const validationIssue = validationSaveIssue(path, source, diagnostics);
@@ -1453,6 +1484,7 @@ export function ModMaker({
             showSourceSaveToast(message, tone);
           }
         }
+        if (mutationBlocked()) return;
         if (activeWorkspaceIDRef.current === workspaceID) await onReload();
         return;
       }
@@ -1522,7 +1554,7 @@ export function ModMaker({
     externalReadVersion.current[path] =
       (externalReadVersion.current[path] ?? 0) + 1;
     const document = documents.find((item) => item.path === path);
-    if (workspace && document) {
+    if (!mutationBlocked() && workspace && document) {
       const draftRequest =
         document.content === document.savedContent
           ? API.DeleteWorkspaceDraft(workspace.id, path)
@@ -1567,6 +1599,7 @@ export function ModMaker({
   };
 
   const createFile = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     const base = parentDirectory();
     const suggested = base ? `${base}/new-file.lua` : "new-file.lua";
@@ -1574,9 +1607,13 @@ export function ModMaker({
       .prompt("New workspace-relative file path", suggested)
       ?.trim();
     if (!path) return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
 
     try {
+      if (mutationBlocked()) return;
       await API.WriteWorkspaceFile(workspace.id, path, "", "");
+      if (mutationBlocked()) return;
       await onReload();
       await selectFile(path);
       onNotify(`Created ${path}`, "success");
@@ -1586,6 +1623,7 @@ export function ModMaker({
   };
 
   const createDirectory = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     const base = parentDirectory();
     const path = window
@@ -1595,9 +1633,13 @@ export function ModMaker({
       )
       ?.trim();
     if (!path) return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
 
     try {
+      if (mutationBlocked()) return;
       await API.CreateWorkspaceDirectory(workspace.id, path);
+      if (mutationBlocked()) return;
       await onReload();
       onNotify(`Created ${path}`, "success");
     } catch (error) {
@@ -1606,11 +1648,14 @@ export function ModMaker({
   };
 
   const movePath = async (oldPath: string, newPath: string) => {
+    if (mutationBlocked()) return;
     if (!workspace || !newPath || oldPath === newPath) return;
     cancelFormatTasks();
 
     try {
+      if (mutationBlocked()) return;
       await API.RenameWorkspacePath(workspace.id, oldPath, newPath);
+      if (mutationBlocked()) return;
       const migrate = (path: string) =>
         path === oldPath
           ? newPath
@@ -1650,14 +1695,19 @@ export function ModMaker({
     }
   };
 
-  const renamePath = (selection: TreeSelection) => {
+  const renamePath = async (selection: TreeSelection) => {
+    if (mutationBlocked()) return;
     const nextPath = window
       .prompt(`Rename workspace ${selection.kind}`, selection.path)
       ?.trim();
-    if (nextPath) void movePath(selection.path, nextPath);
+    if (!nextPath) return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
+    await movePath(selection.path, nextPath);
   };
 
   const deletePath = async (selection: TreeSelection) => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     const scope =
       selection.kind === "directory" ? " and every path inside it" : "";
@@ -1665,11 +1715,15 @@ export function ModMaker({
       !window.confirm(`Delete ${selection.path} from this workspace${scope}?`)
     )
       return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
 
     const deleted = selection.path;
     cancelFormatTasks();
     try {
+      if (mutationBlocked()) return;
       await API.DeleteWorkspacePath(workspace.id, deleted);
+      if (mutationBlocked()) return;
       for (const path of Object.keys(documentRevisions.current)) {
         if (path === deleted || path.startsWith(`${deleted}/`)) delete documentRevisions.current[path];
       }
@@ -1718,6 +1772,7 @@ export function ModMaker({
   };
 
   const revealPath = (selection: TreeSelection) => {
+    if (staleRef.current) return;
     if (!workspace) return;
     void API.RevealWorkspacePath(workspace.id, selection.path).catch(onError);
   };
@@ -1981,9 +2036,11 @@ export function ModMaker({
   );
 
   const validate = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     setBusy("validate");
     try {
+      if (mutationBlocked()) return;
       const result = await API.ValidateWorkspace(workspace.id);
       await onReload();
       onNotify(
@@ -2000,9 +2057,11 @@ export function ModMaker({
   };
 
   const exportWorkspace = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     setBusy("export");
     try {
+      if (mutationBlocked()) return;
       const response = await API.ExportWorkspace(workspace.id, exportLabel);
       await onReload();
       onNotify(`Exported ${response.record.path}`, "success");
@@ -2014,10 +2073,12 @@ export function ModMaker({
   };
 
   const installLatest = async () => {
+    if (mutationBlocked()) return;
     const exports = detail?.exports ?? [];
     if (!workspace || exports.length === 0) return;
     setBusy("install");
     try {
+      if (mutationBlocked()) return;
       const installed = await API.InstallExportForTest(
         workspace.id,
         exports[0].id,
@@ -2032,9 +2093,11 @@ export function ModMaker({
   };
 
   const uninstallTest = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     setBusy("uninstall");
     try {
+      if (mutationBlocked()) return;
       await API.UninstallTest(workspace.id);
       await onReload();
       onNotify("Managed test archive removed", "success");
@@ -2046,9 +2109,11 @@ export function ModMaker({
   };
 
   const launchGame = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     setBusy("launch");
     try {
+      if (mutationBlocked()) return;
       const launch = await API.LaunchBeamNG(workspace.id);
       onNotify(`BeamNG launched as process ${launch.pid}`, "success");
     } catch (error) {
@@ -2059,9 +2124,11 @@ export function ModMaker({
   };
 
   const analyzeRuntime = async () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     setBusy("runtime");
     try {
+      if (mutationBlocked()) return;
       setRuntime(await API.AnalyzeRuntime(workspace.id));
     } catch (error) {
       onError(error);
@@ -2071,15 +2138,21 @@ export function ModMaker({
   };
 
   const cloneSelectedVariant = async () => {
+    if (mutationBlocked()) return;
     if (!workspace || !activePath.toLowerCase().endsWith(".pc")) return;
     const baseName = window
       .prompt("New variant basename (without .pc)")
       ?.trim();
     if (!baseName) return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
     const displayName =
       window.prompt("New variant display name", baseName)?.trim() ?? baseName;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
 
     try {
+      if (mutationBlocked()) return;
       const created =
         (await API.CloneVehicleVariant(
           workspace.id,
@@ -2095,6 +2168,7 @@ export function ModMaker({
   };
 
   const openNewSession = () => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     editorInteractionVersion.current += 1;
     const currentIDs = new Set(
@@ -2123,6 +2197,7 @@ export function ModMaker({
     record: VirgilSessionRecord,
     replaceID?: string,
   ): boolean => {
+    if (mutationBlocked()) return false;
     if (replaceID && closedTransientSessions.current.has(replaceID)) {
       closedTransientSessions.current.delete(replaceID);
       if (record.workspaceId === activeWorkspaceIDRef.current) {
@@ -2134,6 +2209,7 @@ export function ModMaker({
           return next;
         });
       }
+      if (mutationBlocked()) return false;
       void API.ForgetVirgilSession(record.id).then(onReload).catch(onError);
       return false;
     }
@@ -2231,6 +2307,7 @@ export function ModMaker({
   };
 
   const closeSession = async (id: string) => {
+    if (mutationBlocked()) return;
     const tab = sessionTabsRef.current.find((item) => item.record.id === id);
     if (!tab) return;
     const workspaceID = tab.record.workspaceId;
@@ -2241,6 +2318,8 @@ export function ModMaker({
       )
     )
       return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
     if (tab.transient) {
       if (tab.busy) closedTransientSessions.current.add(id);
       removeSessionTab(id);
@@ -2248,7 +2327,9 @@ export function ModMaker({
       return;
     }
     try {
+      if (mutationBlocked()) return;
       await API.ForgetVirgilSession(id);
+      if (mutationBlocked()) return;
       if (activeWorkspaceIDRef.current === workspaceID) {
         removeSessionTab(id);
         onNotify("Virgil session closed", "info");
@@ -2260,6 +2341,7 @@ export function ModMaker({
   };
 
   const renameSession = async (id: string) => {
+    if (mutationBlocked()) return;
     const tab = sessionTabsRef.current.find((item) => item.record.id === id);
     if (!tab || (tab.transient && tab.busy)) return;
     const title = window
@@ -2269,7 +2351,10 @@ export function ModMaker({
       )
       ?.trim();
     if (!title) return;
+    await yieldToQueuedWork();
+    if (mutationBlocked()) return;
     try {
+      if (mutationBlocked()) return;
       if (tab.transient) {
         setSessionTabs((current) => {
           const next = current.map((item) =>
@@ -2290,9 +2375,9 @@ export function ModMaker({
           return next;
         });
       } else {
-        const accepted = updateSession(
-          await API.RenameVirgilSession(id, title),
-        );
+        if (mutationBlocked()) return;
+        const renamed = await API.RenameVirgilSession(id, title);
+        const accepted = updateSession(renamed);
         await onReload();
         if (!accepted) return;
       }
@@ -2307,12 +2392,15 @@ export function ModMaker({
     enabled: boolean,
     source: "choice",
   ) => {
+    if (mutationBlocked()) return;
     if (!workspace) return;
     const workspaceID = workspace.id;
     const requestVersion = ++preferenceRequestVersion.current;
     setPreferenceBusy(true);
     try {
+      if (mutationBlocked()) return;
       await API.ConfigureWorkspaceVirgil(workspaceID, enabled);
+      if (mutationBlocked()) return;
       await onReload();
       if (
         requestVersion !== preferenceRequestVersion.current ||
@@ -2387,8 +2475,10 @@ export function ModMaker({
                 <Icon name="close" size={17} />
               </button>
               <NewModStart
+                blocked={mutationBlocked()}
                 defaultAuthor={defaultAuthor}
                 onCreate={async (request, prompt, model) => {
+                  if (mutationBlocked()) return;
                   await onCreateMod(request, prompt, model);
                   setNewModOpen(false);
                 }}
@@ -2443,7 +2533,7 @@ export function ModMaker({
         workspaceID={loadedWorkspace.id}
         session={activeSession.record}
         transient={activeSession.transient}
-        locked={Boolean(activeSession.busy)}
+        locked={Boolean(activeSession.busy) || mutationBlocked()}
         prompt={sessionPrompts[activeSession.record.id] ?? ""}
         activeFilePath={activePath}
         activityBuffer={agentActivityBuffer}
@@ -2459,13 +2549,17 @@ export function ModMaker({
             return { ...current, [id]: value };
           });
         }}
-        onSessionChange={(record) =>
-          updateSession(
+        onSessionChange={(record) => {
+          if (mutationBlocked()) return false;
+          return updateSession(
             record,
             activeSession.transient ? activeSession.record.id : undefined,
-          )
-        }
-        onReload={onReload}
+          );
+        }}
+        onReload={() => {
+          if (mutationBlocked()) return Promise.resolve();
+          return onReload();
+        }}
         onNotify={onNotify}
         onError={onError}
         onBusyChange={(busy) =>
@@ -2491,6 +2585,7 @@ export function ModMaker({
             {activePath.toLowerCase().endsWith(".pc") && (
               <Button
                 tone="quiet"
+                disabled={mutationBlocked()}
                 icon="copy"
                 onClick={() => void cloneSelectedVariant()}
               >
@@ -2520,6 +2615,7 @@ export function ModMaker({
               }
               icon="save"
               disabled={
+                mutationBlocked() ||
                 activeDocument.content === activeDocument.savedContent ||
                 busy !== ""
               }
@@ -2664,8 +2760,8 @@ export function ModMaker({
   }));
 
   return (
-    <section className="maker-shell">
-      <main ref={workspaceMainRef} className="maker-main">
+    <section className={`maker-shell${stale ? " maker-shell--stale" : ""}`}>
+      <main ref={workspaceMainRef} className={`maker-main${stale ? " is-stale" : ""}`}>
         <header className="maker-header">
           <Button
             className="maker-back"
@@ -2696,6 +2792,7 @@ export function ModMaker({
             {dirty && <span className="status-test">Unsaved changes</span>}
           </div>
         </header>
+        {stale && <div className="maker-stale-warning" role="alert" aria-live="assertive"><Icon name="warning" size={18}/><strong>Changed. Please close and reopen this mod&apos;s details.</strong></div>}
 
         <nav className="workspace-tool-toggles" aria-label="Workspace tools">
           {workspaceTools.map((tool) => (
@@ -2736,6 +2833,7 @@ export function ModMaker({
                   <button
                     type="button"
                     className="icon-button"
+                    disabled={mutationBlocked()}
                     onClick={() => void createFile()}
                     title="New File"
                     aria-label="New File"
@@ -2745,6 +2843,7 @@ export function ModMaker({
                   <button
                     type="button"
                     className="icon-button"
+                    disabled={mutationBlocked()}
                     onClick={() => void createDirectory()}
                     title="New Folder"
                     aria-label="New Folder"
@@ -2813,7 +2912,9 @@ export function ModMaker({
                     <Button
                       type="button"
                       icon="plus"
-                      disabled={preferenceBusy || busy !== ""}
+                      disabled={
+                        preferenceBusy || busy !== "" || mutationBlocked()
+                      }
                       onClick={openNewSession}
                     >
                       New Virgil Session
@@ -2834,7 +2935,7 @@ export function ModMaker({
                   <button
                     type="button"
                     role="menuitem"
-                    disabled={Boolean(contextTab.busy)}
+                    disabled={Boolean(contextTab.busy) || mutationBlocked()}
                     onClick={() => void renameSession(contextTab.record.id)}
                   >
                     Rename
@@ -2843,6 +2944,7 @@ export function ModMaker({
                   <button
                     type="button"
                     role="menuitem"
+                    disabled={mutationBlocked()}
                     className="context-menu__danger"
                     onClick={() => void closeSession(contextTab.record.id)}
                   >
@@ -3100,10 +3202,14 @@ export function ModMaker({
                 diffLoading={diffLoading}
                 runtime={runtime}
                 exportLabel={exportLabel}
-                busy={busy}
+                busy={mutationBlocked() ? "blocked" : busy}
                 onClose={() => setUtility(null)}
-                onExportLabelChange={setExportLabel}
-                onRefreshDiff={refreshDiff}
+                onExportLabelChange={(value) => {
+                  if (!staleRef.current) setExportLabel(value);
+                }}
+                onRefreshDiff={() => {
+                  if (!staleRef.current) void refreshDiff();
+                }}
                 onValidate={validate}
                 onExport={exportWorkspace}
                 onInstall={installLatest}
@@ -3119,8 +3225,10 @@ export function ModMaker({
       {!loadedWorkspace.virgilConfigured && (
         <VirgilChoiceDialog
           modName={loadedDetail.entity.displayName}
-          busy={preferenceBusy}
-          onChoose={(enabled) => void configureVirgil(enabled, "choice")}
+          busy={preferenceBusy || mutationBlocked()}
+          onChoose={(enabled) => {
+            if (!mutationBlocked()) void configureVirgil(enabled, "choice");
+          }}
         />
       )}
     </section>
@@ -3128,10 +3236,12 @@ export function ModMaker({
 }
 
 function NewModStart({
+  blocked,
   defaultAuthor,
   onCreate,
   onError,
 }: {
+  blocked: boolean;
   defaultAuthor: string;
   onCreate: (
     request: NewModRequest,
@@ -3162,6 +3272,7 @@ function NewModStart({
   };
 
   const create = async (request: NewModRequest, virgilPrompt = "") => {
+    if (blocked) return;
     if (creatingRef.current) return;
     creatingRef.current = true;
     setCreating(true);
@@ -3237,7 +3348,7 @@ function NewModStart({
             <Button
               icon="arrow"
               tone="primary"
-              disabled={!prompt.trim() || creating}
+              disabled={blocked || !prompt.trim() || creating}
               onClick={createFromPrompt}
             >
               {creating ? "Creating mod" : "Create mod"}
@@ -3350,9 +3461,13 @@ function NewModStart({
           <Button
             icon="plus"
             tone="primary"
-            disabled={
-              !name.trim() || !modID.trim() || !version.trim() || creating
-            }
+              disabled={
+                blocked ||
+                !name.trim() ||
+                !modID.trim() ||
+                !version.trim() ||
+                creating
+              }
             onClick={createManual}
           >
             {creating ? "Creating mod" : "Create mod"}

@@ -37,17 +37,18 @@ type AppService struct {
 }
 
 type WorkspaceDetail struct {
-	Workspace      WorkspaceRecord         `json:"workspace"`
-	Entity         LibraryItem             `json:"entity"`
-	Files          []modkit.FileSnapshot   `json:"files"`
-	Directories    []string                `json:"directories"`
-	Drafts         []WorkspaceDraft        `json:"drafts"`
-	Validation     modkit.ValidationResult `json:"validation"`
-	Exports        []ExportRecord          `json:"exports"`
-	VirgilSessions []VirgilSessionRecord   `json:"virgilSessions"`
-	Knowledge      []KnowledgeDocument     `json:"knowledge"`
-	ActiveTest     *TestInstallRecord      `json:"activeTest,omitempty"`
-	DiskBytes      int64                   `json:"diskBytes"`
+	Workspace         WorkspaceRecord         `json:"workspace"`
+	Entity            LibraryItem             `json:"entity"`
+	Files             []modkit.FileSnapshot   `json:"files"`
+	Directories       []string                `json:"directories"`
+	Drafts            []WorkspaceDraft        `json:"drafts"`
+	Validation        modkit.ValidationResult `json:"validation"`
+	Exports           []ExportRecord          `json:"exports"`
+	VirgilSessions    []VirgilSessionRecord   `json:"virgilSessions"`
+	Knowledge         []KnowledgeDocument     `json:"knowledge"`
+	ActiveTest        *TestInstallRecord      `json:"activeTest,omitempty"`
+	DiskBytes         int64                   `json:"diskBytes"`
+	GitInitialization GitInitializationResult `json:"gitInitialization"`
 }
 
 type WorkspaceTextFile struct {
@@ -177,9 +178,27 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
 	workspaceLock.Lock()
 	files, err := modkit.ListWorkspaceFileInfo(workspace.FilesRoot)
+	if err == nil {
+		filtered := files[:0]
+		for _, file := range files {
+			if !isWorkspaceGitMetadataPath(file.Path) {
+				filtered = append(filtered, file)
+			}
+		}
+		files = filtered
+	}
 	var directories []string
 	if err == nil {
 		directories, err = modkit.ListWorkspaceDirectories(workspace.FilesRoot)
+		if err == nil {
+			filtered := directories[:0]
+			for _, directory := range directories {
+				if !isWorkspaceGitMetadataPath(directory) {
+					filtered = append(filtered, directory)
+				}
+			}
+			directories = filtered
+		}
 	}
 	workspaceLock.Unlock()
 	if err != nil {

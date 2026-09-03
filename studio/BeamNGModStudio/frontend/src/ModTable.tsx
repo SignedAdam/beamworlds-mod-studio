@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -7,7 +8,8 @@ import type {
   LibraryItem,
   WorkspaceRecord,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
+import "./ModTable.css";
 import {
   Badge,
   Button,
@@ -19,11 +21,12 @@ import {
   Spinner,
 } from "./ui";
 
-type SortKey =
+export type ModTableSortKey =
   | "name"
   | "path"
   | "kind"
   | "status"
+  | "source"
   | "workspace"
   | "virgil"
   | "author"
@@ -34,6 +37,12 @@ type SortKey =
   | "modified"
   | "lastScan"
   | "issues";
+type SortKey = ModTableSortKey;
+export type ModTableSortDirection = 1 | -1;
+export interface ModTableSort {
+  key: ModTableSortKey;
+  direction: ModTableSortDirection;
+}
 type ColumnKey = "thumbnail" | SortKey;
 type PageSize = 50 | 100 | 200 | 500 | "all";
 
@@ -80,6 +89,8 @@ export interface ModTableProps {
   loadingLabel?: string;
   emptyTitle: string;
   resetKey?: string;
+  sort?: ModTableSort;
+  onSortChange?: (sort: ModTableSort) => void;
 }
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
@@ -87,7 +98,8 @@ const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   name: { label: "Name", defaultWidth: 270 },
   path: { label: "Path", defaultWidth: 360 },
   kind: { label: "Kind", defaultWidth: 110 },
-  status: { label: "Health", defaultWidth: 146 },
+  status: { label: "Status", defaultWidth: 146 },
+  source: { label: "Source", defaultWidth: 170, minWidth: 116 },
   workspace: { label: "Workspace", defaultWidth: 130 },
   virgil: { label: "Status", defaultWidth: 146 },
   author: { label: "Author", defaultWidth: 180 },
@@ -105,7 +117,7 @@ const libraryColumnOrder = allColumnOrder.filter(
   (key) => key !== "lastScan" && key !== "workspace" && key !== "virgil",
 );
 const scannerColumnOrder = allColumnOrder.filter(
-  (key) => key !== "workspace" && key !== "virgil",
+  (key) => key !== "source" && key !== "workspace" && key !== "virgil",
 );
 const modMakerColumnOrder: ColumnKey[] = [
   "thumbnail",
@@ -124,6 +136,98 @@ const modMakerColumnOrder: ColumnKey[] = [
 ];
 const selectionColumnWidth = 40;
 const pageSizes: PageSize[] = [50, 100, 200, 500, "all"];
+const SOURCE_LABELS = {
+  repository: "BeamNG Repository",
+  userAdded: "User added",
+} as const;
+const TAG_ICON_NAMES: Record<string, true> = {
+  tag: true,
+  vehicle: true,
+  map: true,
+  code: true,
+  files: true,
+  shield: true,
+  user: true,
+};
+
+function sourceID(item: Pick<LibraryItem, "sourceId" | "source">): string {
+  const id = String(item.sourceId ?? "").trim().toLowerCase();
+  if (id === "beamng-repository" || id === "user-added") return id;
+  const label = String(item.source ?? "").trim().toLowerCase();
+  if (label === SOURCE_LABELS.repository.toLowerCase()) {
+    return "beamng-repository";
+  }
+  return "user-added";
+}
+
+function sourceLabel(item: Pick<LibraryItem, "sourceId" | "source">): string {
+  return sourceID(item) === "beamng-repository"
+    ? SOURCE_LABELS.repository
+    : SOURCE_LABELS.userAdded;
+}
+
+function configuredTagIcon(value: string | undefined): IconName | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !TAG_ICON_NAMES[normalized]) return null;
+  return normalized as IconName;
+}
+
+function tagColor(value: string | undefined): string | undefined {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
+    ? value
+    : undefined;
+}
+
+
+export function sortLibraryItems(
+  items: readonly LibraryItem[],
+  sort: ModTableSort,
+): LibraryItem[] {
+  return sortItems(items, sort, "library");
+}
+
+function sortItems(
+  items: readonly LibraryItem[],
+  sort: ModTableSort,
+  surface: ModTableProps["surface"],
+  workspaceByEntityID?: ReadonlyMap<string, WorkspaceRecord>,
+): LibraryItem[] {
+  const sorted = [...items];
+  sorted.sort((left, right) =>
+    compareTableItems(
+      left,
+      right,
+      sort.key,
+      sort.direction,
+      surface,
+      workspaceByEntityID,
+    ),
+  );
+  return sorted;
+}
+
+function compareTableItems(
+  left: LibraryItem,
+  right: LibraryItem,
+  sortKey: SortKey,
+  sortDirection: ModTableSortDirection,
+  surface: ModTableProps["surface"],
+  workspaceByEntityID?: ReadonlyMap<string, WorkspaceRecord>,
+): number {
+  const primary = compareValues(
+    sortValue(left, sortKey, surface, workspaceByEntityID?.get(left.entityId)),
+    sortValue(right, sortKey, surface, workspaceByEntityID?.get(right.entityId)),
+  );
+  if (primary !== 0 || sortKey !== "source")
+    return primary * sortDirection;
+
+  const nameTieBreak = compareValues(
+    sortValue(left, "name", surface, workspaceByEntityID?.get(left.entityId)),
+    sortValue(right, "name", surface, workspaceByEntityID?.get(right.entityId)),
+  );
+  if (nameTieBreak !== 0) return nameTieBreak * sortDirection;
+  return compareValues(left.entityId, right.entityId) * sortDirection;
+}
 
 export function ModTable({
   items,
@@ -136,6 +240,8 @@ export function ModTable({
   loadingLabel = "Updating results…",
   emptyTitle,
   resetKey = "",
+  sort,
+  onSortChange,
 }: ModTableProps) {
   const preferenceKey =
     surface === "library"
@@ -155,12 +261,15 @@ export function ModTable({
   const [pageSizeChoice, setPageSizeChoice] = useState<PageSize>(() =>
     readPageSize(pageSizeStorageKey),
   );
-  const [sortKey, setSortKey] = useState<SortKey>(() =>
+  const [internalSortKey, setInternalSortKey] = useState<SortKey>(() =>
     surface === "mod-maker" ? "modified" : "name",
   );
-  const [sortDirection, setSortDirection] = useState<1 | -1>(() =>
-    surface === "mod-maker" ? -1 : 1,
-  );
+  const [internalSortDirection, setInternalSortDirection] = useState<
+    ModTableSortDirection
+  >(() => (surface === "mod-maker" ? -1 : 1));
+  const controlledSort = surface === "library" ? sort : undefined;
+  const sortKey = controlledSort?.key ?? internalSortKey;
+  const sortDirection = controlledSort?.direction ?? internalSortDirection;
   const [columns, setColumns] = useState<ColumnState[]>(() =>
     readColumns(columnStorageKey, columnOrder),
   );
@@ -179,17 +288,11 @@ export function ModTable({
 
   const sorted = useMemo(
     () =>
-      [...items].sort(
-        (left, right) =>
-          compareValues(
-            sortValue(left, sortKey, surface, workspaceByEntityID.get(left.entityId)),
-            sortValue(
-              right,
-              sortKey,
-              surface,
-              workspaceByEntityID.get(right.entityId),
-            ),
-          ) * sortDirection,
+      sortItems(
+        items,
+        { key: sortKey, direction: sortDirection },
+        surface,
+        workspaceByEntityID,
       ),
     [items, sortKey, sortDirection, surface, workspaceByEntityID],
   );
@@ -251,14 +354,17 @@ export function ModTable({
 
   const changeSort = useCallback(
     (key: SortKey) => {
-      if (key === sortKey)
-        setSortDirection((direction) => (direction === 1 ? -1 : 1));
-      else {
-        setSortKey(key);
-        setSortDirection(1);
+      const direction: ModTableSortDirection =
+        key === sortKey ? (sortDirection === 1 ? -1 : 1) : 1;
+      const nextSort: ModTableSort = { key, direction };
+      if (controlledSort) {
+        onSortChange?.(nextSort);
+        return;
       }
+      setInternalSortKey(key);
+      setInternalSortDirection(direction);
     },
-    [sortKey],
+    [controlledSort, onSortChange, sortDirection, sortKey],
   );
 
   const moveColumn = useCallback((source: ColumnKey, target: ColumnKey) => {
@@ -444,7 +550,7 @@ export function ModTable({
     [],
   );
 
-  const rootClassName = `mod-table-panel${className ? ` ${className}` : ""}`;
+  const rootClassName = `mod-table-panel${surface === "library" ? " mod-table-panel--library" : ""}${className ? ` ${className}` : ""}`;
 
   return (
     <div className={rootClassName} aria-busy={loading}>
@@ -804,6 +910,7 @@ function columnLabel(
     if (key === "virgil") return "Status";
     if (key === "modified") return "Last modified";
   }
+  if (key === "status" && surface !== "library") return "Health";
   return columnDefinitions[key].label;
 }
 
@@ -898,17 +1005,33 @@ function Cell({
           </Badge>
         </td>
       );
-    case "status":
+    case "source": {
+      const label = sourceLabel(item);
       return (
-        <td title={healthDescription(item.healthStatus)}>
+        <td className="mod-table__source" title={label}>
+          <span>{label}</span>
+        </td>
+      );
+    }
+    case "status": {
+      const label = item.healthLabel || "Not scanned";
+      const description = healthDescription(item.healthStatus);
+      return (
+        <td
+          className="mod-table__status"
+          aria-label={label}
+          title={`${label}: ${description}`}
+        >
           <span
             className={`health-pill health-pill--${item.healthStatus || "unscanned"}`}
+            title={label}
           >
             <Icon name={healthIcon(item.healthStatus)} size={14} />
-            {item.healthLabel || "Not scanned"}
+            <span className="health-pill__label">{label}</span>
           </span>
         </td>
       );
+    }
     case "workspace":
       return (
         <td
@@ -950,11 +1073,28 @@ function Cell({
               <span>—</span>
             ) : (
               <>
-                {tags.slice(0, 3).map((tag) => (
-                  <span className="mod-tag" key={tag.id}>
-                    {tag.name}
-                  </span>
-                ))}
+                {tags.slice(0, 3).map((tag) => {
+                  const icon =
+                    surface === "library"
+                      ? configuredTagIcon(tag.icon)
+                      : null;
+                  const color =
+                    surface === "library" ? tagColor(tag.color) : undefined;
+                  const style = color
+                    ? ({ "--mod-tag-color": color } as CSSProperties)
+                    : undefined;
+                  return (
+                    <span
+                      className="mod-tag"
+                      key={tag.id}
+                      style={style}
+                      title={surface === "library" ? tag.name : undefined}
+                    >
+                      {icon && <Icon name={icon} size={12} />}
+                      <span className="mod-tag__label">{tag.name}</span>
+                    </span>
+                  );
+                })}
                 {tags.length > 3 && <em>+{tags.length - 3}</em>}
               </>
             )}
@@ -1080,6 +1220,8 @@ function cellText(
       return item.archivePath || "Source archive missing";
     case "kind":
       return kindLabel(String(item.kind)).toUpperCase();
+    case "source":
+      return sourceLabel(item);
     case "status":
       return item.healthLabel || "Not scanned";
     case "workspace":
@@ -1127,6 +1269,8 @@ function sortValue(
       return item.archivePath.toLowerCase();
     case "kind":
       return String(item.kind);
+    case "source":
+      return sourceID(item);
     case "status":
       return healthRank(item.healthStatus);
     case "workspace":

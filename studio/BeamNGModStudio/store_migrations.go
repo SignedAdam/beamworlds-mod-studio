@@ -1040,6 +1040,9 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	var seeded string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
 	if err == nil {
+		if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
+			return fmt.Errorf("seed Terrain default tag: %w", err)
+		}
 		return nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -1052,6 +1055,9 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, exampleTagSeedKey, "1"); err != nil {
 		return fmt.Errorf("record example tag seed marker: %w", err)
+	}
+	if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
+		return fmt.Errorf("seed Terrain default tag: %w", err)
 	}
 	return nil
 }

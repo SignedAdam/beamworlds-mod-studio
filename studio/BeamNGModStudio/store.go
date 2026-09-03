@@ -31,6 +31,7 @@ type libraryQueryer interface {
 
 type LibraryItem struct {
 	EntityID                string          `json:"entityId"`
+	Revision                string          `json:"revision"`
 	ArtifactID              string          `json:"artifactId"`
 	LinkID                  string          `json:"linkId"`
 	FolderID                string          `json:"folderId"`
@@ -121,23 +122,24 @@ type ExportRecord struct {
 }
 
 type Dashboard struct {
-	Linked           int           `json:"linked"`
-	Unlinked         int           `json:"unlinked"`
-	Vehicles         int           `json:"vehicles"`
-	Maps             int           `json:"maps"`
-	UIAndScripts     int           `json:"uiAndScripts"`
-	Workspaces       int           `json:"workspaces"`
-	Entities         int           `json:"entities"`
-	Artifacts        int           `json:"artifacts"`
-	CachedAssets     int           `json:"cachedAssets"`
-	CachedAssetBytes int64         `json:"cachedAssetBytes"`
-	LastScanAt       string        `json:"lastScanAt"`
-	LastScanStatus   string        `json:"lastScanStatus"`
-	LastScanFound    int           `json:"lastScanFound"`
-	LastScanAnalyzed int           `json:"lastScanAnalyzed"`
-	LastScanFailed   int           `json:"lastScanFailed"`
-	LatestEvents     []EventRecord `json:"latestEvents"`
-	DatabaseBytes    int64         `json:"databaseBytes"`
+	Linked               int           `json:"linked"`
+	Unlinked             int           `json:"unlinked"`
+	Vehicles             int           `json:"vehicles"`
+	Maps                 int           `json:"maps"`
+	UIAndScripts         int           `json:"uiAndScripts"`
+	Workspaces           int           `json:"workspaces"`
+	Entities             int           `json:"entities"`
+	Artifacts            int           `json:"artifacts"`
+	CachedAssets         int           `json:"cachedAssets"`
+	CachedAssetBytes     int64         `json:"cachedAssetBytes"`
+	LastScanAt           string        `json:"lastScanAt"`
+	LastSuccessfulScanAt string        `json:"lastSuccessfulScanAt"`
+	LastScanStatus       string        `json:"lastScanStatus"`
+	LastScanFound        int           `json:"lastScanFound"`
+	LastScanAnalyzed     int           `json:"lastScanAnalyzed"`
+	LastScanFailed       int           `json:"lastScanFailed"`
+	LatestEvents         []EventRecord `json:"latestEvents"`
+	DatabaseBytes        int64         `json:"databaseBytes"`
 }
 
 type AssetRecord struct {
@@ -506,6 +508,14 @@ func (s *Store) FinishScan(ctx context.Context, scanID string, roots []string, d
 			}
 		}
 	}
+	if len(removedEntities) > 0 {
+		revisionAt := nowUTC()
+		for entityID := range removedEntities {
+			if err := touchEntityUpdatedAtTx(ctx, tx, entityID, revisionAt); err != nil {
+				return err
+			}
+		}
+	}
 	for entityID := range removedEntities {
 		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
 			return err
@@ -748,6 +758,14 @@ func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []str
 			removedEntities[link.entityID] = struct{}{}
 		}
 	}
+	if len(removedEntities) > 0 {
+		revisionAt := nowUTC()
+		for entityID := range removedEntities {
+			if err := touchEntityUpdatedAtTx(ctx, tx, entityID, revisionAt); err != nil {
+				return nil, err
+			}
+		}
+	}
 	for entityID := range removedEntities {
 		if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
 			return nil, err
@@ -914,7 +932,7 @@ func (s *Store) applyReusedScanArchivesTx(ctx context.Context, tx *sql.Tx, scanI
 
 	entityIDs := make([]string, 0, len(archives))
 	seenEntities := make(map[string]struct{}, len(archives))
-	rootChangedEntities := make(map[string]struct{})
+	changedEntities := make(map[string]struct{})
 	for _, archive := range archives {
 		archivePath := strings.TrimSpace(archive.ArchivePath)
 		modifiedAt := archive.Modified.UTC().Format(time.RFC3339Nano)
@@ -930,7 +948,10 @@ func (s *Store) applyReusedScanArchivesTx(ctx context.Context, tx *sql.Tx, scanI
 		}
 		wasActive := state.active
 		if state.rootPath != archive.Root {
-			rootChangedEntities[state.entityID] = struct{}{}
+			changedEntities[state.entityID] = struct{}{}
+		}
+		if wasActive == 0 {
+			changedEntities[state.entityID] = struct{}{}
 		}
 		if _, err := updateStmt.ExecContext(ctx, archive.Root, archive.SizeBytes, modifiedAt, nowUTC(), scanID, state.linkID); err != nil {
 			return nil, err
@@ -953,8 +974,15 @@ func (s *Store) applyReusedScanArchivesTx(ctx context.Context, tx *sql.Tx, scanI
 	if err != nil {
 		return nil, err
 	}
+	revisionAt := nowUTC()
 	for _, entityID := range entityIDs {
-		if _, rootChanged := rootChangedEntities[entityID]; rootChanged || oldLatest[entityID] != newLatest[entityID] {
+		if oldLatest[entityID] != newLatest[entityID] {
+			changedEntities[entityID] = struct{}{}
+		}
+		if _, changed := changedEntities[entityID]; changed {
+			if err := touchEntityUpdatedAtTx(ctx, tx, entityID, revisionAt); err != nil {
+				return nil, err
+			}
 			if err := s.refreshLibrarySearchEntryTx(ctx, tx, entityID); err != nil {
 				return nil, err
 			}
@@ -1036,9 +1064,9 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 	now := nowUTC()
 
 	if archive.Reused {
-		var linkID, entityID string
+		var linkID, entityID, previousRoot string
 		var wasActive int
-		if err := tx.QueryRowContext(ctx, `SELECT l.id, l.entity_id, l.active
+		if err := tx.QueryRowContext(ctx, `SELECT l.id, l.entity_id, l.active, l.root_path
 			FROM archive_links l
 			JOIN artifacts a ON a.id = l.artifact_id
 			WHERE l.path = ? COLLATE NOCASE
@@ -1046,8 +1074,14 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 				AND l.modified_at = ?
 				AND a.analyzer_version = ?
 			LIMIT 1`, archivePath, archive.SizeBytes, modifiedAt, modkit.AnalyzerVersion).
-			Scan(&linkID, &entityID, &wasActive); err != nil {
+			Scan(&linkID, &entityID, &wasActive, &previousRoot); err != nil {
 			return "", fmt.Errorf("reuse archive %q: %w", archivePath, err)
+		}
+		var previousRepresentative string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM archive_links
+			WHERE entity_id = ?
+			ORDER BY active DESC, last_seen_at DESC, id DESC LIMIT 1`, entityID).Scan(&previousRepresentative); err != nil {
+			return "", err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE archive_links
 			SET root_path = ?, active = 1, size_bytes = ?, modified_at = ?,
@@ -1057,6 +1091,17 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 		}
 		if wasActive == 0 {
 			if err := appendEventTx(ctx, tx, entityID, "archive_relinked", map[string]any{"path": archivePath}); err != nil {
+				return "", err
+			}
+		}
+		var currentRepresentative string
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM archive_links
+			WHERE entity_id = ?
+			ORDER BY active DESC, last_seen_at DESC, id DESC LIMIT 1`, entityID).Scan(&currentRepresentative); err != nil {
+			return "", err
+		}
+		if wasActive == 0 || previousRoot != archive.Root || previousRepresentative != currentRepresentative {
+			if err := touchEntityUpdatedAtTx(ctx, tx, entityID, now); err != nil {
 				return "", err
 			}
 		}
@@ -1076,10 +1121,10 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 	}
 	manifestText := string(manifestJSON)
 	var artifactID, previousSHA, previousManifest, previousAnalyzer string
-	var previousSize int64
+	var previousArtifactSize int64
 	err = tx.QueryRowContext(ctx, `SELECT id, sha256, size_bytes, manifest_json, analyzer_version
 		FROM artifacts WHERE central_fingerprint = ?`, centralFingerprint).
-		Scan(&artifactID, &previousSHA, &previousSize, &previousManifest, &previousAnalyzer)
+		Scan(&artifactID, &previousSHA, &previousArtifactSize, &previousManifest, &previousAnalyzer)
 	artifactChanged := true
 	if errors.Is(err, sql.ErrNoRows) {
 		artifactID, err = modkit.NewID()
@@ -1100,7 +1145,7 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 			effectiveSHA = archive.Manifest.FullSHA256
 		}
 		artifactChanged = effectiveSHA != previousSHA ||
-			previousSize != archive.SizeBytes ||
+			previousArtifactSize != archive.SizeBytes ||
 			previousManifest != manifestText ||
 			previousAnalyzer != modkit.AnalyzerVersion
 		if artifactChanged {
@@ -1117,12 +1162,14 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 	display := displayName(archive.Manifest, archivePath)
 	kind := string(archive.Manifest.Kind)
 	basenameKey := strings.ToLower(filepath.Base(archivePath)) + "\x00" + centralFingerprint
-	var linkID, entityID, previousArtifact, previousLinkSource string
+	var linkID, entityID, previousArtifact, previousLinkSource, previousRoot, previousModified string
+	var previousLinkSize int64
 	var wasActive int
-	err = tx.QueryRowContext(ctx, `SELECT id, entity_id, artifact_id, active, source_id
+	err = tx.QueryRowContext(ctx, `SELECT id, entity_id, artifact_id, active, root_path, size_bytes, modified_at, source_id
 		FROM archive_links WHERE path = ? COLLATE NOCASE`, archivePath).
-		Scan(&linkID, &entityID, &previousArtifact, &wasActive, &previousLinkSource)
+		Scan(&linkID, &entityID, &previousArtifact, &wasActive, &previousRoot, &previousLinkSize, &previousModified, &previousLinkSource)
 	newLink := false
+	newEntity := false
 	if errors.Is(err, sql.ErrNoRows) {
 		err = tx.QueryRowContext(ctx, `SELECT entity_id FROM archive_links
 			WHERE basename_key = ?
@@ -1137,6 +1184,7 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 			) VALUES(?, ?, ?, ?, ?, ?)`, entityID, display, kind, sourceClass, now, now); err != nil {
 				return "", err
 			}
+			newEntity = true
 		} else if err != nil {
 			return "", err
 		} else if !sourceExplicit {
@@ -1178,15 +1226,25 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 			return "", err
 		}
 	}
-	entityChanged := newLink || previousArtifact != artifactID || artifactChanged || previousSource != sourceClass
-	if !newLink && (previousDisplay != display || previousKind != kind) {
+	entityChanged := newLink || previousArtifact != artifactID || artifactChanged ||
+		previousRoot != archive.Root || previousLinkSize != archive.SizeBytes ||
+		previousModified != modifiedAt || wasActive == 0 || previousLinkSource != sourceClass
+	if !newLink && (previousDisplay != display || previousKind != kind || previousSource != sourceClass) {
 		entityChanged = true
 	}
-	if !newLink && entityChanged {
-		if _, err := tx.ExecContext(ctx, `UPDATE entities SET
-			display_name = ?, kind = ?, source_id = ?, updated_at = ? WHERE id = ?`,
-			display, kind, sourceClass, now, entityID); err != nil {
-			return "", err
+	if entityChanged {
+		if newLink {
+			if !newEntity {
+				if err := touchEntityUpdatedAtTx(ctx, tx, entityID, now); err != nil {
+					return "", err
+				}
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `UPDATE entities SET
+				display_name = ?, kind = ?, source_id = ?, updated_at = ? WHERE id = ?`,
+				display, kind, sourceClass, now, entityID); err != nil {
+				return "", err
+			}
 		}
 	}
 	if err := applyAssetTx(ctx, tx, entityID, archive, now); err != nil {
@@ -1247,6 +1305,11 @@ func applyAssetTx(ctx context.Context, tx *sql.Tx, entityID string, archive Scan
 
 func markLibraryIndexFreshTx(ctx context.Context, tx *sql.Tx) error {
 	return markLibraryFTSFreshTx(ctx, tx)
+}
+
+func touchEntityUpdatedAtTx(ctx context.Context, tx *sql.Tx, entityID, updatedAt string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE entities SET updated_at=? WHERE id=?`, updatedAt, entityID)
+	return err
 }
 
 func normalizeArchiveSourceClass(value string) (string, error) {
@@ -1381,7 +1444,7 @@ func (s *Store) queryLibraryItemsTx(ctx context.Context, tx *sql.Tx, entityIDs [
 }
 
 func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
-	query := `SELECT e.id, e.display_name, e.kind,
+	query := `SELECT e.id, e.updated_at, e.display_name, e.kind,
 		COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'),
 		CASE lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))
 			WHEN 'beamng-repository' THEN 'BeamNG Repository'
@@ -1422,7 +1485,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	for rows.Next() {
 		var item LibraryItem
 		var kind, manifestJSON, assetSHA string
-		if err := rows.Scan(&item.EntityID, &item.DisplayName, &kind, &item.SourceID, &item.Source, &item.FolderID,
+		if err := rows.Scan(&item.EntityID, &item.Revision, &item.DisplayName, &kind, &item.SourceID, &item.Source, &item.FolderID,
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
 			&item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
@@ -1652,7 +1715,8 @@ func (s *Store) Dashboard(ctx context.Context, databasePath string) (Dashboard, 
 		}
 	}
 	_ = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size_bytes),0) FROM assets`).Scan(&result.CachedAssetBytes)
-	_ = s.db.QueryRowContext(ctx, `SELECT finished_at,status,discovered,analyzed,failed FROM scans ORDER BY started_at DESC LIMIT 1`).Scan(&result.LastScanAt, &result.LastScanStatus, &result.LastScanFound, &result.LastScanAnalyzed, &result.LastScanFailed)
+	_ = s.db.QueryRowContext(ctx, `SELECT finished_at,status,discovered,analyzed,failed FROM scans ORDER BY julianday(started_at) DESC, rowid DESC LIMIT 1`).Scan(&result.LastScanAt, &result.LastScanStatus, &result.LastScanFound, &result.LastScanAnalyzed, &result.LastScanFailed)
+	_ = s.db.QueryRowContext(ctx, `SELECT finished_at FROM scans WHERE status='complete' AND finished_at<>'' ORDER BY julianday(finished_at) DESC, rowid DESC LIMIT 1`).Scan(&result.LastSuccessfulScanAt)
 	result.LatestEvents, _ = s.ListEvents(ctx, "", 8)
 	if info, err := os.Stat(databasePath); err == nil {
 		result.DatabaseBytes = info.Size()

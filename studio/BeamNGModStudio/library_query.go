@@ -35,9 +35,23 @@ func parseLibrarySearchQuery(input string) librarySearchQuery {
 			}
 		}
 		if separator := strings.IndexByte(token, ':'); separator > 0 {
-			scope := normalizeLibraryScope(token[:separator])
+			operator := strings.ToLower(strings.TrimSpace(token[:separator]))
+			scope := normalizeLibraryScope(operator)
 			if scope != "" {
 				value := strings.TrimSpace(token[separator+1:])
+				if value != "" {
+					// These operators are complete one-token expressions. Keep
+					// the existing active scope for ordinary terms instead of
+					// making their scoped value apply to later text.
+					if operator == "tag" || operator == "tags" {
+						scope = "tag_exact"
+					}
+					if operator == "source" || operator == "tag" || operator == "tags" {
+						result.terms = append(result.terms, librarySearchTerm{scope: scope, value: strings.ToLower(value)})
+						continue
+					}
+				}
+				// Bare inline forms retain the historical sticky behavior.
 				activeScope = scope
 				if value != "" {
 					result.terms = append(result.terms, librarySearchTerm{scope: scope, value: strings.ToLower(value)})
@@ -164,6 +178,13 @@ func librarySearchTermMatches(item LibraryItem, collectionName string, term libr
 		tagNames = append(tagNames, tag.Name)
 	}
 	switch term.scope {
+	case "tag_exact":
+		for _, tagName := range tagNames {
+			if strings.EqualFold(tagName, term.value) {
+				return true
+			}
+		}
+		return false
 	case "tag":
 		return containsAny(tagNames)
 	case "kind":
@@ -361,10 +382,11 @@ func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQuerye
 			conditions = append(conditions, "("+condition+" OR lower(COALESCE(lf.name, '')) LIKE ? ESCAPE '\\')")
 			args = append(args, argument, libraryLikePattern(term.value))
 			continue
-		case "tag":
+		case "tag_exact", "tag":
 			// Tag assignments and renames are relational data. Keep the FTS
 			// path for indexed candidate selection, with an EXISTS fallback
 			// so a just-renamed tag remains searchable in the same snapshot.
+			// For tag_exact, hydration applies the final exact-name check.
 			condition, argument := libraryFTSCandidate(term.value)
 			conditions = append(conditions, "("+condition+` OR EXISTS (
 				SELECT 1 FROM mod_tag_entities mte

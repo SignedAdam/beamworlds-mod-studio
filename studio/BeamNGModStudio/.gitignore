@@ -1,5 +1,7 @@
 # Build output, including the locally staged private AI runtime payload.
 bin
+# `go build` with no -o target drops the binary here.
+beamng-mod-studio.exe
 frontend/dist
 frontend/node_modules
 build/linux/appimage/build

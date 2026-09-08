@@ -51,11 +51,13 @@ tasks:
       - task: generate:syso
         vars:
           ARCH: '{{.ARCH}}'
-      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe"'
-      - cmd: powershell Remove-item *.syso
-        platforms: [windows]
-      - cmd: rm -f *.syso
-        platforms: [linux, darwin]
+      # Build to a staging path, then rename it into place. Windows locks a
+      # running .exe against overwrite but permits rename, so a rebuild works
+      # while the app is open.
+      - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.staged.exe"'
+      - go run ./tools/swapbin "{{.BIN_DIR}}/{{.APP_NAME}}.staged.exe" "{{.BIN_DIR}}/{{.APP_NAME}}.exe"
+      # `go run` cleans up after itself; the generated .syso is ours to remove.
+      - go run ./tools/swapbin -remove wails_windows_{{.ARCH | default ARCH}}.syso
     vars:
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
     env:

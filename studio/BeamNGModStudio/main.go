@@ -16,7 +16,7 @@ func init() {
 	application.RegisterEvent[ScanProgress]("library:scan")
 	application.RegisterEvent[LibraryItem]("library:item")
 	application.RegisterEvent[AgentActivity]("agent:event")
-	application.RegisterEvent[ProfileProgress]("profile:progress")
+	application.RegisterEvent[PlayProgress]("play:progress")
 	application.RegisterEvent[VirusScanProgress]("virus:scan")
 	application.RegisterEvent[AIConnectionEvent]("ai:connection")
 }

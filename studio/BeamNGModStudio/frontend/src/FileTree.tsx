@@ -138,7 +138,7 @@ function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, seve
   return <>
     <div
       className={`project-tree__row ${active ? 'is-active' : ''}${severity ? ` is-${severity}` : ''}`}
-      style={{ paddingLeft: 4 + depth * 15 }}
+      style={{ paddingLeft: 2 + depth * 15 }}
       role="treeitem"
       aria-label={accessibleName}
       aria-expanded={node.kind === 'directory' ? open : undefined}
@@ -154,7 +154,7 @@ function TreeRow({ node, depth, expanded, selected, queryActive, showSizes, seve
     >
       {node.kind === 'directory' ? <button className={`tree-caret ${open ? 'is-open' : ''}`} onClick={() => onToggle(node.path)} aria-label={`${open ? 'Collapse' : 'Expand'} ${node.path}`}><Icon name="chevron" size={15}/></button> : <span className="tree-caret"/>}
       <button className={`tree-node tree-node--${node.kind}`} onClick={() => node.kind === 'directory' ? onToggle(node.path) : onSelectFile(node.path)} title={severityLabel ? `${node.path} — ${severityLabel}` : node.path} aria-label={accessibleName}>
-        {node.kind === 'directory' && <Icon name="folder" size={15}/>}<span>{node.name}</span>{showSizes && <small>{formatBytes(node.size)}</small>}
+        <span>{node.name}</span>{showSizes && <small>{formatBytes(node.size)}</small>}
       </button>
     </div>
     {node.kind === 'directory' && open && node.children.map(child => <TreeRow key={`${child.kind}-${child.path}`} node={child} depth={depth + 1} expanded={expanded} selected={selected} queryActive={queryActive} showSizes={showSizes} severityByPath={severityByPath} onToggle={onToggle} onSelectFile={onSelectFile} onDrop={onDrop} onContextMenu={onContextMenu}/>)}

@@ -121,7 +121,7 @@ func normalizeLibraryScope(value string) string {
 		return "path"
 	case "namespace":
 		return "namespace"
-	case "collection", "collections", "folder", "folders":
+	case "collection", "collections":
 		return "collection"
 	case "source", "archive":
 		return "source"
@@ -151,19 +151,30 @@ func normalizeLibraryStatus(value string) string {
 	}
 }
 
-func (query librarySearchQuery) matches(item LibraryItem, collectionNames map[string]string) bool {
+func (query librarySearchQuery) matches(item LibraryItem, collectionNames map[string]string, effectiveCollectionNames ...[]string) bool {
 	if query.status != "" && item.HealthStatus != query.status {
 		return false
 	}
+	names := []string(nil)
+	if len(effectiveCollectionNames) > 0 {
+		names = effectiveCollectionNames[0]
+	}
+	if names == nil {
+		for _, collectionID := range item.CollectionIDs {
+			if name, ok := collectionNames[collectionID]; ok {
+				names = append(names, name)
+			}
+		}
+	}
 	for _, term := range query.terms {
-		if !librarySearchTermMatches(item, collectionNames[item.FolderID], term) {
+		if !librarySearchTermMatches(item, names, term) {
 			return false
 		}
 	}
 	return true
 }
 
-func librarySearchTermMatches(item LibraryItem, collectionName string, term librarySearchTerm) bool {
+func librarySearchTermMatches(item LibraryItem, collectionNames []string, term librarySearchTerm) bool {
 	contains := func(value string) bool { return strings.Contains(strings.ToLower(value), term.value) }
 	containsAny := func(values []string) bool {
 		for _, value := range values {
@@ -198,10 +209,10 @@ func librarySearchTermMatches(item LibraryItem, collectionName string, term libr
 	case "namespace":
 		return containsAny(namespaceValues(item.Manifest.Namespaces))
 	case "collection":
-		if term.value == "unfiled" && item.FolderID == "" {
+		if term.value == "unfiled" && len(item.CollectionIDs) == 0 {
 			return true
 		}
-		return contains(collectionName)
+		return containsAny(collectionNames)
 	case "source":
 		switch term.value {
 		case "available", "linked", "present":
@@ -212,7 +223,14 @@ func librarySearchTermMatches(item LibraryItem, collectionName string, term libr
 			return librarySourceSearchMatches(item, term.value)
 		}
 	default:
-		return contains(item.DisplayName) || contains(item.ArchivePath) || contains(item.Manifest.Author) || contains(string(item.Kind)) || contains(libraryKindSearchName(string(item.Kind))) || contains(collectionName) || containsAny(namespaceValues(item.Manifest.Namespaces)) || containsAny(tagNames)
+		return contains(item.DisplayName) ||
+			contains(item.ArchivePath) ||
+			contains(item.Manifest.Author) ||
+			contains(string(item.Kind)) ||
+			contains(libraryKindSearchName(string(item.Kind))) ||
+			containsAny(collectionNames) ||
+			containsAny(namespaceValues(item.Manifest.Namespaces)) ||
+			containsAny(tagNames)
 	}
 }
 
@@ -297,7 +315,7 @@ func (s *Store) libraryCollectionNamesTx(ctx context.Context, queryer libraryQue
 }
 
 func (s *Store) libraryCollectionNamesQuery(ctx context.Context, queryer libraryQueryer) (map[string]string, error) {
-	rows, err := queryer.QueryContext(ctx, `SELECT id,name FROM library_folders`)
+	rows, err := queryer.QueryContext(ctx, `SELECT id,name FROM collections`)
 	if err != nil {
 		return nil, err
 	}
@@ -324,15 +342,15 @@ func (s *Store) libraryCollectionNamesQuery(ctx context.Context, queryer library
 // retained labels are matched independently of archive paths. A residual
 // match is still required by callers for scoped terms because the aggregate
 // index intentionally does not encode the query language's scope state.
-func (s *Store) listLibraryQuery(ctx context.Context, health, kind, query, folderID string) ([]string, error) {
-	return s.listLibraryQueryQuery(ctx, s.db, health, kind, query, folderID)
+func (s *Store) listLibraryQuery(ctx context.Context, health, kind, query, collectionID string) ([]string, error) {
+	return s.listLibraryQueryQuery(ctx, s.db, health, kind, query, collectionID)
 }
 
-func (s *Store) listLibraryQueryTx(ctx context.Context, queryer libraryQueryer, health, kind, query, folderID string) ([]string, error) {
-	return s.listLibraryQueryQuery(ctx, queryer, health, kind, query, folderID)
+func (s *Store) listLibraryQueryTx(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID string) ([]string, error) {
+	return s.listLibraryQueryQuery(ctx, queryer, health, kind, query, collectionID)
 }
 
-func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQueryer, health, kind, query, folderID string) ([]string, error) {
+func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID string) ([]string, error) {
 	// Health values are derived after canonical hydration. Normalize here so
 	// callers get the same treatment for invalid values as the old in-memory
 	// path, while keeping this candidate query independent of scan history.
@@ -340,18 +358,36 @@ func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQuerye
 
 	search := parseLibrarySearchQuery(query)
 	conditions := []string{"1=1"}
-	args := make([]any, 0, len(search.terms)*2+4)
+	args := make([]any, 0, len(search.terms)*3+4)
 
 	if kind != "" && kind != "all" {
 		conditions = append(conditions, "e.kind = ?")
 		args = append(args, kind)
 	}
 	switch {
-	case folderID == "unfiled":
-		conditions = append(conditions, "COALESCE(lfe.folder_id, '') = ''")
-	case folderID != "" && folderID != "all":
-		conditions = append(conditions, "COALESCE(lfe.folder_id, '') = ?")
-		args = append(args, folderID)
+	case collectionID == "unfiled":
+		// Unfiled is defined by direct membership only. Inherited membership
+		// never makes an otherwise directly unassigned entity filed.
+		conditions = append(conditions, `NOT EXISTS (
+			SELECT 1 FROM collection_mods cm WHERE cm.entity_id=e.id
+		)`)
+	case collectionID != "" && collectionID != "all":
+		// A collection filter includes the collection itself and every
+		// descendant. UNION deduplicates diamond-shaped paths and terminates
+		// safely even if a legacy database still contains a cycle.
+		conditions = append(conditions, `e.id IN (
+			WITH RECURSIVE descendants(id) AS (
+				SELECT ?
+				UNION
+				SELECT cc.child_id
+				FROM collection_children cc
+				JOIN descendants d ON d.id=cc.parent_id
+			)
+			SELECT cm.entity_id
+			FROM collection_mods cm
+			JOIN descendants d ON d.id=cm.collection_id
+		)`)
+		args = append(args, collectionID)
 	}
 
 	for _, term := range search.terms {
@@ -372,14 +408,32 @@ func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQuerye
 			}
 		case "collection":
 			if term.value == "unfiled" {
-				conditions = append(conditions, "COALESCE(lfe.folder_id, '') = ''")
+				conditions = append(conditions, `NOT EXISTS (
+					SELECT 1 FROM collection_mods cm WHERE cm.entity_id=e.id
+				)`)
 				continue
 			}
-			// Include the FTS candidate and a relational fallback. The latter
-			// keeps folder renames immediately visible even if a maintenance
-			// operation has not rebuilt the aggregate index yet.
+			// Resolve ancestor names in SQL so searching a parent collection
+			// finds mods inherited through any depth or shared-child path.
+			collectionCondition := `e.id IN (
+				WITH RECURSIVE effective(entity_id,collection_id) AS (
+					SELECT cm.entity_id,cm.collection_id
+					FROM collection_mods cm
+					UNION
+					SELECT effective.entity_id,cc.parent_id
+					FROM effective
+					JOIN collection_children cc ON cc.child_id=effective.collection_id
+				)
+				SELECT effective.entity_id
+				FROM effective
+				JOIN collections c ON c.id=effective.collection_id
+				WHERE lower(c.name) LIKE ? ESCAPE '\'
+			)`
+			// Keep the aggregate FTS candidate for indexed normal terms while
+			// retaining the relational recursive path for fresh renames and
+			// ancestor names not represented by an older index.
 			condition, argument := libraryFTSCandidate(term.value)
-			conditions = append(conditions, "("+condition+" OR lower(COALESCE(lf.name, '')) LIKE ? ESCAPE '\\')")
+			conditions = append(conditions, "("+condition+" OR "+collectionCondition+")")
 			args = append(args, argument, libraryLikePattern(term.value))
 			continue
 		case "tag_exact", "tag":
@@ -423,8 +477,6 @@ func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQuerye
 
 	sqlQuery := `SELECT DISTINCT e.id
 		FROM entities e
-		LEFT JOIN library_folder_entities lfe ON lfe.entity_id = e.id
-		LEFT JOIN library_folders lf ON lf.id = lfe.folder_id
 		LEFT JOIN archive_links l ON l.id = (
 			SELECT l2.id FROM archive_links l2
 			WHERE l2.entity_id = e.id
@@ -433,7 +485,7 @@ func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQuerye
 		)
 		LEFT JOIN source_classifications sc ON sc.id = COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added')
 		WHERE ` + strings.Join(conditions, " AND ") + `
-		ORDER BY COALESCE(l.active, 0) DESC, e.updated_at DESC, e.display_name COLLATE NOCASE`
+		ORDER BY COALESCE(l.active, 0) DESC, e.updated_at DESC, e.display_name COLLATE NOCASE, e.id`
 	rows, err := queryer.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, err

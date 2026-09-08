@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,10 +15,22 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
 	ctx := context.Background()
-	for _, table := range []string{"library_folders", "library_folder_entities", "mod_tags", "mod_tag_entities", "mod_presets", "mod_preset_entities", "mod_profiles", "mod_profile_presets", "workspace_drafts"} {
-		var name string
-		if err := service.store.db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name); err != nil {
-			t.Fatalf("migration table %s: %v", table, err)
+	for _, table := range []string{"library_folders", "library_folder_entities", "mod_presets", "mod_preset_entities", "mod_profiles", "mod_profile_presets"} {
+		var count int
+		if err := service.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
+			t.Fatalf("check obsolete table %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("obsolete organization table %s remains live", table)
+		}
+	}
+	for _, table := range []string{"collections", "collection_mods", "collection_children", "play_profiles", "play_profile_collections", "play_state"} {
+		var count int
+		if err := service.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil {
+			t.Fatalf("check collection table %s: %v", table, err)
+		}
+		if count != 1 {
+			t.Fatalf("collection table %s is absent", table)
 		}
 	}
 	first, err := service.CreateNewMod(NewModRequest{Name: "Organization One", ModID: "organization_one", Kind: "script", Version: "0.1.0"})
@@ -30,82 +41,85 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := service.CreateLibraryFolder("Favorites", "")
+	third, err := service.CreateNewMod(NewModRequest{Name: "Organization Three", ModID: "organization_three", Kind: "map", Version: "0.1.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	folder := state.Folders[0]
-	if err := service.MoveLibraryItem(first.Entity.EntityID, folder.ID); err != nil {
-		t.Fatal(err)
-	}
-	folderItems, err := service.ListLibrary("all", "all", "", folder.ID)
-	if err != nil || len(folderItems) != 1 || folderItems[0].EntityID != first.Entity.EntityID {
-		t.Fatalf("folder listing = %#v, err %v", folderItems, err)
-	}
-	unfiled, err := service.ListLibrary("all", "all", "", "unfiled")
-	if err != nil || !containsEntity(unfiled, second.Entity.EntityID) || containsEntity(unfiled, first.Entity.EntityID) {
-		t.Fatalf("unfiled listing does not honor memberships: %#v, err %v", unfiled, err)
-	}
-
-	state, err = service.CreatePreset("Off-road", "Reusable off-road selection")
+	a, err := service.CreateCollection("Favorites", "Top picks", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	preset := findReusablePreset(t, state, "Off-road")
-	if err := service.SetPresetMod(preset.ID, second.Entity.EntityID, true); err != nil {
-		t.Fatal(err)
-	}
-	presetDetail, err := service.GetPreset(preset.ID)
-	if err != nil || !slices.Contains(presetDetail.EntityIDs, second.Entity.EntityID) {
-		t.Fatalf("preset membership = %#v, err %v", presetDetail, err)
-	}
-
-	state, err = service.CreateProfile("Career")
+	b, err := service.CreateCollection("Shared", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := state.Profiles[0]
-	profileDetail, err := service.GetProfile(profile.ID)
+	c, err := service.CreateCollection("Deep", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(profileDetail.Presets) == 0 || !profileDetail.Presets[0].Default || !profileDetail.Presets[0].Selected || profileDetail.Presets[0].ID != profile.DefaultPresetID {
-		t.Fatalf("profile default preset invariant failed: %#v", profileDetail.Presets)
-	}
-	if err := service.SetProfileMod(profile.ID, first.Entity.EntityID, true); err != nil {
+	if _, err := service.SetCollectionMods(a.Collection.ID, []string{first.Entity.EntityID, second.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SetProfilePreset(profile.ID, preset.ID, true); err != nil {
+	if _, err := service.SetCollectionMods(b.Collection.ID, []string{second.Entity.EntityID, third.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	profileDetail, err = service.GetProfile(profile.ID)
+	if _, err := service.SetCollectionChildren(a.Collection.ID, []string{b.Collection.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionChildren(b.Collection.ID, []string{c.Collection.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionChildren(c.Collection.ID, []string{a.Collection.ID}, true); err == nil {
+		t.Fatal("long collection cycle was accepted")
+	}
+	selection, err := service.ResolvePlaySelection([]string{a.Collection.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(profileDetail.Mods) != 2 {
-		t.Fatalf("effective profile mods = %d, want 2: %#v", len(profileDetail.Mods), profileDetail.Mods)
+	if selection.ModCount != 3 || len(selection.Mods) != 3 || selection.Fingerprint == "" {
+		t.Fatalf("nested deduplicated selection = %#v", selection)
 	}
-	firstMod := findProfileMod(t, profileDetail, first.Entity.EntityID)
-	if !slices.Contains(firstMod.PresetIDs, profile.DefaultPresetID) {
-		t.Fatalf("direct selection was not routed to default preset: %#v", firstMod)
+	var secondMod CollectionMod
+	for _, mod := range selection.Mods {
+		if mod.EntityID == second.Entity.EntityID {
+			secondMod = mod
+		}
 	}
-	secondMod := findProfileMod(t, profileDetail, second.Entity.EntityID)
-	if !slices.Contains(secondMod.PresetIDs, preset.ID) {
-		t.Fatalf("reusable preset membership missing: %#v", secondMod)
+	if secondMod.EntityID == "" || len(secondMod.CollectionIDs) != 2 || !slices.Contains(secondMod.RootIDs, a.Collection.ID) {
+		t.Fatalf("shared mod provenance = %#v", secondMod)
 	}
-	if _, err := service.DeletePreset(profile.DefaultPresetID); err == nil {
-		t.Fatal("profile default preset was deletable")
-	}
-	state, err = service.DeleteLibraryFolder(folder.ID)
+	profile, err := service.CreatePlayProfile([]string{a.Collection.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.Folders) != 0 {
-		t.Fatalf("folder was not deleted: %#v", state.Folders)
+	if profile.Name != "Profile 1" || profile.ModCount != 3 || len(profile.CollectionIDs) != 1 {
+		t.Fatalf("created Play profile = %#v", profile)
 	}
-	unfiled, err = service.ListLibrary("all", "all", "", "unfiled")
-	if err != nil || !containsEntity(unfiled, first.Entity.EntityID) {
-		t.Fatalf("deleting a folder did not safely unfile its mod: %#v, err %v", unfiled, err)
+	profile, err = service.UpdatePlayProfile(profile.ID, []string{a.Collection.ID, c.Collection.ID})
+	if err != nil || profile.CollectionCount != 2 || profile.ModCount != 3 {
+		t.Fatalf("updated Play profile = %#v, err %v", profile, err)
+	}
+	renamed, err := service.RenamePlayProfile(profile.ID, "Road Set")
+	if err != nil || renamed.Name != "Road Set" {
+		t.Fatalf("renamed Play profile = %#v, err %v", renamed, err)
+	}
+	if _, err := service.ReorderCollectionMembers(a.Collection.ID, []string{second.Entity.EntityID, first.Entity.EntityID}, []string{b.Collection.ID}); err != nil {
+		t.Fatal(err)
+	}
+	impact, err := service.GetCollectionDeleteImpact([]string{b.Collection.ID})
+	if err != nil || len(impact.Collections) != 1 || impact.Collections[0].ID != a.Collection.ID || len(impact.Profiles) != 1 {
+		t.Fatalf("collection delete impact = %#v, err %v", impact, err)
+	}
+	duplicate, err := service.DuplicateCollection(a.Collection.ID)
+	if err != nil || duplicate.Collection.Name == a.Collection.Name || len(duplicate.Members) != 2 || len(duplicate.Children) != 1 {
+		t.Fatalf("duplicated collection = %#v, err %v", duplicate, err)
+	}
+	state, err := service.DeleteCollections([]string{c.Collection.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(state.Collections, func(collection ModCollection) bool { return collection.ID == c.Collection.ID }) {
+		t.Fatal("deleted collection remains in organization state")
 	}
 }
 
@@ -264,7 +278,7 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	if _, err := service.CreateModTag("Invalid Color", "purple", "tag"); err == nil {
 		t.Fatal("invalid tag color was accepted")
 	}
-	if _, err := service.UpdateModTagVisual(favorite.ID, "#a978e5", "star"); err == nil {
+	if _, err := service.UpdateModTagVisual(favorite.ID, "#a978e5", "rocket"); err == nil {
 		t.Fatal("non-preset tag icon was accepted")
 	}
 	if _, err := service.SetLibraryItemTags(first.Entity.EntityID, []string{car.ID, "missing-tag"}); err == nil {
@@ -305,12 +319,11 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 		t.Fatalf("missing-source scope query = %#v, err %v", missing, err)
 	}
 
-	state, err = service.CreateLibraryFolder("Road Tests", "")
+	roadTests, err := service.CreateCollection("Road Tests", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	collection := state.Folders[0]
-	if err := service.MoveLibraryItem(first.Entity.EntityID, collection.ID); err != nil {
+	if _, err := service.SetCollectionMods(roadTests.Collection.ID, []string{first.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
 	items, err := service.ListLibrary("all", "all", `in:collection "Road Tests"`, "all")
@@ -456,7 +469,7 @@ func TestDraftRecoveryAndWorkspaceTreeOperations(t *testing.T) {
 	}
 }
 
-func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
+func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
 	first, err := service.CreateNewMod(NewModRequest{Name: "Profile One", ModID: "profile_one", Kind: "script", Version: "0.1.0"})
@@ -467,24 +480,49 @@ func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := service.CreatePreset("Shared", "")
+	shared, err := service.CreateCollection("Shared", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	preset := findReusablePreset(t, state, "Shared")
-	if err := service.SetPresetMod(preset.ID, second.Entity.EntityID, true); err != nil {
+	if _, err := service.SetCollectionMods(shared.Collection.ID, []string{second.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	state, err = service.CreateProfile("Isolated")
+	road, err := service.CreateCollection("Road Set", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := state.Profiles[0]
-	if err := service.SetProfileMod(profile.ID, first.Entity.EntityID, true); err != nil {
+	if _, err := service.SetCollectionMods(road.Collection.ID, []string{first.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.SetProfilePreset(profile.ID, preset.ID, true); err != nil {
+	if _, err := service.SetCollectionChildren(road.Collection.ID, []string{shared.Collection.ID}, true); err != nil {
 		t.Fatal(err)
+	}
+	roots := []string{road.Collection.ID}
+	// One review must be enough: activation records newly computed archive
+	// fingerprints only after it succeeds, so preparing the selection cannot
+	// invalidate the fingerprint the person just reviewed.
+	review := func() PlaySelection {
+		t.Helper()
+		selection, err := service.ResolvePlaySelection(roots)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return selection
+	}
+	reviewedPlay := func(label string, act func(PlayRequest) (PlayResult, error)) PlayResult {
+		t.Helper()
+		result, err := act(PlayRequest{CollectionIDs: roots, Fingerprint: review().Fingerprint})
+		if err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		return result
+	}
+	selection := review()
+	if selection.ModCount != 2 || selection.MissingCount != 0 {
+		t.Fatalf("nested Play selection = %#v", selection)
+	}
+	if len(selection.IncludedCollectionIDs) != 2 {
+		t.Fatalf("nested selection did not include the child collection: %#v", selection.IncludedCollectionIDs)
 	}
 	sentinel := filepath.Join(service.config.ActiveModsDir, "existing-user-mod.zip")
 	if err := os.WriteFile(sentinel, []byte("existing user mod"), 0o644); err != nil {
@@ -501,16 +539,25 @@ func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), nativeDB, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	progress := []ProfileProgress{}
+	progress := []PlayProgress{}
 	service.emit = func(name string, value any) {
-		if name == "profile:progress" {
-			progress = append(progress, value.(ProfileProgress))
+		if name == "play:progress" {
+			progress = append(progress, value.(PlayProgress))
 		}
 	}
-	activation, err := service.ActivateProfile(profile.ID)
-	if err != nil {
-		t.Fatal(err)
+	service.config.GameExecutable = "BeamNG.drive.x64.exe"
+	service.config.GameInstallDir = t.TempDir()
+	var gotExecutable, gotDirectory string
+	var gotArguments []string
+	service.startProcess = func(executable string, arguments []string, directory string) (ProcessLaunch, error) {
+		gotExecutable, gotArguments, gotDirectory = executable, append([]string(nil), arguments...), directory
+		return ProcessLaunch{PID: 4242, Executable: executable, StartedAt: nowUTC()}, nil
 	}
+	applied := reviewedPlay("launch reviewed Play selection", service.LaunchPlaySelection)
+	if !applied.Applied || !applied.Started {
+		t.Fatalf("launch result = %#v", applied)
+	}
+	activation := applied.Activation
 	entries, err := os.ReadDir(activation.ModsPath)
 	if err != nil {
 		t.Fatal(err)
@@ -522,7 +569,7 @@ func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 		t.Fatalf("existing active mod was touched: %v", err)
 	}
 	if !samePath(activation.UserPath, service.config.BeamNGRoot) {
-		t.Fatalf("mod profile changed BeamNG user data root: %s", activation.UserPath)
+		t.Fatalf("Play selection changed BeamNG user data root: %s", activation.UserPath)
 	}
 	if !samePath(activation.ModsPath, filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)) {
 		t.Fatalf("managed mod path = %s", activation.ModsPath)
@@ -536,49 +583,26 @@ func TestModProfileActivationUsesSharedBeamNGData(t *testing.T) {
 	if err != nil || json.Unmarshal(appliedPayload, &appliedDB) != nil || appliedDB.Mods[sentinelKey].Active {
 		t.Fatalf("existing native mod was not disabled in BeamNG state: %s, err %v", appliedPayload, err)
 	}
-	if len(progress) == 0 || !progress[len(progress)-1].Done || progress[len(progress)-1].Phase != "ready" {
-		t.Fatalf("terminal activation progress missing: %#v", progress)
+	if len(progress) == 0 || !progress[len(progress)-1].Done || progress[len(progress)-1].Phase != "started" {
+		t.Fatalf("terminal launch progress missing: %#v", progress)
+	}
+	if _, err := service.LaunchPlaySelection(PlayRequest{CollectionIDs: roots, Fingerprint: "stale-review"}); err == nil {
+		t.Fatal("a stale review fingerprint was activated without a fresh review")
 	}
 	for _, source := range []string{first.Workspace.SourcePath, second.Workspace.SourcePath} {
 		if err := os.Remove(source); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := service.ActivateProfile(profile.ID); err != nil {
-		t.Fatalf("content-addressed profile cache did not survive unavailable cross-root sources: %v", err)
-	}
+	reviewedPlay("content-addressed Play cache did not survive unavailable cross-root sources", service.LaunchPlaySelection)
 
-	service.config.GameExecutable = "BeamNG.drive.x64.exe"
-	service.config.GameInstallDir = t.TempDir()
-	var gotExecutable, gotDirectory string
-	var gotArguments []string
-	service.startProcess = func(executable string, arguments []string, directory string) (ProcessLaunch, error) {
-		gotExecutable, gotArguments, gotDirectory = executable, append([]string(nil), arguments...), directory
-		return ProcessLaunch{PID: 4242, Executable: executable, StartedAt: nowUTC()}, nil
+	launch := reviewedPlay("launch reviewed Play selection", service.LaunchPlaySelection)
+	if !launch.Started || launch.Process.PID != 4242 || gotExecutable != service.config.GameExecutable || gotDirectory != service.config.GameInstallDir || len(gotArguments) != 2 || gotArguments[0] != "-userpath" || gotArguments[1] != launch.Activation.UserPath {
+		t.Fatalf("Play launch contract mismatch: launch=%#v executable=%q arguments=%#v directory=%q", launch, gotExecutable, gotArguments, gotDirectory)
 	}
-	launch, err := service.LaunchProfile(profile.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if launch.Process.PID != 4242 || gotExecutable != service.config.GameExecutable || gotDirectory != service.config.GameInstallDir || len(gotArguments) != 2 || gotArguments[0] != "-userpath" || gotArguments[1] != launch.Activation.UserPath {
-		t.Fatalf("profile launch contract mismatch: launch=%#v executable=%q arguments=%#v directory=%q", launch, gotExecutable, gotArguments, gotDirectory)
-	}
-	if !service.HasAppliedModProfile() {
-		t.Fatal("applied mod profile did not preserve the normal BeamNG state")
-	}
-	if err := service.RestoreNormalModSelection(); err != nil {
-		t.Fatal(err)
-	}
-	if service.HasAppliedModProfile() {
-		t.Fatal("normal BeamNG state still reports as managed after restore")
-	}
-	if _, err := os.Stat(filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("managed mod directory remains after restore: %v", err)
-	}
-	appliedPayload, err = os.ReadFile(filepath.Join(service.config.ActiveModsDir, "db.json"))
-	appliedDB.Mods = nil
-	if err != nil || json.Unmarshal(appliedPayload, &appliedDB) != nil || !appliedDB.Mods[sentinelKey].Active {
-		t.Fatalf("normal BeamNG mod selection was not restored: %s, err %v", appliedPayload, err)
+	runtimeState, err := service.GetPlayRuntimeState()
+	if err != nil || !runtimeState.Applied || runtimeState.Activation.ModCount != 2 {
+		t.Fatalf("applied Play runtime state = %#v, err %v", runtimeState, err)
 	}
 }
 
@@ -595,26 +619,4 @@ func findModTag(t *testing.T, state OrganizationState, name string) ModTag {
 	}
 	t.Fatalf("tag %q missing from %#v", name, state.Tags)
 	return ModTag{}
-}
-
-func findReusablePreset(t *testing.T, state OrganizationState, name string) ModPreset {
-	t.Helper()
-	for _, preset := range state.Presets {
-		if preset.Name == name && preset.DefaultForProfileCount == 0 {
-			return preset
-		}
-	}
-	t.Fatalf("reusable preset %q missing from %#v", name, state.Presets)
-	return ModPreset{}
-}
-
-func findProfileMod(t *testing.T, detail ProfileDetail, entityID string) ProfileMod {
-	t.Helper()
-	for _, mod := range detail.Mods {
-		if mod.EntityID == entityID {
-			return mod
-		}
-	}
-	t.Fatalf("profile mod %q missing from %#v", entityID, detail.Mods)
-	return ProfileMod{}
 }

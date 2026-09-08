@@ -1,0 +1,490 @@
+/* Play: collection artwork above a weighted launch bar.
+   The bar's height matches the sidebar's bottom block so both bottom regions
+   share one line across the window. The launch button is the only lit object. */
+
+.play-view {
+  --play-art: url(/art/crash.jpg);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--orange) 6%, transparent), transparent 70%),
+    var(--bg);
+}
+
+.play-view .page-shell__header { flex: 0 0 auto; }
+
+.play-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.play-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.play-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  align-content: start;
+  gap: 14px;
+  padding: 16px;
+}
+
+.play-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.play-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.play-notices,
+.play-error {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 16px 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-left: 2px solid var(--warning);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+
+.play-notices > svg { flex: none; color: var(--warning); }
+.play-notices p + p { margin-top: 3px; }
+.play-error { border-left-color: var(--danger); }
+.play-error > svg { flex: none; color: var(--danger); }
+.play-error > span { flex: 1; min-width: 0; }
+
+/* ---------- Launch bar ---------- */
+.play-launch-bar {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 80%, var(--bg)), var(--surface-solid));
+  box-shadow: 0 -10px 26px rgb(0 0 0 / 24%), inset 0 1px rgb(255 255 255 / 4%);
+}
+
+.play-launch-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--font-caption);
+}
+
+.play-launch-status.is-error { color: var(--danger); }
+
+.play-launch-status span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-launch-status progress {
+  appearance: none;
+  flex: 0 1 220px;
+  height: 3px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.play-launch-status progress::-webkit-progress-bar { background: var(--line); }
+.play-launch-status progress::-webkit-progress-value { background: var(--orange); }
+
+/* 88px = sidebar bottom block (5 + 38 + 38 + 7). */
+.play-launch-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 88px;
+  padding: 0 16px;
+}
+
+.play-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Native select chevrons sit flush against the border, so draw our own. */
+.play-launch-controls select {
+  appearance: none;
+  width: 200px;
+  height: 34px;
+  padding: 0 32px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background-color: var(--field);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+    linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+  background-position: right 15px center, right 11px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--text);
+  font-size: var(--font-control);
+  font-weight: 600;
+}
+
+.play-launch-controls select:hover:not(:disabled) { border-color: color-mix(in srgb, var(--text) 30%, var(--line-strong)); }
+.play-launch-controls select:disabled { color: var(--text-3); }
+
+.play-profile__meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 14px;
+  padding-left: 1px;
+}
+
+.play-unsaved { color: var(--warning); font-size: var(--font-caption); font-weight: 600; }
+
+.play-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.play-link:hover:not(:disabled) { color: var(--orange); }
+.play-link:disabled { color: var(--disabled); cursor: default; text-decoration: none; }
+
+.play-launch-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  align-self: stretch;
+  margin: 24px 0;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.play-launch-actions:empty { display: none; }
+
+.play-launch-primary {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.play-readiness {
+  color: var(--text-2);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- Launch button: image plane under a springy glass pane ---------- */
+.play-launch-button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 218px;
+  height: 66px;
+  padding: 0 26px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--orange) 52%, #000);
+  border-radius: 11px;
+  background: #0a0b0c;
+  cursor: pointer;
+  transform: translateZ(0);
+  box-shadow:
+    0 10px 20px -6px rgb(0 0 0 / 62%),
+    0 2px 0 0 color-mix(in srgb, var(--orange) 22%, #000),
+    inset 0 1px 0 rgb(255 255 255 / 20%);
+  transition: transform 160ms cubic-bezier(.22, 1, .36, 1), box-shadow 160ms ease, border-color 160ms ease;
+}
+
+/* The artwork plane fills the button and is clipped by the same rounded box.
+   Zoom is done with background-size, never with a transform: a transformed
+   layer is rasterised once and then GPU-scaled, which is what made the edges
+   crawl. Changing background-size repaints at the target size, so every state
+   is pixel-exact. */
+.play-launch-button__art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background-image: var(--play-art, linear-gradient(135deg, #6d2a0b, #c9531c 46%, #241611));
+  background-position: 50% 58%;
+  background-size: 133% auto;
+  background-repeat: no-repeat;
+  filter: brightness(.72) saturate(1.08) contrast(1.04);
+  transition:
+    filter 220ms ease,
+    background-size 260ms cubic-bezier(.22, 1, .36, 1),
+    background-position 260ms cubic-bezier(.22, 1, .36, 1);
+}
+
+/* Scenes change on a slow timer: a long, eased crossfade with no other motion,
+   so the change reads as a dissolve instead of a blink. */
+.play-launch-button__art.is-entering { animation: play-art-in 2600ms cubic-bezier(.4, 0, .3, 1) both; }
+.play-launch-button__art.is-leaving { animation: play-art-out 2600ms cubic-bezier(.4, 0, .3, 1) both; }
+
+@keyframes play-art-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes play-art-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.play-launch-button__glass {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background:
+    radial-gradient(130% 82% at 50% -34%, rgb(255 255 255 / 20%), transparent 60%),
+    linear-gradient(180deg, rgb(255 255 255 / 7%), rgb(255 255 255 / 2%) 42%, rgb(0 0 0 / 16%));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 30%),
+    inset 0 -14px 20px -14px rgb(0 0 0 / 62%),
+    inset 0 0 0 1px rgb(255 255 255 / 6%);
+  /* No backdrop-filter: sampling the plane beneath through a blur flickered in
+     WebView2 whenever the plane's opacity or size changed. */
+  transition: opacity 180ms ease;
+}
+
+.play-launch-button__label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: var(--font-title);
+  font-weight: 700;
+  letter-spacing: .01em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 60%);
+}
+
+.play-launch-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--orange) 76%, #fff);
+  box-shadow:
+    0 14px 26px -8px rgb(0 0 0 / 66%),
+    0 2px 0 0 color-mix(in srgb, var(--orange) 32%, #000),
+    inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+
+/* Hover clears the glass and pushes the scene 12% closer. */
+.play-launch-button:hover:not(:disabled) .play-launch-button__art {
+  filter: brightness(.88) saturate(1.16) contrast(1.06);
+  background-size: 149% auto;
+}
+
+.play-launch-button:hover:not(:disabled) .play-launch-button__glass {
+  opacity: .7;
+}
+
+/* Press drives the pane into the plane: image magnifies and sharpens. */
+.play-launch-button:active:not(:disabled) {
+  transform: translateY(1px) scale(.995);
+  box-shadow:
+    0 4px 12px -6px rgb(0 0 0 / 70%),
+    inset 0 2px 7px rgb(0 0 0 / 44%);
+}
+
+.play-launch-button:active:not(:disabled) .play-launch-button__art {
+  filter: brightness(.98) saturate(1.18) contrast(1.06);
+  background-size: 166% auto;
+}
+
+.play-launch-button:active:not(:disabled) .play-launch-button__glass {
+  opacity: .46;
+}
+
+.play-launch-button:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.play-launch-button:disabled { border-color: var(--line-strong); cursor: default; box-shadow: none; }
+.play-launch-button:disabled .play-launch-button__art { filter: brightness(.18) saturate(.35); }
+.play-launch-button:disabled .play-launch-button__glass { opacity: .4; }
+.play-launch-button:disabled .play-launch-button__label { color: var(--disabled); text-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .play-launch-button__art.is-entering,
+  .play-launch-button__art.is-leaving { animation: none; }
+  .play-launch-button__art { transition: none; }
+}
+
+/* ---------- Dialogs ---------- */
+.play-dialog-intro { margin-bottom: 10px; color: var(--text); font-size: var(--font-control); font-weight: 600; }
+.play-dialog-copy { color: var(--text-2); font-size: var(--font-caption); line-height: 1.5; }
+
+.play-dialog-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 2px solid var(--warning);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+}
+
+.play-dialog-warning > svg { flex: none; color: var(--warning); }
+
+.play-mod-review {
+  max-height: 54vh;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+
+.play-mod-review__row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.play-mod-review__row:last-child { border-bottom: 0; }
+.play-mod-review__row:hover { background: var(--surface-soft); }
+.play-mod-review__row.is-missing { background: color-mix(in srgb, var(--danger) 9%, transparent); }
+
+.play-mod-review__image {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 26px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--text-3);
+}
+
+.play-mod-review__image img { width: 100%; height: 100%; object-fit: cover; }
+.play-mod-review__copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+.play-mod-review__copy strong,
+.play-mod-review__copy span,
+.play-mod-review__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.play-mod-review__copy strong { color: var(--text); font-size: var(--font-control); font-weight: 600; }
+.play-mod-review__copy span,
+.play-mod-review__copy small { color: var(--text-3); font-size: var(--font-caption); }
+
+.play-profile-list { border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; }
+
+.play-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.play-profile-row:last-child { border-bottom: 0; }
+.play-profile-row:hover { background: var(--surface-soft); }
+.play-profile-row > div:first-child { min-width: 0; display: flex; flex-direction: column; }
+
+.play-profile-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-control);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-profile-row span { color: var(--text-3); font-size: var(--font-caption); }
+.play-profile-row > div:last-child { display: flex; flex: none; gap: 5px; }
+.play-profile-row.is-editing { flex-wrap: wrap; }
+
+.play-profile-row.is-editing input {
+  flex: 1 1 200px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--orange);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  font-size: var(--font-control);
+}
+
+.play-inline-error { flex-basis: 100%; color: var(--danger); font-size: var(--font-caption); }
+
+.play-manager-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 24px 12px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  text-align: center;
+}
+
+.play-manager-empty > svg { color: var(--text-3); }
+.play-manager-empty strong { color: var(--text); font-size: var(--font-control); }
+
+@media (max-width: 900px) {
+  .play-launch-controls { flex-wrap: wrap; padding: 12px 16px; gap: 12px; min-height: 0; }
+  .play-launch-actions { margin: 0; padding-left: 0; border-left: 0; }
+  .play-launch-primary { margin-left: 0; width: 100%; }
+  .play-launch-button { margin-left: auto; }
+}
+
+html[data-theme="light"] .play-view {
+  background:
+    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--orange) 8%, transparent), transparent 70%),
+    var(--bg);
+}
+
+html[data-theme="light"] .play-launch-bar {
+  background: linear-gradient(180deg, #fff, var(--surface-solid));
+  box-shadow: 0 -8px 20px rgb(40 35 26 / 8%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-launch-button,
+  .play-launch-button__art,
+  .play-launch-button__glass { transition: none; }
+}

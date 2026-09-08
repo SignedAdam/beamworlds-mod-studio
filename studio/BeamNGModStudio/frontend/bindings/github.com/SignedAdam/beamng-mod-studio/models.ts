@@ -124,6 +124,7 @@ export interface AppSettings {
     "lightSurfaceColor": string;
     "lightBorderColor": string;
     "lightTextColor": string;
+    "scrollbarColor": string;
     "preScanModel": string;
     "preScanReasoning": string;
     "fullScanModel": string;
@@ -153,6 +154,73 @@ export interface ArchiveMemberPreview {
     "dataUrl": string;
     "sizeBytes": number;
     "truncated": boolean;
+}
+
+export interface CollectionArtworkCandidate {
+    "path": string;
+    "name": string;
+    "url": string;
+    "assetId": string;
+}
+
+/**
+ * A parent -> child edge. Disabling it stops traversal through this edge only;
+ * the child still contributes anywhere else it is reached.
+ */
+export interface CollectionChild {
+    "collectionId": string;
+    "enabled": boolean;
+}
+
+export interface CollectionCover {
+    "mode": string;
+    "images": CollectionCoverImage[] | null;
+}
+
+export interface CollectionCoverImage {
+    "assetId": string;
+    "focalX": number;
+    "focalY": number;
+}
+
+export interface CollectionDetail {
+    "collection": ModCollection;
+    "members": CollectionMember[] | null;
+    "children": CollectionChild[] | null;
+    "mods": CollectionMod[] | null;
+    "usage": CollectionUsage;
+}
+
+/**
+ * A membership row: the mod stays in the collection when disabled, it just
+ * stops contributing to a resolved selection.
+ */
+export interface CollectionMember {
+    "entityId": string;
+    "enabled": boolean;
+}
+
+export interface CollectionMod {
+    "entityId": string;
+    "displayName": string;
+    "kind": modkit$0.Kind;
+    "archivePath": string;
+    "sha256": string;
+    "sizeBytes": number;
+    "thumbnailUrl": string;
+    "available": boolean;
+    "collectionIds": string[] | null;
+    "rootIds": string[] | null;
+}
+
+export interface CollectionReference {
+    "id": string;
+    "name": string;
+}
+
+export interface CollectionUsage {
+    "collections": CollectionReference[] | null;
+    "profiles": CollectionReference[] | null;
 }
 
 export interface Dashboard {
@@ -548,19 +616,12 @@ export interface KnowledgeDocument {
     "content": string;
 }
 
-export interface LibraryFolder {
-    "id": string;
-    "name": string;
-    "parentId": string;
-    "modCount": number;
-}
-
 export interface LibraryItem {
     "entityId": string;
     "revision": string;
     "artifactId": string;
     "linkId": string;
-    "folderId": string;
+    "collectionIds": string[] | null;
     "displayName": string;
     "kind": modkit$0.Kind;
     "sourceId": string;
@@ -611,19 +672,28 @@ export interface LibraryVariantUpdate {
     "topSpeed": string;
 }
 
-export interface ModPreset {
+export interface ModCollection {
     "id": string;
     "name": string;
     "description": string;
+    "updatedAt": string;
+    "position": number;
     "modCount": number;
-    "defaultForProfileCount": number;
+    "directModCount": number;
+    "directEnabledCount": number;
+    "childCount": number;
+    "childIds": string[] | null;
+    "parentIds": string[] | null;
+    "cover": CollectionCover;
+    "coverUrl": string;
 }
 
 export interface ModProfile {
     "id": string;
     "name": string;
-    "defaultPresetId": string;
-    "presetCount": number;
+    "updatedAt": string;
+    "collectionIds": string[] | null;
+    "collectionCount": number;
     "modCount": number;
 }
 
@@ -652,72 +722,75 @@ export interface NewModRequest {
 }
 
 export interface OrganizationState {
-    "folders": LibraryFolder[] | null;
+    "collections": ModCollection[] | null;
     "tags": ModTag[] | null;
-    "presets": ModPreset[] | null;
     "profiles": ModProfile[] | null;
 }
 
-export interface PresetDetail {
-    "preset": ModPreset;
-    "entityIds": string[] | null;
+export interface PlayActivation {
+    "operationId": string;
+    "modCount": number;
+    "userPath": string;
+    "modsPath": string;
+    "activatedAt": string;
+    "collectionIds": string[] | null;
+    "fingerprint": string;
+}
+
+export interface PlayProgress {
+    "operationId": string;
+    "phase": string;
+    "current": string;
+    "error": string;
+    "completed": number;
+    "total": number;
+    "bytesCopied": number;
+    "totalBytes": number;
+    "done": boolean;
+}
+
+export interface PlayRequest {
+    "collectionIds": string[] | null;
+    "fingerprint": string;
+}
+
+export interface PlayResult {
+    "applied": boolean;
+    "started": boolean;
+    "activation": PlayActivation;
+    "process": ProcessLaunch;
+    "error": string;
+    "processUncertain": boolean;
+}
+
+export interface PlayRuntimeState {
+    "applied": boolean;
+    "activation": PlayActivation;
+    "gameRunning": boolean;
+    "warning": string;
+}
+
+export interface PlaySelection {
+    "collectionIds": string[] | null;
+    "includedCollectionIds": string[] | null;
+    "mods": CollectionMod[] | null;
+    "modCount": number;
+    "missingCount": number;
+    "fingerprint": string;
+    "warnings": string[] | null;
+}
+
+export interface PlayState {
+    "profileId": string;
+    "collectionIds": string[] | null;
+    "defaultCollectionIds": string[] | null;
+    "notices": string[] | null;
 }
 
 export interface ProcessLaunch {
     "pid": number;
     "executable": string;
     "startedAt": string;
-}
-
-export interface ProfileActivation {
-    "profileId": string;
-    "profileName": string;
-    "userPath": string;
-    "modsPath": string;
-    "modCount": number;
-    "activatedAt": string;
-}
-
-export interface ProfileDetail {
-    "profile": ModProfile;
-    "presets": ProfilePreset[] | null;
-    "mods": ProfileMod[] | null;
-}
-
-export interface ProfileLaunch {
-    "activation": ProfileActivation;
-    "process": ProcessLaunch;
-}
-
-export interface ProfileMod {
-    "entityId": string;
-    "displayName": string;
-    "kind": modkit$0.Kind;
-    "archivePath": string;
-    "sha256": string;
-    "sizeBytes": number;
-    "presetIds": string[] | null;
-}
-
-export interface ProfilePreset {
-    "id": string;
-    "name": string;
-    "description": string;
-    "modCount": number;
-    "selected": boolean;
-    "default": boolean;
-}
-
-export interface ProfileProgress {
-    "profileId": string;
-    "phase": string;
-    "current": string;
-    "completed": number;
-    "total": number;
-    "bytesCopied": number;
-    "totalBytes": number;
-    "done": boolean;
-    "error"?: string;
 }
 
 export interface RuntimeDiagnostic {
@@ -785,6 +858,7 @@ export interface SettingsUpdate {
     "lightSurfaceColor": string;
     "lightBorderColor": string;
     "lightTextColor": string;
+    "scrollbarColor": string;
     "preScanModel": string;
     "preScanReasoning": string;
     "fullScanModel": string;

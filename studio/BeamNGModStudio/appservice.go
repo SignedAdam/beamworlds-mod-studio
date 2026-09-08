@@ -115,8 +115,8 @@ func (service *AppService) Dashboard() (Dashboard, error) {
 	return service.store.Dashboard(context.Background(), service.config.DatabasePath)
 }
 
-func (service *AppService) ListLibrary(health, kind, query, folderID string) ([]LibraryItem, error) {
-	return service.store.ListLibrary(context.Background(), health, kind, query, folderID)
+func (service *AppService) ListLibrary(health, kind, query, collectionID string) ([]LibraryItem, error) {
+	return service.store.ListLibrary(context.Background(), health, kind, query, collectionID)
 }
 
 func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {
@@ -124,7 +124,13 @@ func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {
 }
 
 func (service *AppService) ScanLibrary() (ScanSummary, error) {
-	return service.library.Scan(context.Background())
+	summary, err := service.library.Scan(context.Background())
+	if err == nil {
+		// The first indexed library is what makes seeding possible: only then
+		// can BeamNG's enabled entries be matched to real mods.
+		service.seedDefaultPlayProfile(context.Background())
+	}
+	return summary, err
 }
 
 func (service *AppService) CancelScan() bool { return service.library.Cancel() }

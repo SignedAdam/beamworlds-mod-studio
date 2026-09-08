@@ -8,7 +8,8 @@ import type {
   LibraryItem,
   WorkspaceRecord,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
-import { Icon, type IconName } from "./icons";
+import { Icon } from "./icons";
+import { isTagIcon, tagColor } from "./tagIcons";
 import "./ModTable.css";
 import {
   Badge,
@@ -22,6 +23,7 @@ import {
 } from "./ui";
 
 export type ModTableSortKey =
+  | "enabled"
   | "name"
   | "path"
   | "kind"
@@ -63,6 +65,12 @@ export type ModTableInteraction =
   | {
       kind: "browse";
       selectedID: string;
+      selectedIDs?: ReadonlySet<string>;
+      disabled?: boolean;
+      isSelectable?: (item: LibraryItem) => boolean;
+      onToggle?: (item: LibraryItem) => void;
+      onToggleAll?: () => void;
+      selectAllLabel?: string;
       onActivate: (item: LibraryItem) => void;
       onContextMenu?: (
         item: LibraryItem,
@@ -76,6 +84,11 @@ export type ModTableInteraction =
       isSelectable: (item: LibraryItem) => boolean;
       onToggle: (item: LibraryItem) => void;
       onToggleAll: () => void;
+      selectAllLabel?: string;
+      onContextMenu?: (
+        item: LibraryItem,
+        event: ReactMouseEvent<HTMLTableRowElement>,
+      ) => void;
     };
 
 export interface ModTableProps {
@@ -83,7 +96,7 @@ export interface ModTableProps {
   workspaceRecords?: WorkspaceRecord[];
   interaction: ModTableInteraction;
   ariaLabel: string;
-  surface: "library" | "virus-scanner" | "mod-maker";
+  surface: "library" | "virus-scanner" | "mod-maker" | "collection";
   className?: string;
   loading?: boolean;
   loadingLabel?: string;
@@ -91,9 +104,12 @@ export interface ModTableProps {
   resetKey?: string;
   sort?: ModTableSort;
   onSortChange?: (sort: ModTableSort) => void;
+  enabledByEntityID?: ReadonlyMap<string, boolean>;
+  onToggleEnabled?: (entityID: string, enabled: boolean) => void;
 }
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
+  enabled: { label: "Enabled", defaultWidth: 104, minWidth: 86 },
   thumbnail: { label: "Thumbnail", defaultWidth: 88, minWidth: 52 },
   name: { label: "Name", defaultWidth: 270 },
   path: { label: "Path", defaultWidth: 360 },
@@ -111,13 +127,29 @@ const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   lastScan: { label: "Last scan", defaultWidth: 176 },
   issues: { label: "Issues", defaultWidth: 76, align: "right" },
 };
-
 const allColumnOrder = Object.keys(columnDefinitions) as ColumnKey[];
 const libraryColumnOrder = allColumnOrder.filter(
-  (key) => key !== "lastScan" && key !== "workspace" && key !== "virgil",
+  (key) =>
+    key !== "enabled" &&
+    key !== "lastScan" &&
+    key !== "workspace" &&
+    key !== "virgil",
 );
+const collectionColumnOrder: ColumnKey[] = [
+  "enabled",
+  "thumbnail",
+  "name",
+  "kind",
+  "tags",
+  "size",
+  "modified",
+];
 const scannerColumnOrder = allColumnOrder.filter(
-  (key) => key !== "source" && key !== "workspace" && key !== "virgil",
+  (key) =>
+    key !== "enabled" &&
+    key !== "source" &&
+    key !== "workspace" &&
+    key !== "virgil",
 );
 const modMakerColumnOrder: ColumnKey[] = [
   "thumbnail",
@@ -134,21 +166,14 @@ const modMakerColumnOrder: ColumnKey[] = [
   "modified",
   "issues",
 ];
+
 const selectionColumnWidth = 40;
 const pageSizes: PageSize[] = [50, 100, 200, 500, "all"];
 const SOURCE_LABELS = {
   repository: "BeamNG Repository",
   userAdded: "User added",
 } as const;
-const TAG_ICON_NAMES: Record<string, true> = {
-  tag: true,
-  vehicle: true,
-  map: true,
-  code: true,
-  files: true,
-  shield: true,
-  user: true,
-};
+
 
 function sourceID(item: Pick<LibraryItem, "sourceId" | "source">): string {
   const id = String(item.sourceId ?? "").trim().toLowerCase();
@@ -166,19 +191,6 @@ function sourceLabel(item: Pick<LibraryItem, "sourceId" | "source">): string {
     : SOURCE_LABELS.userAdded;
 }
 
-function configuredTagIcon(value: string | undefined): IconName | null {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized || !TAG_ICON_NAMES[normalized]) return null;
-  return normalized as IconName;
-}
-
-function tagColor(value: string | undefined): string | undefined {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
-    ? value
-    : undefined;
-}
-
-
 export function sortLibraryItems(
   items: readonly LibraryItem[],
   sort: ModTableSort,
@@ -191,6 +203,7 @@ function sortItems(
   sort: ModTableSort,
   surface: ModTableProps["surface"],
   workspaceByEntityID?: ReadonlyMap<string, WorkspaceRecord>,
+  enabledByEntityID?: ReadonlyMap<string, boolean>,
 ): LibraryItem[] {
   const sorted = [...items];
   sorted.sort((left, right) =>
@@ -201,6 +214,7 @@ function sortItems(
       sort.direction,
       surface,
       workspaceByEntityID,
+      enabledByEntityID,
     ),
   );
   return sorted;
@@ -213,17 +227,42 @@ function compareTableItems(
   sortDirection: ModTableSortDirection,
   surface: ModTableProps["surface"],
   workspaceByEntityID?: ReadonlyMap<string, WorkspaceRecord>,
+  enabledByEntityID?: ReadonlyMap<string, boolean>,
 ): number {
   const primary = compareValues(
-    sortValue(left, sortKey, surface, workspaceByEntityID?.get(left.entityId)),
-    sortValue(right, sortKey, surface, workspaceByEntityID?.get(right.entityId)),
+    sortValue(
+      left,
+      sortKey,
+      surface,
+      workspaceByEntityID?.get(left.entityId),
+      enabledByEntityID,
+    ),
+    sortValue(
+      right,
+      sortKey,
+      surface,
+      workspaceByEntityID?.get(right.entityId),
+      enabledByEntityID,
+    ),
   );
   if (primary !== 0 || sortKey !== "source")
     return primary * sortDirection;
 
   const nameTieBreak = compareValues(
-    sortValue(left, "name", surface, workspaceByEntityID?.get(left.entityId)),
-    sortValue(right, "name", surface, workspaceByEntityID?.get(right.entityId)),
+    sortValue(
+      left,
+      "name",
+      surface,
+      workspaceByEntityID?.get(left.entityId),
+      enabledByEntityID,
+    ),
+    sortValue(
+      right,
+      "name",
+      surface,
+      workspaceByEntityID?.get(right.entityId),
+      enabledByEntityID,
+    ),
   );
   if (nameTieBreak !== 0) return nameTieBreak * sortDirection;
   return compareValues(left.entityId, right.entityId) * sortDirection;
@@ -242,27 +281,37 @@ export function ModTable({
   resetKey = "",
   sort,
   onSortChange,
+  enabledByEntityID,
+  onToggleEnabled,
 }: ModTableProps) {
   const preferenceKey =
     surface === "library"
       ? "beamworlds.library"
       : surface === "virus-scanner"
         ? "beamworlds.virus-scanner"
-        : "beamworlds.modmaker";
+        : surface === "collection"
+          ? "beamworlds.collection"
+          : "beamworlds.modmaker";
   const columnOrder =
     surface === "library"
       ? libraryColumnOrder
       : surface === "mod-maker"
         ? modMakerColumnOrder
-        : scannerColumnOrder;
+        : surface === "collection"
+          ? collectionColumnOrder
+          : scannerColumnOrder;
   const columnStorageKey = `${preferenceKey}-columns.v2`;
   const pageSizeStorageKey = `${preferenceKey}-page-size.v1`;
   const [page, setPage] = useState(0);
   const [pageSizeChoice, setPageSizeChoice] = useState<PageSize>(() =>
     readPageSize(pageSizeStorageKey),
   );
-  const [internalSortKey, setInternalSortKey] = useState<SortKey>(() =>
-    surface === "mod-maker" ? "modified" : "name",
+  const [internalSortKey, setInternalSortKey] = useState<SortKey | null>(() =>
+    surface === "collection"
+      ? null
+      : surface === "mod-maker"
+        ? "modified"
+        : "name",
   );
   const [internalSortDirection, setInternalSortDirection] = useState<
     ModTableSortDirection
@@ -288,13 +337,23 @@ export function ModTable({
 
   const sorted = useMemo(
     () =>
-      sortItems(
-        items,
-        { key: sortKey, direction: sortDirection },
-        surface,
-        workspaceByEntityID,
-      ),
-    [items, sortKey, sortDirection, surface, workspaceByEntityID],
+      sortKey === null
+        ? [...items]
+        : sortItems(
+            items,
+            { key: sortKey, direction: sortDirection },
+            surface,
+            workspaceByEntityID,
+            enabledByEntityID,
+          ),
+    [
+      enabledByEntityID,
+      items,
+      sortDirection,
+      sortKey,
+      surface,
+      workspaceByEntityID,
+    ],
   );
   const pageSize =
     pageSizeChoice === "all" ? Math.max(1, sorted.length) : pageSizeChoice;
@@ -307,8 +366,13 @@ export function ModTable({
     () => columns.filter((column) => column.visible),
     [columns],
   );
-  const selectionWidth =
-    interaction.kind === "select" ? selectionColumnWidth : 0;
+  const selectionMode =
+    interaction.kind === "select" || interaction.selectedIDs !== undefined;
+  const selectionIDs = interaction.selectedIDs;
+  const canSelect = interaction.kind === "select"
+    ? interaction.isSelectable
+    : interaction.isSelectable ?? (() => true);
+  const selectionWidth = selectionMode ? selectionColumnWidth : 0;
   const tableWidth = useMemo(
     () =>
       visibleColumns.reduce(
@@ -322,11 +386,11 @@ export function ModTable({
 
   let selectableCount = 0;
   let selectedSelectableCount = 0;
-  if (interaction.kind === "select") {
+  if (selectionMode && selectionIDs) {
     for (const item of items) {
-      if (!interaction.isSelectable(item)) continue;
+      if (!canSelect(item)) continue;
       selectableCount++;
-      if (interaction.selectedIDs.has(item.entityId)) selectedSelectableCount++;
+      if (selectionIDs.has(item.entityId)) selectedSelectableCount++;
     }
   }
   const allSelectableSelected =
@@ -482,6 +546,7 @@ export function ModTable({
             key,
             surface,
             workspaceByEntityID.get(item.entityId),
+            enabledByEntityID,
           );
           const textWidth =
             context.measureText(text).width +
@@ -504,7 +569,7 @@ export function ModTable({
         ),
       );
     },
-    [items, surface, workspaceByEntityID],
+    [enabledByEntityID, items, surface, workspaceByEntityID],
   );
 
   const beginColumnResize = useCallback(
@@ -544,7 +609,7 @@ export function ModTable({
   const openContextMenu = useCallback(
     (item: LibraryItem, event: ReactMouseEvent<HTMLTableRowElement>) => {
       const current = interactionRef.current;
-      if (current.kind !== "browse" || !current.onContextMenu) return;
+      if (!current.onContextMenu) return;
       current.onContextMenu(item, event);
     },
     [],
@@ -571,7 +636,7 @@ export function ModTable({
             aria-label={ariaLabel}
           >
             <colgroup>
-              {interaction.kind === "select" && (
+              {selectionMode && (
                 <col style={{ width: selectionColumnWidth }} />
               )}
               {visibleColumns.map((column) => (
@@ -580,7 +645,7 @@ export function ModTable({
             </colgroup>
             <thead>
               <tr>
-                {interaction.kind === "select" && (
+                {selectionMode && interaction.onToggleAll && (
                   <th className="mod-table__selection" scope="col">
                     <SelectAllCheckbox
                       checked={allSelectableSelected}
@@ -588,6 +653,7 @@ export function ModTable({
                       disabled={
                         Boolean(interaction.disabled) || selectableCount === 0
                       }
+                      label={interaction.selectAllLabel ?? "Select all matching mods"}
                       onChange={interaction.onToggleAll}
                     />
                   </th>
@@ -611,15 +677,13 @@ export function ModTable({
             </thead>
             <tbody>
               {visible.map((item) => {
-                const selectMode = interaction.kind === "select";
-                const selectable = selectMode
-                  ? interaction.isSelectable(item)
-                  : true;
-                const selected = selectMode
-                  ? interaction.selectedIDs.has(item.entityId)
+                const rowSelectable = selectionMode && canSelect(item);
+                const selected = selectionMode
+                  ? Boolean(selectionIDs?.has(item.entityId))
                   : item.entityId === interaction.selectedID;
                 const disabled =
-                  selectMode && (Boolean(interaction.disabled) || !selectable);
+                  selectionMode &&
+                  (Boolean(interaction.disabled) || !rowSelectable);
                 return (
                   <ModRow
                     key={item.entityId}
@@ -627,14 +691,15 @@ export function ModTable({
                     columns={visibleColumns}
                     surface={surface}
                     workspace={workspaceByEntityID.get(item.entityId)}
-                    selectMode={selectMode}
+                    selectMode={selectionMode}
                     selected={selected}
                     disabled={disabled}
                     onActivate={activateItem}
+                    onToggle={interaction.onToggle}
+                    enabledByEntityID={enabledByEntityID}
+                    onToggleEnabled={onToggleEnabled}
                     onContextMenu={
-                      interaction.kind === "browse" && interaction.onContextMenu
-                        ? openContextMenu
-                        : undefined
+                      interaction.onContextMenu ? openContextMenu : undefined
                     }
                   />
                 );
@@ -749,7 +814,7 @@ const SortableHead = memo(function SortableHead({
 }: {
   column: ColumnState;
   surface: ModTableProps["surface"];
-  active: SortKey;
+  active: SortKey | null;
   direction: 1 | -1;
   onSort: (value: SortKey) => void;
   onDragStart: (value: ColumnKey) => void;
@@ -813,6 +878,9 @@ const ModRow = memo(function ModRow({
   selected,
   disabled,
   onActivate,
+  onToggle,
+  enabledByEntityID,
+  onToggleEnabled,
   onContextMenu,
 }: {
   item: LibraryItem;
@@ -823,17 +891,23 @@ const ModRow = memo(function ModRow({
   selected: boolean;
   disabled: boolean;
   onActivate: (item: LibraryItem) => void;
+  onToggle?: (item: LibraryItem) => void;
+  enabledByEntityID?: ReadonlyMap<string, boolean>;
+  onToggleEnabled?: (entityID: string, enabled: boolean) => void;
   onContextMenu?: (
     item: LibraryItem,
     event: ReactMouseEvent<HTMLTableRowElement>,
   ) => void;
 }) {
+  const enabled =
+    surface !== "collection" ||
+    enabledByEntityID?.get(item.entityId) !== false;
   const activate = () => {
     if (!disabled) onActivate(item);
   };
   return (
     <tr
-      className={`${selected ? "is-selected" : ""}${disabled ? " is-disabled" : ""}`}
+      className={`${selected ? "is-selected" : ""}${disabled ? " is-disabled" : ""}${!enabled ? " mod-row--disabled" : ""}`}
       onClick={activate}
       onDoubleClick={selectMode ? undefined : activate}
       onContextMenu={(event) => {
@@ -855,10 +929,10 @@ const ModRow = memo(function ModRow({
           <input
             type="checkbox"
             checked={selected}
-            disabled={disabled}
+            disabled={disabled || !onToggle}
             aria-label={`Select ${item.displayName}`}
             onClick={(event) => event.stopPropagation()}
-            onChange={() => onActivate(item)}
+            onChange={() => onToggle?.(item)}
           />
         </td>
       )}
@@ -869,21 +943,25 @@ const ModRow = memo(function ModRow({
           column={column.key}
           surface={surface}
           workspace={workspace}
+          enabled={enabled}
+          disabled={disabled}
+          onToggleEnabled={onToggleEnabled}
         />
       ))}
     </tr>
   );
 });
-
 function SelectAllCheckbox({
   checked,
   indeterminate,
   disabled,
+  label,
   onChange,
 }: {
   checked: boolean;
   indeterminate: boolean;
   disabled: boolean;
+  label: string;
   onChange: () => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -896,7 +974,7 @@ function SelectAllCheckbox({
       type="checkbox"
       checked={checked}
       disabled={disabled}
-      aria-label="Select all matching mods"
+      aria-label={label}
       onChange={onChange}
     />
   );
@@ -910,6 +988,7 @@ function columnLabel(
     if (key === "virgil") return "Status";
     if (key === "modified") return "Last modified";
   }
+  if (surface === "collection" && key === "modified") return "Updated";
   if (key === "status" && surface !== "library") return "Health";
   return columnDefinitions[key].label;
 }
@@ -955,14 +1034,37 @@ function Cell({
   column,
   surface,
   workspace,
+  enabled,
+  disabled,
+  onToggleEnabled,
 }: {
   item: LibraryItem;
   column: ColumnKey;
   surface: ModTableProps["surface"];
   workspace?: WorkspaceRecord;
+  enabled: boolean;
+  disabled: boolean;
+  onToggleEnabled?: (entityID: string, enabled: boolean) => void;
 }) {
   const tags = item.tags ?? [];
   switch (column) {
+    case "enabled":
+      return (
+        <td className="mod-table__enabled">
+          <label className="mod-table__enabled-control">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={disabled || !onToggleEnabled}
+              aria-label={`${enabled ? "Disable" : "Enable"} ${item.displayName}`}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              onChange={() => onToggleEnabled?.(item.entityId, !enabled)}
+            />
+            <span>{enabled ? "Enabled" : "Disabled"}</span>
+          </label>
+        </td>
+      );
     case "thumbnail":
       return (
         <td className="mod-table__thumbnail">
@@ -1023,11 +1125,11 @@ function Cell({
           title={`${label}: ${description}`}
         >
           <span
-            className={`health-pill health-pill--${item.healthStatus || "unscanned"}`}
+            className={`health-status health-status--${item.healthStatus || "unscanned"}`}
             title={label}
           >
             <Icon name={healthIcon(item.healthStatus)} size={14} />
-            <span className="health-pill__label">{label}</span>
+            <span className="health-status__label">{label}</span>
           </span>
         </td>
       );
@@ -1074,12 +1176,8 @@ function Cell({
             ) : (
               <>
                 {tags.slice(0, 3).map((tag) => {
-                  const icon =
-                    surface === "library"
-                      ? configuredTagIcon(tag.icon)
-                      : null;
-                  const color =
-                    surface === "library" ? tagColor(tag.color) : undefined;
+                  const icon = isTagIcon(tag.icon) ? tag.icon : null;
+                  const color = tagColor(tag.color);
                   const style = color
                     ? ({ "--mod-tag-color": color } as CSSProperties)
                     : undefined;
@@ -1088,9 +1186,9 @@ function Cell({
                       className="mod-tag"
                       key={tag.id}
                       style={style}
-                      title={surface === "library" ? tag.name : undefined}
+                      title={tag.name}
                     >
-                      {icon && <Icon name={icon} size={12} />}
+                      {icon && <Icon name={icon} size={17} />}
                       <span className="mod-tag__label">{tag.name}</span>
                     </span>
                   );
@@ -1212,8 +1310,13 @@ function cellText(
   key: SortKey,
   surface: ModTableProps["surface"],
   workspace?: WorkspaceRecord,
+  enabledByEntityID?: ReadonlyMap<string, boolean>,
 ) {
   switch (key) {
+    case "enabled":
+      return enabledByEntityID?.get(item.entityId) === false
+        ? "Disabled"
+        : "Enabled";
     case "name":
       return item.displayName;
     case "path":
@@ -1261,8 +1364,11 @@ function sortValue(
   key: SortKey,
   surface: ModTableProps["surface"],
   workspace?: WorkspaceRecord,
+  enabledByEntityID?: ReadonlyMap<string, boolean>,
 ): string | number {
   switch (key) {
+    case "enabled":
+      return enabledByEntityID?.get(item.entityId) === false ? 0 : 1;
     case "name":
       return item.displayName.toLowerCase();
     case "path":

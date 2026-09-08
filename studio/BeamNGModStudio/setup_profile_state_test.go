@@ -78,7 +78,7 @@ func TestBeamNGPathHintsAndNativeCounts(t *testing.T) {
 	}
 }
 
-func TestBeamNGModStateAppliesExactSelectionAndRestores(t *testing.T) {
+func TestBeamNGModStateAppliesExactSelection(t *testing.T) {
 	activeModsDir := t.TempDir()
 	selectedPath := filepath.Join(activeModsDir, "selected.zip")
 	otherPath := filepath.Join(activeModsDir, "repo", "other.zip")
@@ -114,17 +114,11 @@ func TestBeamNGModStateAppliesExactSelectionAndRestores(t *testing.T) {
 	}
 	assertNativeModState(t, activeModsDir, selectedKey, true)
 	assertNativeModState(t, activeModsDir, otherKey, false)
-	if !hasOriginalBeamNGModDatabase(activeModsDir) {
-		t.Fatal("original BeamNG mod state was not preserved")
+	// The pre-write backup is what a failed apply rolls back from; nothing
+	// keeps a one-shot "original selection" copy any more.
+	if _, err := os.Stat(filepath.Join(activeModsDir, "db.json.beamworlds-backup")); err != nil {
+		t.Fatalf("pre-write backup was not created: %v", err)
 	}
-	if err := restoreOriginalBeamNGModDatabase(activeModsDir); err != nil {
-		t.Fatal(err)
-	}
-	if hasOriginalBeamNGModDatabase(activeModsDir) {
-		t.Fatal("original state marker remains after restoration")
-	}
-	assertNativeModState(t, activeModsDir, selectedKey, false)
-	assertNativeModState(t, activeModsDir, otherKey, true)
 	if err := os.WriteFile(filepath.Join(activeModsDir, "unregistered.zip"), []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -133,45 +127,13 @@ func TestBeamNGModStateAppliesExactSelectionAndRestores(t *testing.T) {
 	}
 }
 
-func TestEmptyBeamNGModStateRestoresWithoutDatabase(t *testing.T) {
+func TestMissingBeamNGDatabaseAppliesWithoutCreatingState(t *testing.T) {
 	activeModsDir := t.TempDir()
 	if err := applyBeamNGModSelection(activeModsDir, []string{"beamworlds-managedexample"}); err != nil {
 		t.Fatal(err)
 	}
-	if !hasOriginalBeamNGModDatabase(activeModsDir) {
-		t.Fatal("missing-database state was not preserved")
-	}
-	if err := os.WriteFile(filepath.Join(activeModsDir, "db.json"), []byte(`{"header":{"version":1.1},"mods":{}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := restoreOriginalBeamNGModDatabase(activeModsDir); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := os.Stat(filepath.Join(activeModsDir, "db.json")); !os.IsNotExist(err) {
-		t.Fatalf("BeamNG database created during profile use was not removed: %v", err)
-	}
-}
-
-func TestMissingBeamNGDatabaseKeepsEarlierOriginalState(t *testing.T) {
-	activeModsDir := t.TempDir()
-	databasePath := filepath.Join(activeModsDir, "db.json")
-	original := []byte(`{"header":{"version":1.1},"mods":{"normal":{"active":true}}}`)
-	if err := os.WriteFile(databasePath+originalModDBSuffix, original, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyBeamNGModSelection(activeModsDir, nil); err != nil {
-		t.Fatal(err)
-	}
-	preserved, err := os.ReadFile(databasePath + originalModDBSuffix)
-	if err != nil || string(preserved) != string(original) {
-		t.Fatalf("earlier original state was overwritten: %s, err %v", preserved, err)
-	}
-	if err := restoreOriginalBeamNGModDatabase(activeModsDir); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := os.ReadFile(databasePath)
-	if err != nil || string(restored) != string(original) {
-		t.Fatalf("earlier original state was not restored: %s, err %v", restored, err)
+		t.Fatalf("a BeamNG database was invented where the game had none: %v", err)
 	}
 }
 

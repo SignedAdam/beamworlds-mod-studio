@@ -93,8 +93,8 @@ export function Inspector({
     onDirtyChangeRef.current?.(dirtyFieldsRef.current.size > 0)
   }, [])
 
+  // Selecting another mod keeps the reader in the same pane; an unavailable pane falls back below.
   useEffect(() => {
-    setTab('overview')
     setSelectedVariant(null)
     dirtyFieldsRef.current.clear()
     onDirtyChangeRef.current?.(false)
@@ -109,8 +109,8 @@ export function Inspector({
   if (String(item.kind) === 'vehicle' && variants.length > 0) validTabs.splice(1, 0, 'variants')
 
   useEffect(() => {
-    if (!validTabs.includes(tab)) setTab('overview')
-  }, [tab, variants.length, item.kind])
+    if (!loading && !validTabs.includes(tab)) setTab('overview')
+  }, [loading, tab, variants.length, item.kind])
 
   const tabs: IndexCardTabItem[] = useMemo(() => {
     const items: IndexCardTabItem[] = [
@@ -191,9 +191,9 @@ export function Inspector({
     />
     <header className="inspector__header">
       <div className="inspector__identity">
-        <Icon name={kindIcon(String(item.kind))} size={19}/>
+        <span className="inspector__identity-mark" aria-hidden="true"><Icon name={kindIcon(String(item.kind))} size={18}/></span>
         <div>
-          <h2>{item.displayName}</h2>
+          <h2 title={item.displayName}>{item.displayName}</h2>
           <span>{kindLabel(String(item.kind))}{!item.linked && ' · Source unavailable'}</span>
         </div>
       </div>

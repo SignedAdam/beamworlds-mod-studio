@@ -16,7 +16,6 @@ import type {
   ModTag,
   NewModRequest,
   OrganizationState,
-  ProfileProgress,
   ScanProgress,
   SettingsUpdate,
   SetupState,
@@ -27,15 +26,18 @@ import { ActivityView } from "./ActivityView";
 import { Inspector } from "./Inspector";
 import { LibraryView } from "./LibraryView";
 import { ModMaker } from "./ModMaker";
-import { ProfilesView } from "./ProfilesView";
+import { CollectionsView } from "./CollectionsView";
+import { PlayView } from "./PlayView";
+import { usePlaySession } from "./usePlaySession";
 import { VirusScannerView } from "./VirusScannerView";
 import { SettingsView, settingsUpdate } from "./SettingsView";
 import { SetupWizard } from "./SetupWizard";
 import { BeamWorldsMark, Icon } from "./icons";
 import { formatBytes, formatDate } from "./ui";
+import "./AppArt.css";
 
 type View =
-  "library" | "workspaces" | "scanner" | "profiles" | "activity" | "settings";
+  "library" | "collections" | "play" | "workspaces" | "scanner" | "activity" | "settings";
 type ToastTone = "success" | "error" | "info";
 type InterfaceSize = "compact" | "default" | "comfortable" | "large";
 type TextSize = "small" | "default" | "large" | "extra-large";
@@ -103,6 +105,9 @@ interface EditorStatus {
 
 function App() {
   const [view, setView] = useState<View>("library");
+  // Bumped on every accepted view change so the incoming page animates in
+  // without remounting it: the two classes alternate, restarting the keyframes.
+  const [viewSwap, setViewSwap] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [usage, setUsage] = useState<AIUsage | null>(null);
@@ -123,9 +128,8 @@ function App() {
   const [organization, setOrganization] = useState<OrganizationState | null>(
     null,
   );
-  const [folderID, setFolderID] = useState("all");
-  const [profileProgress, setProfileProgress] =
-    useState<ProfileProgress | null>(null);
+  const [collectionID, setCollectionID] = useState("all");
+  const [openedCollectionID, setOpenedCollectionID] = useState("");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
@@ -159,6 +163,7 @@ function App() {
   const toastTimer = useRef<number>();
   const autoScanStarted = useRef(false);
   const libraryLoadVersion = useRef(0);
+  const organizationLoadVersion = useRef(0);
   const virusScanRequestVersion = useRef(0);
   const workspaceDetailLoadVersion = useRef(0);
   const agentListRefreshTimer = useRef<number>();
@@ -310,7 +315,7 @@ function App() {
   const loadLibrary = useCallback(
     async (
       requestedQuery = query,
-      requestedFolderID = folderID,
+      requestedCollectionID = collectionID,
       requestVersion = libraryLoadVersion.current,
     ) => {
       const nextItems =
@@ -318,21 +323,39 @@ function App() {
           "all",
           "all",
           requestedQuery,
-          requestedFolderID,
+          requestedCollectionID,
         )) ?? [];
       if (requestVersion !== libraryLoadVersion.current) return;
       setItems(nextItems);
     },
-    [folderID, query],
+    [collectionID, query],
   );
   const loadOrganization = useCallback(async () => {
+    const version = ++organizationLoadVersion.current;
     const [nextOrganization, nextItems] = await Promise.all([
       API.Organization(),
       API.ListLibrary("all", "all", "", "all"),
     ]);
+    if (version !== organizationLoadVersion.current) return;
     setOrganization(nextOrganization);
     setAllItems(nextItems ?? []);
   }, []);
+  const handleOrganizationChange = useCallback((state: OrganizationState) => {
+    setOrganization(state);
+    void Promise.all([loadOrganization(), loadLibrary()]).catch(handleError);
+  }, [loadOrganization, loadLibrary, handleError]);
+  const playSession = usePlaySession(organization, handleOrganizationChange, handleError);
+  // Held in a ref so callbacks can reach the session without taking on its
+  // identity, which changes on every selection or preview update.
+  const playSessionRef = useRef(playSession);
+  playSessionRef.current = playSession;
+  useEffect(() => {
+    if (!organization) return;
+    const known = organization.collections ?? [];
+    if (collectionID !== "all" && collectionID !== "unfiled" &&
+        !known.some((collection) => collection.id === collectionID)) setCollectionID("all");
+    if (openedCollectionID && !known.some((collection) => collection.id === openedCollectionID)) setOpenedCollectionID("");
+  }, [organization, collectionID, openedCollectionID]);
   const markOpenEntitiesStale = useCallback((snapshot: LibraryItem[]) => {
     const byEntityID: Record<string, LibraryItem> = {};
     for (const item of snapshot) byEntityID[item.entityId] = item;
@@ -452,6 +475,9 @@ function App() {
         handleError(shellResult.reason);
       if (organizationResult.status === "rejected")
         handleError(organizationResult.reason);
+      // The first indexed library may have seeded a collection and profile on
+      // the backend; pick that up instead of leaving the pre-scan empty state.
+      if (successful) await playSessionRef.current?.reloadState().catch(handleError);
     } catch (error) {
       handleError(error);
     } finally {
@@ -534,7 +560,7 @@ function App() {
     setLibraryLoading(true);
     if (!trimmedInput) {
       setQuery("");
-      void loadLibrary("", folderID, requestVersion)
+      void loadLibrary("", collectionID, requestVersion)
         .catch((error) => {
           if (requestVersion === libraryLoadVersion.current) handleError(error);
         })
@@ -546,7 +572,7 @@ function App() {
     }
     const timer = window.setTimeout(() => {
       setQuery(searchInput);
-      void loadLibrary(searchInput, folderID, requestVersion)
+      void loadLibrary(searchInput, collectionID, requestVersion)
         .catch((error) => {
           if (requestVersion === libraryLoadVersion.current) handleError(error);
         })
@@ -556,7 +582,7 @@ function App() {
         });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [folderID, searchInput, setupState?.required]);
+  }, [collectionID, searchInput, setupState?.required]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -577,6 +603,7 @@ function App() {
       "--user-light-surface": settings.lightSurfaceColor,
       "--user-light-border": settings.lightBorderColor,
       "--user-light-text": settings.lightTextColor,
+      "--user-scrollbar-color": settings.scrollbarColor,
     };
     for (const [name, value] of Object.entries(colors))
       root.style.setProperty(name, value);
@@ -599,13 +626,9 @@ function App() {
         return next;
       });
     });
-    const stopProfile = Events.On("profile:progress", (event) => {
-      setProfileProgress(event.data);
-    });
     return () => {
       stopScan();
       stopItem();
-      stopProfile();
       clearTimeout(toastTimer.current);
     };
   }, []);
@@ -1018,36 +1041,6 @@ function App() {
     }
   };
 
-  const createFolder = async (name: string) => {
-    if (writeBlockedRef.current) return;
-    try {
-      setOrganization(await API.CreateLibraryFolder(name, ""));
-      await loadLibrary();
-      notify(`Created collection ${name}`, "success");
-    } catch (error) {
-      handleError(error);
-    }
-  };
-  const renameFolder = async (id: string, name: string) => {
-    if (writeBlockedRef.current) return;
-    try {
-      setOrganization(await API.RenameLibraryFolder(id, name));
-      notify("Collection renamed", "success");
-    } catch (error) {
-      handleError(error);
-    }
-  };
-  const deleteFolder = async (id: string) => {
-    if (writeBlockedRef.current) return;
-    try {
-      setOrganization(await API.DeleteLibraryFolder(id));
-      setFolderID("all");
-      await loadLibrary();
-      notify("Collection removed; its mods are now Unfiled", "success");
-    } catch (error) {
-      handleError(error);
-    }
-  };
   const createTag = async (
     name: string,
     color: string,
@@ -1265,11 +1258,12 @@ function App() {
     }
   };
   const changeView = (next: View) => {
-    if (next === view) return;
+    if (next === view) return true;
     if (view === "library" && next !== "library" && !confirmInspectorLeave())
-      return;
+      return false;
     inspectorDirtyRef.current = false;
     setView(next);
+    setViewSwap((count) => count + 1);
     selectedItemRef.current = null;
     inspectorBaselineRef.current = null;
     inspectorStaleRef.current = false;
@@ -1277,6 +1271,16 @@ function App() {
     setEntityDetail(null);
     setInspectorStale(false);
     if (next === "scanner") setVirusScanRequest(null);
+    return true;
+  };
+  const openCollection = (id: string) => {
+    if (changeView("collections")) setOpenedCollectionID(id);
+  };
+  const inspectCollectionMod = (entityID: string) => {
+    if (!changeView("library")) return;
+    const item = allItems.find((candidate) => candidate.entityId === entityID);
+    if (item) void selectItem(item);
+    else handleError("This mod is no longer in the current library. Refresh the library to inspect it.");
   };
 
   const toggleSidebar = () => {
@@ -1324,7 +1328,7 @@ function App() {
       <aside id="app-sidebar" className="app-sidebar">
         <div className="brand-lockup" aria-label="BeamWorlds Mod Studio">
           <BeamWorldsMark />
-          <div>
+          <div className="brand-lockup__text">
             <strong>BeamWorlds</strong>
             <span>Mod Studio</span>
           </div>
@@ -1352,6 +1356,15 @@ function App() {
             <span className="nav-tooltip">Mod Library</span>
           </button>
           <button
+            className={view === "collections" ? "is-active" : ""}
+            onClick={() => changeView("collections")}
+            aria-label="Collections"
+          >
+            <Icon name="mixed" />
+            <span className="nav-label">Collections</span>
+            <span className="nav-tooltip">Collections</span>
+          </button>
+          <button
             className={view === "workspaces" ? "is-active" : ""}
             onClick={() => changeView("workspaces")}
             aria-label="ModMaker"
@@ -1370,13 +1383,13 @@ function App() {
             <span className="nav-tooltip">Virus Scanner</span>
           </button>
           <button
-            className={view === "profiles" ? "is-active" : ""}
-            onClick={() => changeView("profiles")}
-            aria-label="Mod Profiles"
+            className={`play-nav${view === "play" ? " is-active" : ""}`}
+            onClick={() => changeView("play")}
+            aria-label="Play"
           >
             <Icon name="play" />
-            <span className="nav-label">Mod Profiles</span>
-            <span className="nav-tooltip">Mod Profiles</span>
+            <span className="nav-label">Play</span>
+            <span className="nav-tooltip">Play</span>
           </button>
           <button
             className={view === "activity" ? "is-active" : ""}
@@ -1422,17 +1435,28 @@ function App() {
       >
         {loading ? (
           <div className="splash">
-            <BeamWorldsMark size={64} />
-            <div className="splash__line" />
-            <p>
-              {startupCount > 0
-                ? `Loading ${startupCount.toLocaleString()} mods`
-                : "Loading mod library"}
-            </p>
-            <span>This may take a few seconds.</span>
+            <div className="splash__panels" aria-hidden="true">
+              <span style={{ backgroundImage: "url(/art/night-highway.jpg)" }} />
+              <span style={{ backgroundImage: "url(/art/forest-recovery.jpg)" }} />
+              <span style={{ backgroundImage: "url(/art/night-station.jpg)" }} />
+              <span style={{ backgroundImage: "url(/art/city-street.jpg)" }} />
+              <span style={{ backgroundImage: "url(/art/crash.jpg)" }} />
+            </div>
+            <div className="splash__veil" aria-hidden="true" />
+            <div className="splash__copy">
+              <BeamWorldsMark size={64} />
+              <div className="splash__line" />
+              <p>
+                {startupCount > 0
+                  ? `Loading ${startupCount.toLocaleString()} mods`
+                  : "Loading mod library"}
+              </p>
+            </div>
           </div>
         ) : (
-          <>
+          <div
+            className={`view-swap view-swap--${viewSwap % 2 === 0 ? "a" : "b"}`}
+          >
             {view === "scanner" && (
               <VirusScannerView
                 items={allItems}
@@ -1446,19 +1470,19 @@ function App() {
               <LibraryView
                 items={items}
                 catalogItems={allItems}
-                folders={organization?.folders ?? []}
+                collections={organization?.collections ?? []}
                 tags={organization?.tags ?? []}
                 scan={scan}
                 scanning={scanning}
                 loading={libraryLoading}
                 query={searchInput}
-                folderID={folderID}
+                collectionID={collectionID}
                 selectedID={selectedItem?.entityId ?? ""}
                 onQueryChange={setSearchInput}
-                onFolderChange={setFolderID}
-                onCreateFolder={(name) => void createFolder(name)}
-                onRenameFolder={(id, name) => void renameFolder(id, name)}
-                onDeleteFolder={(id) => void deleteFolder(id)}
+                onCollectionChange={setCollectionID}
+                onManageCollections={() => openCollection("")}
+                onOrganization={handleOrganizationChange}
+                onError={handleError}
                 onSelect={(item) => void selectItem(item)}
                 onVirusScan={openVirusScanner}
                 onScan={() => void startScan()}
@@ -1498,14 +1522,29 @@ function App() {
                 onError={handleError}
               />
             )}
-            {view === "profiles" && (
-              <ProfilesView
+            {view === "collections" && (
+              <CollectionsView
                 organization={organization}
                 items={allItems}
-                progress={profileProgress}
-                onOrganization={setOrganization}
+                collectionID={openedCollectionID}
+                onOpenCollection={setOpenedCollectionID}
+                onOrganization={handleOrganizationChange}
+                onAddToPlay={(ids) => {
+                  void playSession.addCollections(ids).then(() => changeView("play")).catch(handleError);
+                }}
+                onInspectMod={inspectCollectionMod}
                 onNotify={notify}
                 onError={handleError}
+              />
+            )}
+            {view === "play" && (
+              <PlayView
+                organization={organization}
+                session={playSession}
+                onOrganization={handleOrganizationChange}
+                onNotify={notify}
+                onError={handleError}
+                onOpenCollection={openCollection}
               />
             )}
             {view === "activity" && (
@@ -1524,7 +1563,7 @@ function App() {
                 onNotify={notify}
               />
             )}
-          </>
+          </div>
         )}
       </main>
       {selectedItem && view === "library" && (

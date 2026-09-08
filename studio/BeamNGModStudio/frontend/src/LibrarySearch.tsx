@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { LibraryFolder, LibraryItem, ModTag } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { LibraryItem, ModCollection, ModTag } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { Icon, type IconName } from './icons'
 import { Spinner } from './ui'
 import './LibrarySearch.css'
@@ -8,7 +8,7 @@ interface LibrarySearchProps {
   value: string
   loading: boolean
   items: LibraryItem[]
-  folders: LibraryFolder[]
+  collections: ModCollection[]
   tags: ModTag[]
   onChange: (value: string) => void
 }
@@ -33,7 +33,7 @@ const scopes: Array<{ scope: string; label: string; description: string; icon: I
   { scope: 'tag', label: 'Tags', description: 'Find mods with a custom tag', icon: 'tag' },
   { scope: 'kind', label: 'Kinds', description: 'Vehicle, map, UI, script, or mixed', icon: 'filter' },
   { scope: 'author', label: 'Authors', description: 'Search declared mod authors', icon: 'user' },
-  { scope: 'collection', label: 'Collections', description: 'Search optional single-home groups', icon: 'folder' },
+  { scope: 'collection', label: 'Collections', description: 'Search direct and nested collection membership', icon: 'folder' },
   { scope: 'name', label: 'Names', description: 'Search only mod names', icon: 'archive' },
   { scope: 'path', label: 'Paths', description: 'Search source archive paths', icon: 'link' },
   { scope: 'source', label: 'Source availability', description: 'Available or missing source archives', icon: 'link' },
@@ -48,14 +48,14 @@ const sourceChoices: Array<{ value: string; description: string; icon: IconName 
   { value: 'User added', description: 'Mods added through a local or manual flow', icon: 'user' },
 ]
 
-export function LibrarySearch({ value, loading, items, folders, tags, onChange }: LibrarySearchProps) {
+export function LibrarySearch({ value, loading, items, collections, tags, onChange }: LibrarySearchProps) {
   const [focused, setFocused] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const [dismissedValue, setDismissedValue] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const tagCompletion = trailingOperatorCompletion(value, ['tag', 'tags'])
   const sourceCompletion = trailingOperatorCompletion(value, ['source'])
-  const suggestions = useMemo(() => buildSuggestions(value, items, folders, tags), [value, items, folders, tags])
+  const suggestions = useMemo(() => buildSuggestions(value, items, collections, tags), [value, items, collections, tags])
   const hasCompletion = tagCompletion !== null || sourceCompletion !== null
   const open = focused && value !== dismissedValue && (hasCompletion || (value.trim().length > 0 && suggestions.length > 0))
   const hasOptions = open && suggestions.length > 0
@@ -153,7 +153,7 @@ export function LibrarySearch({ value, loading, items, folders, tags, onChange }
   </div>
 }
 
-function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryFolder[], tags: ModTag[]): SearchSuggestion[] {
+function buildSuggestions(value: string, items: LibraryItem[], collections: ModCollection[], tags: ModTag[]): SearchSuggestion[] {
   const tagCompletion = trailingOperatorCompletion(value, ['tag', 'tags'])
   if (tagCompletion) return tagSuggestions(value, tagCompletion.fragment, tags)
 
@@ -182,7 +182,7 @@ function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryF
   if (activeScopeMatch) {
     const scope = activeScopeMatch[1].toLowerCase()
     const fragment = activeScopeMatch[2].replace(/^"/, '').toLowerCase()
-    return valueSuggestions(scope, fragment, value, items, folders, tags)
+    return valueSuggestions(scope, fragment, value, items, collections, tags)
   }
 
   const fragment = trailingFragment(trimmed).toLowerCase()
@@ -191,7 +191,7 @@ function buildSuggestions(value: string, items: LibraryItem[], folders: LibraryF
   suggestions.push(...statusSuggestions(value, fragment).filter(suggestion => suggestion.label.toLowerCase().includes(fragment) || suggestion.detail.includes(fragment)))
   suggestions.push(...sourceSuggestions(value, fragment, false))
   for (const scope of ['tag', 'kind', 'author', 'collection', 'name', 'source'] as const) {
-    suggestions.push(...valueSuggestions(scope, fragment, value, items, folders, tags))
+    suggestions.push(...valueSuggestions(scope, fragment, value, items, collections, tags))
   }
   return dedupeSuggestions(suggestions).slice(0, 10)
 }
@@ -258,7 +258,7 @@ function statusSuggestions(value: string, fragment: string): SearchSuggestion[] 
   }))
 }
 
-function valueSuggestions(scope: string, fragment: string, value: string, items: LibraryItem[], folders: LibraryFolder[], tags: ModTag[]): SearchSuggestion[] {
+function valueSuggestions(scope: string, fragment: string, value: string, items: LibraryItem[], collections: ModCollection[], tags: ModTag[]): SearchSuggestion[] {
   let values: Array<{ value: string; label?: string; description: string; icon?: IconName; color?: string }> = []
   if (scope === 'tag') {
     values = tags.map(tag => ({ value: tag.name, description: `${tag.modCount.toLocaleString()} tagged mod${tag.modCount === 1 ? '' : 's'}`, icon: configuredTagIcon(tag.icon), color: configuredTagColor(tag.color) }))
@@ -267,14 +267,14 @@ function valueSuggestions(scope: string, fragment: string, value: string, items:
   } else if (scope === 'author') {
     values = uniqueValues(items.map(item => item.manifest?.author ?? '')).map(author => ({ value: author, description: 'Declared author', icon: 'user' }))
   } else if (scope === 'collection') {
-    values = [{ value: 'Unfiled', description: 'Mods without a collection', icon: 'folder' }, ...folders.map(folder => ({ value: folder.name, description: `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? '' : 's'}`, icon: 'folder' as IconName }))]
+    values = [{ value: 'Unfiled', description: 'Mods without a direct collection', icon: 'folder' }, ...collections.map(collection => ({ value: collection.name, description: `${collection.modCount.toLocaleString()} effective mod${collection.modCount === 1 ? '' : 's'}`, icon: 'folder' as IconName }))]
   } else if (scope === 'name') {
     values = uniqueValues(items.map(item => item.displayName)).map(name => ({ value: name, description: 'Mod name', icon: 'archive' }))
   } else if (scope === 'path') {
     values = uniqueValues(items.map(item => item.archivePath)).map(path => ({ value: path, description: 'Source archive path', icon: 'link' }))
   } else if (scope === 'source') {
     values = [
-      { value: 'available', label: 'Available source', description: 'Archive exists in a configured mod folder', icon: 'link' },
+      { value: 'available', label: 'Available source', description: 'Archive exists in a configured mod location', icon: 'link' },
       { value: 'missing', label: 'Missing source', description: 'Source archive is no longer present', icon: 'unlink' },
     ]
   }

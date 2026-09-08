@@ -1,46 +1,47 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import type { LibraryFolder } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { ModCollection } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { Icon, type IconName } from './icons'
 import './CollectionMenu.css'
 
 interface CollectionMenuProps {
-  folders: LibraryFolder[]
+  collections: ModCollection[]
   value: string
   total: number
   onChange: (value: string) => void
-  onCreate: (name: string) => void
-  onRename: (id: string, name: string) => void
-  onDelete: (id: string) => void
+  onManageCollections: () => void
 }
 
 interface CollectionChoice {
   id: string
   label: string
-  detail: string
   icon: IconName
   count?: number
-  folder?: LibraryFolder
 }
 
 const menuID = 'library-collection-menu'
 
-export function CollectionMenu({ folders, value, total, onChange, onCreate, onRename, onDelete }: CollectionMenuProps) {
+export function CollectionMenu({
+  collections,
+  value,
+  total,
+  onChange,
+  onManageCollections,
+}: CollectionMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const choiceRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const active = folders.find(folder => folder.id === value)
-  const label = value === 'all' ? 'All mods' : value === 'unfiled' ? 'Unfiled' : active?.name ?? 'All mods'
+  const active = collections.find(collection => collection.id === value)
+  const label = value === 'all' ? 'All mods' : value === 'unfiled' ? 'No collection' : active?.name ?? 'All mods'
   const choices: CollectionChoice[] = [
-    { id: 'all', label: 'All mods', detail: 'Entire indexed library', icon: 'library', count: total },
-    { id: 'unfiled', label: 'Unfiled', detail: 'Not assigned to a collection', icon: 'folder' },
-    ...folders.map(folder => ({
-      id: folder.id,
-      label: folder.name,
-      detail: `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? '' : 's'}`,
+    { id: 'all', label: 'All mods', icon: 'library', count: total },
+    { id: 'unfiled', label: 'No collection', icon: 'folder' },
+    ...collections.map(collection => ({
+      id: collection.id,
+      label: collection.name,
       icon: 'folder' as const,
-      folder,
+      count: collection.modCount,
     })),
   ]
   const selectedIndex = Math.max(0, choices.findIndex(choice => choice.id === value))
@@ -60,6 +61,10 @@ export function CollectionMenu({ folders, value, total, onChange, onCreate, onRe
   const select = (next: string) => {
     onChange(next)
     closeMenu()
+  }
+  const manage = () => {
+    closeMenu()
+    onManageCollections()
   }
   const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = event.target instanceof Element
@@ -100,18 +105,6 @@ export function CollectionMenu({ folders, value, total, onChange, onCreate, onRe
     }
   }, [open, selectedIndex])
 
-  const create = () => {
-    const name = window.prompt('Collection name')?.trim()
-    if (name) onCreate(name)
-  }
-  const rename = (folder: LibraryFolder) => {
-    const name = window.prompt('Rename collection', folder.name)?.trim()
-    if (name && name !== folder.name) onRename(folder.id, name)
-  }
-  const remove = (folder: LibraryFolder) => {
-    if (window.confirm(`Delete collection “${folder.name}”? Its mods become Unfiled and are not deleted.`)) onDelete(folder.id)
-  }
-
   return <div className="collection-control" ref={rootRef}>
     <button
       ref={triggerRef}
@@ -134,38 +127,29 @@ export function CollectionMenu({ folders, value, total, onChange, onCreate, onRe
       <Icon name="chevron" size={13}/>
     </button>
     {open && <div className="collection-menu" id={menuID} role="menu" aria-label="Library collections" aria-orientation="vertical" onKeyDown={handleMenuKeyDown}>
-      <header className="collection-menu__header">
-        <div><strong>Collections</strong></div>
-        <button type="button" role="menuitem" className="icon-button collection-menu__create" onClick={create} aria-label="Create collection" title="Create collection"><Icon name="plus" size={15}/></button>
-      </header>
       {choices.map((choice, index) => {
         const activeChoice = value === choice.id
-        const choiceContent = <>
-          <Icon name={choice.icon} size={15}/>
-          <span className="collection-menu__choice-label"><strong>{choice.label}</strong><small>{choice.detail}</small></span>
-          {choice.count !== undefined && <em className="collection-menu__choice-count">{choice.count.toLocaleString()}</em>}
-        </>
-        const choiceButton = <button
+        return <button
           key={choice.id}
           type="button"
           role="menuitemradio"
           aria-checked={activeChoice}
-          className={`collection-menu__choice${activeChoice ? ' is-active' : ''}`}
+          className={`collection-menu__choice${activeChoice ? ' is-active' : ''}${index === 1 ? ' collection-menu__choice--last-scope' : ''}`}
           data-collection-choice={index}
           ref={element => { choiceRefs.current[index] = element }}
           tabIndex={index === selectedIndex ? 0 : -1}
           onClick={() => select(choice.id)}
         >
-          {choiceContent}
+          <Icon name={choice.icon} size={15}/>
+          <span className="collection-menu__choice-label">{choice.label}</span>
+          {choice.count !== undefined && <em className="collection-menu__choice-count">{choice.count.toLocaleString()}</em>}
         </button>
-        if (!choice.folder) return choiceButton
-        return <div className={`collection-menu__row${activeChoice ? ' is-active' : ''}`} role="none" key={choice.id}>
-          {choiceButton}
-          <button type="button" role="menuitem" className="icon-button collection-menu__action" onClick={() => rename(choice.folder!)} aria-label={`Rename ${choice.folder.name}`} title="Rename collection"><Icon name="edit" size={13}/></button>
-          <button type="button" role="menuitem" className="icon-button collection-menu__action" onClick={() => remove(choice.folder!)} aria-label={`Delete ${choice.folder.name}`} title="Delete collection"><Icon name="trash" size={13}/></button>
-        </div>
       })}
-      {folders.length === 0 && <p className="collection-menu__empty">No collections yet.</p>}
+      {collections.length === 0 && <p className="collection-menu__choice collection-menu__choice--empty" aria-disabled="true">
+        <Icon name="folder" size={15}/>
+        <span className="collection-menu__choice-label">No collections yet</span>
+      </p>}
+      <button type="button" role="menuitem" className="collection-menu__choice collection-menu__manage" onClick={manage}><Icon name="settings" size={15}/><span className="collection-menu__choice-label">Manage collections</span></button>
     </div>}
   </div>
 }

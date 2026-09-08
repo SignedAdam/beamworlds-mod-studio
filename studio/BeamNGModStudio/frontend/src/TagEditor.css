@@ -1,7 +1,7 @@
 .tag-editor {
   position: relative;
   min-width: 0;
-  --tag-editor-chip-height: var(--control-height-small, 30px);
+  --tag-editor-chip-height: max(26px, calc(28px * var(--interface-scale, 1)));
 }
 
 .tag-editor > header {
@@ -14,58 +14,83 @@
 .tag-editor__helper {
   display: block;
   min-width: 0;
-  color: var(--text-3);
-  font-size: var(--font-caption);
+  color: var(--text-2);
+  font-size: var(--font-control);
   line-height: 1.35;
 }
 
 .tag-editor__group {
   min-width: 0;
-  margin-top: 10px;
+  margin-top: var(--space-3, 12px);
+}
+
+/* Assigned tags read as the mod's own set; available tags read as a picker. */
+.tag-editor__group-label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--font-control);
+  font-weight: 680;
+}
+
+.tag-editor__group-label > em {
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-editor__group--available {
+  margin-top: var(--space-3, 12px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--line);
 }
 
 .tag-editor__chips {
   min-width: 0;
-  min-height: var(--tag-editor-chip-height, 30px);
+  min-height: var(--tag-editor-chip-height);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 7px;
 }
 
 .tag-editor__chip-wrap {
   position: relative;
   min-width: 0;
-  height: var(--tag-editor-chip-height, 30px);
+  height: var(--tag-editor-chip-height);
   display: inline-flex;
   align-items: center;
+  gap: 2px;
 }
 
 .tag-editor__chip,
 .tag-editor__new-chip {
   max-width: min(100%, 280px);
-  height: var(--tag-editor-chip-height, 30px);
-  min-height: var(--tag-editor-chip-height, 30px);
+  height: var(--tag-editor-chip-height);
+  min-height: var(--tag-editor-chip-height);
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 0 7px;
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface-soft);
   color: var(--text-2);
   font: inherit;
-  font-size: var(--font-caption);
+  font-size: var(--font-control);
   line-height: 1;
   white-space: nowrap;
 }
 
 .tag-editor .tag-editor__chip,
 .tag-editor .tag-editor__new-chip {
-  height: var(--tag-editor-chip-height, 30px);
-  min-height: var(--tag-editor-chip-height, 30px);
-  font-size: var(--font-caption);
+  height: var(--tag-editor-chip-height);
+  min-height: var(--tag-editor-chip-height);
+  font-size: var(--font-control);
 }
 
 button.tag-editor__chip,
@@ -91,23 +116,38 @@ button.tag-editor__new-chip {
   outline-offset: 1px;
 }
 .tag-editor__chip.is-assigned {
-  border-color: color-mix(in srgb, var(--inspector-accent, var(--active-tab)) 58%, var(--line));
-  background: color-mix(in srgb, var(--inspector-accent, var(--active-tab)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tag-color, var(--active-tab)) 78%, var(--line-strong));
+  background: color-mix(in srgb, var(--tag-color, var(--active-tab)) 40%, var(--surface-solid));
+  color: var(--text);
+  font-weight: 620;
+}
+
+.tag-editor__chip.is-assigned:hover:not(:disabled),
+.tag-editor__chip.is-assigned:focus-visible:not(:disabled) {
+  border-color: var(--tag-color, var(--active-tab));
+  background: color-mix(in srgb, var(--tag-color, var(--active-tab)) 54%, var(--surface-solid));
   color: var(--text);
 }
 
-.tag-editor__chip.is-assigned > svg {
-  color: var(--inspector-accent, var(--active-tab));
+.tag-editor__chip.is-assigned > svg,
+.tag-editor__chip.is-assigned > small {
+  color: var(--text);
 }
 
-.tag-editor__chip > svg,
-.tag-editor__new-chip > svg {
+.tag-editor__chip.is-assigned > small {
+  border-left-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.tag-editor__chip > svg {
+  display: block;
   flex: none;
-  color: color-mix(in srgb, var(--tag-color, var(--text-3)) 78%, var(--text-3));
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--tag-color, var(--text-3)) 78%, var(--text-2));
 }
 
 .tag-editor__chip > span:not(.tag-editor__chip-status),
-.tag-editor__new-chip > span:not(.tag-editor__chip-status) {
+.tag-editor__new-chip > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -121,12 +161,13 @@ button.tag-editor__new-chip {
   color: var(--text-3);
   font-size: var(--font-caption);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .tag-editor__chip-status {
-  width: var(--icon-small-size, 14px);
-  min-width: var(--icon-small-size, 14px);
-  height: var(--icon-small-size, 14px);
+  width: 12px;
+  min-width: 12px;
+  height: 12px;
   display: inline-grid;
   place-items: center;
   flex: none;
@@ -151,21 +192,21 @@ button.tag-editor__new-chip {
 }
 
 .tag-editor__retry-slot {
-  width: var(--tag-editor-chip-height, 30px);
-  min-width: var(--tag-editor-chip-height, 30px);
-  height: var(--tag-editor-chip-height, 30px);
+  width: var(--tag-editor-chip-height);
+  min-width: var(--tag-editor-chip-height);
+  height: var(--tag-editor-chip-height);
   display: grid;
   place-items: center;
 }
 
 .tag-editor__retry {
-  width: var(--tag-editor-chip-height, 30px);
-  height: var(--tag-editor-chip-height, 30px);
+  width: var(--tag-editor-chip-height);
+  height: var(--tag-editor-chip-height);
   display: grid;
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 999px;
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
@@ -193,10 +234,6 @@ button.tag-editor__new-chip {
 .tag-editor__new-chip:hover:not(:disabled) {
   border-color: var(--inspector-accent, var(--active-tab));
   background: color-mix(in srgb, var(--inspector-accent, var(--active-tab)) 13%, transparent);
-}
-
-.tag-editor__new-chip > svg {
-  color: var(--inspector-accent, var(--active-tab));
 }
 
 .tag-editor__empty {
@@ -511,39 +548,6 @@ button.tag-editor__new-chip {
 .tag-editor__custom-picker:hover {
   border-color: var(--inspector-accent, var(--active-tab));
   color: var(--text);
-}
-
-.tag-editor__menu-error {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin-top: 6px;
-  padding: 6px;
-  border: 1px solid color-mix(in srgb, var(--danger) 46%, var(--line));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--danger) 9%, transparent);
-  color: var(--danger);
-  font-size: var(--font-caption);
-  line-height: 1.35;
-}
-
-.tag-editor__menu-error > span {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-
-.tag-editor__menu-error button {
-  flex: none;
-  padding: 1px 4px;
-  border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--line));
-  border-radius: 3px;
-  background: transparent;
-  color: var(--danger);
-  font: inherit;
-  font-size: var(--font-caption);
-  cursor: pointer;
 }
 
 .tag-editor__menu-footer {

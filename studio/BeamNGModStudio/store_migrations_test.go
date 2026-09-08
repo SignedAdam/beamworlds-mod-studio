@@ -123,8 +123,8 @@ func TestSQLiteCleanInstallCreatesVersion4SchemaAndEnforcesForeignKeys(t *testin
 	if err := store.db.QueryRowContext(ctx, `SELECT version FROM schema_meta`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("schema version = %d, want 4", version)
+	if version != storeSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, storeSchemaVersion)
 	}
 	for _, table := range []string{"source_classifications", "library_search_fts", "test_installs"} {
 		var present int
@@ -256,8 +256,8 @@ func TestSQLiteVersion3MigrationPreservesRecordsTagsAndAssignments(t *testing.T)
 	if err := reopened.db.QueryRowContext(ctx, `SELECT version FROM schema_meta`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("migrated schema version = %d, want 4", version)
+	if version != storeSchemaVersion {
+		t.Fatalf("migrated schema version = %d, want %d", version, storeSchemaVersion)
 	}
 	migrated := migrationItemForPath(t, reopened, archive.ArchivePath)
 	if migrated.EntityID != item.EntityID || migrated.DisplayName != item.DisplayName || migrated.SizeBytes != item.SizeBytes || migrated.Manifest.Title != item.Manifest.Title || migrated.Manifest.Author != item.Manifest.Author {
@@ -874,10 +874,11 @@ func TestSQLiteCleanInstallSupportsTestInstallWorkflow(t *testing.T) {
 	}
 }
 
-// downgradeStoreToVersion3 deliberately recreates the three tables whose
-// declared v4 constraints differ from the v3 schema. A v3 database predates
-// test_installs, so the fixture removes that v4-only table as well; migration
-// must recreate it before rebuilding and validating the v4 schema.
+// downgradeStoreToVersion3 deliberately recreates the tables whose declared
+// v4 constraints differ from the v3 schema, including the legacy folder tables
+// that the collection migration removes. A v3 database predates test_installs,
+// so the fixture removes that v4-only table as well; migration must recreate
+// the v4 tables, convert legacy folders into collections, and validate.
 func downgradeStoreToVersion3(tb testing.TB, store *Store) {
 	ctx := context.Background()
 	// PRAGMA foreign_keys is connection-local; use one pooled connection so
@@ -906,15 +907,9 @@ func downgradeStoreToVersion3(tb testing.TB, store *Store) {
 				CASE WHEN source_id='beamng-repository' THEN 'repository' ELSE 'third-party' END AS source_class,
 				size_bytes,modified_at,discovered_at,last_seen_at,last_scan_id,basename_key
 			FROM archive_links`,
-		`CREATE TEMP TABLE migration_v3_folders AS
-			SELECT id,name,parent_id,position,created_at,updated_at FROM library_folders`,
-		`CREATE TEMP TABLE migration_v3_folder_entities AS
-			SELECT entity_id,folder_id,position FROM library_folder_entities`,
 		`DROP TABLE test_installs`,
 		`DROP TABLE archive_links`,
 		`DROP TABLE entities`,
-		`DROP TABLE library_folder_entities`,
-		`DROP TABLE library_folders`,
 		`CREATE TABLE entities(
 			id TEXT PRIMARY KEY,
 			display_name TEXT NOT NULL DEFAULT '',
@@ -960,8 +955,6 @@ func downgradeStoreToVersion3(tb testing.TB, store *Store) {
 			updated_at TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY(parent_id) REFERENCES library_folders(id) ON DELETE CASCADE
 		)`,
-		`INSERT INTO library_folders(id,name,parent_id,position,created_at,updated_at)
-			SELECT id,name,parent_id,position,created_at,updated_at FROM migration_v3_folders`,
 		`CREATE TABLE library_folder_entities(
 			entity_id TEXT PRIMARY KEY,
 			folder_id TEXT NOT NULL,
@@ -969,12 +962,8 @@ func downgradeStoreToVersion3(tb testing.TB, store *Store) {
 			FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
 			FOREIGN KEY(folder_id) REFERENCES library_folders(id) ON DELETE CASCADE
 		)`,
-		`INSERT INTO library_folder_entities(entity_id,folder_id,position)
-			SELECT entity_id,folder_id,position FROM migration_v3_folder_entities`,
 		`DROP TABLE migration_v3_entities`,
 		`DROP TABLE migration_v3_archive_links`,
-		`DROP TABLE migration_v3_folders`,
-		`DROP TABLE migration_v3_folder_entities`,
 		`UPDATE schema_meta SET version=3`,
 		`UPDATE settings SET value='3' WHERE key='schema_version'`,
 	}
@@ -1071,7 +1060,7 @@ func TestSQLiteVersion3MigrationPreservesGlobalEvent(t *testing.T) {
 	}
 }
 
-func TestSQLiteVersion3MigrationRebuildsConstraintsAndPreservesFolderAssignments(t *testing.T) {
+func TestSQLiteVersion3MigrationRebuildsConstraintsAndConvertsFolderAssignments(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "genuine-v3.sqlite")
 	store, err := OpenStore(path)
@@ -1085,24 +1074,18 @@ func TestSQLiteVersion3MigrationRebuildsConstraintsAndPreservesFolderAssignments
 		t.Fatalf("seed items = %d, want 1", len(seed))
 	}
 	parentName, childName := "v3 parent", "v3 child"
-	if err := store.CreateLibraryFolder(ctx, parentName, ""); err != nil {
-		t.Fatal(err)
-	}
-	var parentID string
-	if err := store.db.QueryRowContext(ctx, `SELECT id FROM library_folders WHERE name=?`, parentName).Scan(&parentID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.CreateLibraryFolder(ctx, childName, parentID); err != nil {
-		t.Fatal(err)
-	}
-	var childID string
-	if err := store.db.QueryRowContext(ctx, `SELECT id FROM library_folders WHERE name=?`, childName).Scan(&childID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MoveLibraryItem(ctx, seed[0].EntityID, childID); err != nil {
-		t.Fatal(err)
-	}
+	parentID, childID := "v3-parent-folder", "v3-child-folder"
 	downgradeStoreToVersion3(t, store)
+	// Legacy folder rows can only exist in the v3 shape, so seed them after the
+	// downgrade and let the migration convert them into collections.
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO library_folders(id,name,parent_id,position,created_at,updated_at) VALUES(?,?,NULL,0,?,?),(?,?,?,1,?,?)`,
+		parentID, parentName, nowUTC(), nowUTC(),
+		childID, childName, parentID, nowUTC(), nowUTC()); err != nil {
+		t.Fatalf("seed legacy folders: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO library_folder_entities(entity_id,folder_id,position) VALUES(?,?,0)`, seed[0].EntityID, childID); err != nil {
+		t.Fatalf("seed legacy folder assignment: %v", err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1116,8 +1099,8 @@ func TestSQLiteVersion3MigrationRebuildsConstraintsAndPreservesFolderAssignments
 	if err := reopened.db.QueryRowContext(ctx, `SELECT version FROM schema_meta`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("migrated genuine v3 schema version = %d, want 4", version)
+	if version != storeSchemaVersion {
+		t.Fatalf("migrated genuine v3 schema version = %d, want %d", version, storeSchemaVersion)
 	}
 	var sourceForeignKeys int
 	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_foreign_key_list('entities') WHERE "table"='source_classifications' AND "from"='source_id'`).Scan(&sourceForeignKeys); err != nil {
@@ -1167,29 +1150,46 @@ func TestSQLiteVersion3MigrationRebuildsConstraintsAndPreservesFolderAssignments
 		nowUTC(), nowUTC(), nowUTC(), "", "unknown"); err == nil {
 		t.Fatal("v3 migration accepted an unknown archive-link source")
 	}
-	if _, err := reopened.db.ExecContext(ctx, `DELETE FROM library_folders WHERE id=?`, parentID); err != nil {
-		t.Fatal("delete v3 parent folder: ", err)
+	for _, table := range []string{"library_folders", "library_folder_entities"} {
+		var present int
+		if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		if present != 0 {
+			t.Fatalf("legacy organization table %s survived the collection migration", table)
+		}
 	}
-	var childCount int
-	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM library_folders WHERE id=?`, childID).Scan(&childCount); err != nil {
+	var migratedParentID, migratedChildID string
+	if err := reopened.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE name=?`, parentName).Scan(&migratedParentID); err != nil {
+		t.Fatalf("migrated parent collection %q: %v", parentName, err)
+	}
+	if err := reopened.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE name=?`, childName).Scan(&migratedChildID); err != nil {
+		t.Fatalf("migrated child collection %q: %v", childName, err)
+	}
+	var edgeCount int
+	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_children WHERE parent_id=? AND child_id=?`, migratedParentID, migratedChildID).Scan(&edgeCount); err != nil {
 		t.Fatal(err)
 	}
-	if childCount != 1 {
-		t.Fatalf("deleting migrated parent removed child folder")
+	if edgeCount != 1 {
+		t.Fatalf("migrated folder hierarchy edge count = %d, want 1", edgeCount)
 	}
-	var parent sql.NullString
-	if err := reopened.db.QueryRowContext(ctx, `SELECT parent_id FROM library_folders WHERE id=?`, childID).Scan(&parent); err != nil {
+	var membershipCount int
+	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods WHERE entity_id=? AND collection_id=?`, seed[0].EntityID, migratedChildID).Scan(&membershipCount); err != nil {
 		t.Fatal(err)
 	}
-	if parent.Valid {
-		t.Fatalf("migrated child parent_id = %q, want NULL after parent deletion", parent.String)
+	if membershipCount != 1 {
+		t.Fatalf("migrated folder assignment count = %d, want 1", membershipCount)
 	}
-	var assignmentCount int
-	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM library_folder_entities WHERE entity_id=? AND folder_id=?`, seed[0].EntityID, childID).Scan(&assignmentCount); err != nil {
+	// Deleting a parent collection must not remove a shared child collection or
+	// its mods, unlike the legacy cascade semantics.
+	if _, err := reopened.db.ExecContext(ctx, `DELETE FROM collections WHERE id=?`, migratedParentID); err != nil {
+		t.Fatalf("delete migrated parent collection: %v", err)
+	}
+	if err := reopened.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods WHERE entity_id=? AND collection_id=?`, seed[0].EntityID, migratedChildID).Scan(&membershipCount); err != nil {
 		t.Fatal(err)
 	}
-	if assignmentCount != 1 {
-		t.Fatalf("deleting migrated parent removed child assignment: count=%d", assignmentCount)
+	if membershipCount != 1 {
+		t.Fatalf("deleting the migrated parent removed child membership: count=%d", membershipCount)
 	}
 }
 
@@ -1200,13 +1200,13 @@ func TestSQLiteRejectsNewerSchemaVersionWithoutRewritingMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE schema_meta SET version=5`); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE schema_meta SET version=?`, storeSchemaVersion+1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE settings SET value='5' WHERE key='schema_version'`); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE settings SET value=? WHERE key='schema_version'`, fmt.Sprint(storeSchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `PRAGMA user_version=5`); err != nil {
+	if _, err := store.db.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version=%d`, storeSchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -1226,7 +1226,7 @@ func TestSQLiteRejectsNewerSchemaVersionWithoutRewritingMarker(t *testing.T) {
 	if err := raw.QueryRowContext(ctx, `SELECT version FROM schema_meta`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
+	if version != storeSchemaVersion+1 {
 		t.Fatalf("newer schema marker changed to %d after rejected open", version)
 	}
 }

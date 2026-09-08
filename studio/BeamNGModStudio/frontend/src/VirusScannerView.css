@@ -169,20 +169,6 @@ html[data-theme="light"] .virus-scanner .scan-history > header > button:focus-vi
 
 html[data-theme="light"] .virus-scanner .scan-history__rows {
   border-top-color: var(--scanner-divider);
-  scrollbar-color: var(--scanner-divider) var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scan-history__rows::-webkit-scrollbar-track {
-  background: var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scan-history__rows::-webkit-scrollbar-thumb {
-  background: var(--scanner-divider);
-  border-color: var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scan-history__rows::-webkit-scrollbar-thumb:hover {
-  background: var(--scanner-focus);
 }
 
 html[data-theme="light"] .virus-scanner .scan-history__rows article {

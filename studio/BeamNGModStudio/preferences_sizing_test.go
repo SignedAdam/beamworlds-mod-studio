@@ -15,7 +15,7 @@ func TestSettingsSizingDefaultsAndLegacyFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaults.InterfaceSize != "default" || defaults.TextSize != "default" {
+	if defaults.InterfaceSize != "default" || defaults.TextSize != "default" || defaults.ScrollbarColor != "#f26522" {
 		t.Fatalf("sizing defaults = %q/%q, want default/default", defaults.InterfaceSize, defaults.TextSize)
 	}
 
@@ -30,11 +30,11 @@ func TestSettingsSizingDefaultsAndLegacyFallback(t *testing.T) {
 	if loaded.InterfaceSize != "default" || loaded.TextSize != "default" {
 		t.Fatalf("legacy sizing defaults = %q/%q, want default/default", loaded.InterfaceSize, loaded.TextSize)
 	}
-	if loaded.Theme != "light" || loaded.EmphasisColor != "#123456" {
+	if loaded.Theme != "light" || loaded.EmphasisColor != "#123456" || loaded.ScrollbarColor != "#f26522" {
 		t.Fatalf("legacy appearance settings changed: %#v", loaded)
 	}
 
-	mixedSettings := `{"theme":"light","agentProfile":"chatgpt","contextMode":"balanced","interfaceSize":"  COMFORTABLE ","textSize":"unsupported","emphasisColor":"#654321"}`
+	mixedSettings := `{"theme":"light","agentProfile":"chatgpt","contextMode":"balanced","interfaceSize":"  COMFORTABLE ","textSize":"unsupported","emphasisColor":"#654321","scrollbarColor":"not-a-color"}`
 	if err := service.store.writeSetting(context.Background(), preferencesKey, mixedSettings); err != nil {
 		t.Fatal(err)
 	}
@@ -45,8 +45,8 @@ func TestSettingsSizingDefaultsAndLegacyFallback(t *testing.T) {
 	if loaded.InterfaceSize != "comfortable" || loaded.TextSize != "default" {
 		t.Fatalf("independent sizing fallback = %q/%q, want comfortable/default", loaded.InterfaceSize, loaded.TextSize)
 	}
-	if loaded.EmphasisColor != "#654321" {
-		t.Fatalf("sizing fallback changed appearance color: %q", loaded.EmphasisColor)
+	if loaded.EmphasisColor != "#654321" || loaded.ScrollbarColor != "#f26522" {
+		t.Fatalf("sizing fallback changed appearance colors: %q/%q", loaded.EmphasisColor, loaded.ScrollbarColor)
 	}
 }
 
@@ -98,6 +98,62 @@ func TestSettingsSizingValidationAllowsOnlyContractValues(t *testing.T) {
 	if validated.InterfaceSize != "default" || validated.TextSize != "default" {
 		t.Fatalf("empty sizing values = %q/%q, want default/default", validated.InterfaceSize, validated.TextSize)
 	}
+	invalidColor := sizingSettingsUpdate()
+	invalidColor.ScrollbarColor = "not-a-color"
+	validated, err = validateSettings(invalidColor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.ScrollbarColor != "#f26522" {
+		t.Fatalf("invalid scrollbar color = %q, want #f26522", validated.ScrollbarColor)
+	}
+	emptyColor := sizingSettingsUpdate()
+	emptyColor.ScrollbarColor = ""
+	validated, err = validateSettings(emptyColor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.ScrollbarColor != "#f26522" {
+		t.Fatalf("empty scrollbar color = %q, want #f26522", validated.ScrollbarColor)
+	}
+}
+
+func TestLegacyScrollbarColorMigratesToEmphasisOrange(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+
+	stored := `{"theme":"dark","agentProfile":"chatgpt","contextMode":"balanced","scrollbarColor":"#3F93C5"}`
+	if err := service.store.writeSetting(context.Background(), preferencesKey, stored); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := service.store.loadAppSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ScrollbarColor != "#f26522" {
+		t.Fatalf("legacy scrollbar color = %q, want #f26522", loaded.ScrollbarColor)
+	}
+
+	reloaded, err := service.store.loadAppSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ScrollbarColor != "#f26522" {
+		t.Fatalf("migration was not persisted: %q", reloaded.ScrollbarColor)
+	}
+
+	chosen := loaded
+	chosen.ScrollbarColor = legacyScrollbarColor
+	if err := service.store.saveAppSettings(context.Background(), chosen); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := service.store.loadAppSettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.ScrollbarColor != legacyScrollbarColor {
+		t.Fatalf("deliberately chosen scrollbar color = %q, want %q", kept.ScrollbarColor, legacyScrollbarColor)
+	}
 }
 
 func TestSettingsSizingPersistsAcrossReopenAndResetPreservesAppearance(t *testing.T) {
@@ -112,8 +168,8 @@ func TestSettingsSizingPersistsAcrossReopenAndResetPreservesAppearance(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.InterfaceSize != "comfortable" || saved.TextSize != "extra-large" {
-		t.Fatalf("saved sizing = %q/%q, want comfortable/extra-large", saved.InterfaceSize, saved.TextSize)
+	if saved.InterfaceSize != "comfortable" || saved.TextSize != "extra-large" || saved.ScrollbarColor != "#789abc" {
+		t.Fatalf("saved sizing = %q/%q/%q, want comfortable/extra-large/#789abc", saved.InterfaceSize, saved.TextSize, saved.ScrollbarColor)
 	}
 	encoded, err := service.store.readSetting(context.Background(), preferencesKey)
 	if err != nil {
@@ -123,7 +179,7 @@ func TestSettingsSizingPersistsAcrossReopenAndResetPreservesAppearance(t *testin
 	if err := json.Unmarshal([]byte(encoded), &persisted); err != nil {
 		t.Fatal(err)
 	}
-	for field, want := range map[string]string{"interfaceSize": "comfortable", "textSize": "extra-large"} {
+	for field, want := range map[string]string{"interfaceSize": "comfortable", "textSize": "extra-large", "scrollbarColor": "#789abc"} {
 		var got string
 		if err := json.Unmarshal(persisted[field], &got); err != nil {
 			t.Fatalf("persisted %s: %v", field, err)
@@ -145,7 +201,7 @@ func TestSettingsSizingPersistsAcrossReopenAndResetPreservesAppearance(t *testin
 	if loaded.InterfaceSize != "comfortable" || loaded.TextSize != "extra-large" {
 		t.Fatalf("reopened sizing = %q/%q, want comfortable/extra-large", loaded.InterfaceSize, loaded.TextSize)
 	}
-	if loaded.Theme != "light" || loaded.EmphasisColor != "#123456" || loaded.ActiveTabColor != "#234567" || loaded.DarkTextColor != "#eeeeee" || loaded.LightTextColor != "#111111" {
+	if loaded.Theme != "light" || loaded.EmphasisColor != "#123456" || loaded.ActiveTabColor != "#234567" || loaded.DarkTextColor != "#eeeeee" || loaded.LightTextColor != "#111111" || loaded.ScrollbarColor != "#789abc" {
 		t.Fatalf("reopened appearance settings changed: %#v", loaded)
 	}
 
@@ -158,7 +214,7 @@ func TestSettingsSizingPersistsAcrossReopenAndResetPreservesAppearance(t *testin
 	if reset.InterfaceSize != "default" || reset.TextSize != "default" {
 		t.Fatalf("reset sizing = %q/%q, want default/default", reset.InterfaceSize, reset.TextSize)
 	}
-	if reset.Theme != "light" || reset.EmphasisColor != "#123456" || reset.ActiveTabColor != "#234567" || reset.DarkTextColor != "#eeeeee" || reset.LightTextColor != "#111111" {
+	if reset.Theme != "light" || reset.EmphasisColor != "#123456" || reset.ActiveTabColor != "#234567" || reset.DarkTextColor != "#eeeeee" || reset.LightTextColor != "#111111" || reset.ScrollbarColor != "#789abc" {
 		t.Fatalf("reset sizing changed unrelated appearance settings: %#v", reset)
 	}
 }
@@ -179,6 +235,7 @@ func sizingSettingsUpdate() SettingsUpdate {
 		LightSurfaceColor:    "#abcdef",
 		LightBorderColor:     "#bcdefa",
 		LightTextColor:       "#111111",
+		ScrollbarColor:       "#789abc",
 		PreScanReasoning:     "medium",
 		FullScanReasoning:    "xhigh",
 	}

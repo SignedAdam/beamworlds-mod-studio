@@ -3263,9 +3263,6 @@ func resolveLegacyCanonicalMergesTx(ctx context.Context, tx *sql.Tx, mod *import
 		var existing int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM entities WHERE id=?`, candidate).Scan(&existing); err != nil {
 			return err
-			if expectedMerges != nil {
-				expectedMerges[candidate] = canonicalEntity
-			}
 		}
 		if existing != 0 {
 			if err := mergeEntityRecordsTx(ctx, tx, candidate, canonicalEntity); err != nil {

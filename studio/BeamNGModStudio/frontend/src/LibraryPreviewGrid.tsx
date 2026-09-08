@@ -10,12 +10,14 @@ export type LibraryPreviewSize = "small" | "medium" | "large";
 export interface LibraryPreviewGridProps {
   items: LibraryItem[];
   selectedID: string;
+  selectedIDs?: ReadonlySet<string>;
   previewSize: LibraryPreviewSize;
   loading?: boolean;
   loadingLabel?: string;
   emptyTitle: string;
   ariaLabel: string;
   onSelect: (item: LibraryItem) => void;
+  onToggle?: (item: LibraryItem) => void;
   onContextMenu: (
     item: LibraryItem,
     event: ReactMouseEvent<HTMLElement>,
@@ -81,16 +83,17 @@ function healthDescription(status: string): string {
       return "No virus scan has run";
   }
 }
-
 export function LibraryPreviewGrid({
   items,
   selectedID,
+  selectedIDs,
   previewSize,
   loading = false,
   loadingLabel = "Filtering mods",
   emptyTitle,
   ariaLabel,
   onSelect,
+  onToggle,
   onContextMenu,
 }: LibraryPreviewGridProps) {
   return (
@@ -115,7 +118,9 @@ export function LibraryPreviewGrid({
               key={item.entityId}
               item={item}
               selected={item.entityId === selectedID}
+              bulkSelected={Boolean(selectedIDs?.has(item.entityId))}
               onSelect={onSelect}
+              onToggle={onToggle}
               onContextMenu={onContextMenu}
             />
           ))}
@@ -128,12 +133,16 @@ export function LibraryPreviewGrid({
 function LibraryPreviewCard({
   item,
   selected,
+  bulkSelected,
   onSelect,
+  onToggle,
   onContextMenu,
 }: {
   item: LibraryItem;
   selected: boolean;
+  bulkSelected: boolean;
   onSelect: (item: LibraryItem) => void;
+  onToggle?: (item: LibraryItem) => void;
   onContextMenu: (
     item: LibraryItem,
     event: ReactMouseEvent<HTMLElement>,
@@ -154,10 +163,13 @@ function LibraryPreviewCard({
 
   return (
     <article
-      className={`library-preview-card${selected ? " is-selected" : ""}`}
+      className={`library-preview-card${selected ? " is-selected" : ""}${bulkSelected ? " is-bulk-selected" : ""}`}
       role="listitem"
       aria-current={selected ? "true" : undefined}
     >
+      {onToggle && <label className="library-preview-card__selection" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+        <input type="checkbox" checked={bulkSelected} onChange={() => onToggle(item)} aria-label={`Select ${name}`} />
+      </label>}
       <button
         type="button"
         className="library-preview-card__open"
@@ -182,13 +194,12 @@ function LibraryPreviewCard({
           ) : (
             <span className="library-preview-card__fallback">
               <span className="library-preview-card__fallback-mark">
-                <Icon name={kindIcon(String(item.kind))} size={30} />
+                <Icon name={kindIcon(String(item.kind))} size={26} />
               </span>
-              <span>No preview available</span>
+              <span>No preview</span>
             </span>
           )}
           <span className="library-preview-card__thumbnail-shade" aria-hidden="true" />
-          <span className="library-preview-card__source">{source}</span>
           <span
             className={`library-preview-card__status library-preview-card__status--${status}`}
             title={healthDescription(item.healthStatus)}
@@ -201,6 +212,7 @@ function LibraryPreviewCard({
           <span className="library-preview-card__name" title={name}>
             {name}
           </span>
+          <span className="library-preview-card__source">{source}</span>
         </span>
       </button>
       <button

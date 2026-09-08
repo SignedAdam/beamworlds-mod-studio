@@ -9,7 +9,8 @@
 }
 
 .library-preview-grid {
-  --library-preview-card-min: 280px;
+  --library-preview-card-min: 260px;
+  --library-preview-thumb-height: 148px;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -27,15 +28,18 @@
 }
 
 .library-preview-grid--small {
-  --library-preview-card-min: 220px;
+  --library-preview-card-min: 200px;
+  --library-preview-thumb-height: 116px;
 }
 
 .library-preview-grid--medium {
-  --library-preview-card-min: 280px;
+  --library-preview-card-min: 260px;
+  --library-preview-thumb-height: 148px;
 }
 
 .library-preview-grid--large {
   --library-preview-card-min: 340px;
+  --library-preview-thumb-height: 194px;
 }
 
 .library-preview-card {
@@ -64,6 +68,32 @@
     inset 3px 0 var(--active-tab),
     0 6px 22px rgba(0, 0, 0, 0.2);
 }
+.library-preview-card.is-bulk-selected {
+  border-color: color-mix(in srgb, var(--active-tab) 78%, var(--line-strong));
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--active-tab) 44%, transparent),
+    0 6px 22px rgba(0, 0, 0, 0.2);
+}
+
+.library-preview-card__selection {
+  position: absolute;
+  z-index: 4;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  cursor: pointer;
+}
+
+.library-preview-card__selection input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--active-tab);
+}
 
 .library-preview-card__open {
   min-width: 0;
@@ -90,13 +120,14 @@
   outline-offset: -2px;
 }
 
+/* A definite thumbnail height keeps auto grid rows from mis-sizing and clipping the card. */
 .library-preview-card__thumbnail {
   position: relative;
   isolation: isolate;
   display: block;
   width: 100%;
-  min-height: 136px;
-  aspect-ratio: 16 / 9;
+  height: var(--library-preview-thumb-height, 148px);
+  flex: none;
   overflow: hidden;
   background:
     radial-gradient(
@@ -151,58 +182,36 @@
 }
 
 .library-preview-card__fallback-mark {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--active-tab) 55%, var(--line-strong));
   border-radius: 50%;
   background: color-mix(in srgb, var(--active-tab) 12%, var(--surface-solid));
   color: var(--active-tab);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-}
-
-.library-preview-card__source,
-.library-preview-card__status,
-.library-preview-card__kind {
-  position: absolute;
-  z-index: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.library-preview-card__source {
-  top: 10px;
-  left: 11px;
-  max-width: calc(50% - 16px);
-  padding: 4px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.62);
-  color: #fff;
-  font-size: var(--font-caption);
-  font-weight: 700;
-  line-height: 1.2;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.82);
 }
 
 .library-preview-card__status {
-  top: 10px;
-  right: 45px;
-  max-width: calc(50% - 18px);
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  max-width: calc(100% - 54px);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  gap: 5px;
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.62);
+  background: rgba(0, 0, 0, 0.66);
   color: #fff;
   font-size: var(--font-caption);
-  font-weight: 700;
+  font-weight: 650;
   line-height: 1.2;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.82);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .library-preview-card__status > svg {
@@ -231,9 +240,10 @@
 .library-preview-card__body {
   min-width: 0;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 9px;
-  padding: 12px 13px 13px;
+  gap: 3px;
+  padding: 10px 12px 12px;
 }
 
 .library-preview-card__name {
@@ -241,84 +251,49 @@
   display: -webkit-box;
   overflow: hidden;
   color: var(--text);
-  font-size: var(--font-body);
-  font-weight: 750;
+  font-size: var(--font-control);
+  font-weight: 700;
   line-height: 1.3;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
+.library-preview-card__source {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .library-preview-card__actions {
   position: absolute;
   z-index: 4;
-  top: 8px;
   right: 8px;
-  width: 30px;
-  height: 30px;
+  bottom: 8px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  border: 1px solid var(--line-strong);
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.52);
-  color: #fff;
-}
-
-.library-preview-card__actions:hover {
-  border-color: rgba(255, 255, 255, 0.7);
-  background: rgba(0, 0, 0, 0.72);
-}
-
-.library-preview-card__actions > svg {
-  pointer-events: none;
-}
-
-.library-view .page-shell__actions .library-view-mode,
-.library-view .page-shell__actions .library-preview-size {
-  border-color: var(--line-strong);
-  background: var(--field);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
   color: var(--text-2);
 }
 
-.library-view .page-shell__actions .library-view-mode {
-  min-width: 72px;
-}
-
-.library-view .page-shell__actions .library-view-mode--table {
-  margin-right: calc(-1 * var(--space-2));
-  border-radius: 4px 0 0 4px;
-}
-
-.library-view .page-shell__actions .library-view-mode--preview {
-  border-radius: 0 4px 4px 0;
-}
-
-.library-view .page-shell__actions .library-view-mode.is-active {
-  border-color: color-mix(in srgb, var(--active-tab) 62%, var(--line-strong));
-  background: color-mix(in srgb, var(--active-tab) 12%, var(--surface));
+.library-preview-card__actions:hover {
+  border-color: var(--active-tab);
   color: var(--text);
-  box-shadow: inset 0 -2px var(--active-tab);
 }
 
-.library-view .page-shell__actions .library-view-mode:focus-visible,
-.library-view .page-shell__actions .library-preview-size:focus-visible {
-  position: relative;
-  z-index: 2;
-  outline: 2px solid var(--active-tab);
-  outline-offset: 1px;
-}
 
-.library-view .page-shell__actions .library-preview-size {
-  min-width: 34px;
-  padding-inline: 8px;
-  font-size: var(--font-caption);
-}
-
-.library-view .page-shell__actions .library-preview-size:disabled {
-  border-color: var(--line);
-  background: var(--surface-soft);
+.library-preview-card__actions > svg {
+  pointer-events: none;
 }
 
 .library-preview-panel > .center-loader,
@@ -396,11 +371,9 @@ html[data-theme="light"] .library-preview-card__thumbnail.has-thumbnail {
   background-color: var(--library-table-surface);
 }
 
-html[data-theme="light"] .library-preview-card__source,
-html[data-theme="light"] .library-preview-card__status,
-html[data-theme="light"] .library-preview-card__actions {
-  border-color: rgba(255, 255, 255, 0.58);
-  background: rgba(22, 26, 28, 0.62);
+html[data-theme="light"] .library-preview-card__status {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(22, 26, 28, 0.7);
 }
 html[data-theme="light"] .library-preview-card__thumbnail-shade {
   background: linear-gradient(
@@ -427,39 +400,11 @@ html[data-theme="light"] .library-preview-card__thumbnail-shade {
     padding: 10px 10px 20px;
   }
 
-  .library-view .page-shell__actions {
-    gap: var(--space-1);
-  }
-
-  .library-view .page-shell__actions .library-view-mode,
-  .library-view .page-shell__actions .library-preview-size {
-    padding-inline: 8px;
-  }
-  .library-view .page-shell__actions .library-view-mode--table {
-    margin-right: calc(-1 * var(--space-1));
-  }
 }
 
 @media (max-width: 560px) {
   .library-preview-grid--large {
     --library-preview-card-min: 280px;
-  }
-
-  .library-view .page-shell__actions .library-view-mode,
-  .library-view .page-shell__actions .library-preview-size {
-    min-width: 34px;
-    padding-inline: 7px;
-  }
-
-  .library-view .page-shell__actions .library-view-mode span,
-  .library-view .page-shell__actions .library-preview-size span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }
 

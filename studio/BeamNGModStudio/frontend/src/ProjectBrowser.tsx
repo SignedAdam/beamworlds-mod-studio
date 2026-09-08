@@ -213,7 +213,7 @@ export function ProjectBrowser({
       ]}
       className="project-browser"
     >
-      <div className="project-browser__toolbar">
+      <div className="page-toolbar">
         <label className="search-box">
           <Icon name="search" size={16} />
           <input

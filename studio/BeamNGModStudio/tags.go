@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	modkit "github.com/SignedAdam/beamworlds-modkit"
@@ -52,14 +53,20 @@ func normalizeModTagColor(value string) (string, error) {
 	return value, nil
 }
 
+// Presentation-only glyph names. The Tag editor offers exactly this set, so both sides
+// must be extended together; anything else is rejected rather than silently rewritten.
+var modTagIcons = []string{
+	"tag", "vehicle", "wheel", "truck", "plane", "helicopter", "boat", "map",
+	"mountain", "globe", "flag", "code", "layout", "audio", "bulb", "box",
+	"brush", "wrench", "gauge", "files", "shield", "star", "user",
+}
+
 func normalizeModTagIcon(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
-	switch value {
-	case "tag", "vehicle", "map", "code", "files", "shield", "user":
+	if slices.Contains(modTagIcons, value) {
 		return value, nil
-	default:
-		return "", errors.New("tag icon must be one of tag, vehicle, map, code, files, shield, or user")
 	}
+	return "", fmt.Errorf("tag icon must be one of %s", strings.Join(modTagIcons, ", "))
 }
 
 func (service *AppService) CreateModTag(name, color, icon string) (OrganizationState, error) {

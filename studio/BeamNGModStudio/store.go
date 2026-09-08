@@ -34,7 +34,7 @@ type LibraryItem struct {
 	Revision                string          `json:"revision"`
 	ArtifactID              string          `json:"artifactId"`
 	LinkID                  string          `json:"linkId"`
-	FolderID                string          `json:"folderId"`
+	CollectionIDs           []string        `json:"collectionIds"`
 	DisplayName             string          `json:"displayName"`
 	Kind                    modkit.Kind     `json:"kind"`
 	SourceID                string          `json:"sourceId"`
@@ -1337,14 +1337,14 @@ func (s *Store) GetLibraryItem(ctx context.Context, entityID string) (LibraryIte
 	return items[0], nil
 }
 
-func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID string) ([]LibraryItem, error) {
+func (s *Store) ListLibrary(ctx context.Context, health, kind, query, collectionID string) ([]LibraryItem, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	entityIDs, err := s.listLibraryQueryTx(ctx, tx, health, kind, query, folderID)
+	entityIDs, err := s.listLibraryQueryTx(ctx, tx, health, kind, query, collectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1358,13 +1358,22 @@ func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID s
 	}
 	search := parseLibrarySearchQuery(query)
 	collectionNames := map[string]string{}
+	effectiveCollectionNames := map[string][]string{}
+	needsCollectionNames := false
 	for _, term := range search.terms {
 		if term.scope == "all" || term.scope == "collection" {
-			collectionNames, err = s.libraryCollectionNamesTx(ctx, tx)
-			if err != nil {
-				return nil, err
-			}
+			needsCollectionNames = true
 			break
+		}
+	}
+	if needsCollectionNames {
+		collectionNames, err = s.libraryCollectionNamesTx(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+		effectiveCollectionNames, err = libraryEffectiveCollectionNamesTx(ctx, tx, entityIDs)
+		if err != nil {
+			return nil, err
 		}
 	}
 	health = normalizeLibraryStatus(health)
@@ -1381,14 +1390,14 @@ func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID s
 		if kind != "" && kind != "all" && string(item.Kind) != kind {
 			continue
 		}
-		if folderID == "unfiled" && item.FolderID != "" ||
-			folderID != "" && folderID != "all" && folderID != "unfiled" && item.FolderID != folderID {
+		if collectionID == "unfiled" && len(item.CollectionIDs) > 0 {
 			continue
 		}
 		// listLibraryQuery intentionally returns candidates. Keep this
 		// residual check so scoped terms and status semantics remain exactly
 		// those of the pre-SQL query implementation.
-		if (search.status != "" || len(search.terms) > 0) && !search.matches(item, collectionNames) {
+		if (search.status != "" || len(search.terms) > 0) &&
+			!search.matches(item, collectionNames, effectiveCollectionNames[entityID]) {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -1401,7 +1410,7 @@ func (s *Store) ListLibrary(ctx context.Context, health, kind, query, folderID s
 
 func (s *Store) listItems(ctx context.Context, entityID string) ([]LibraryItem, error) {
 	if strings.TrimSpace(entityID) == "" {
-		return s.queryLibraryItems(ctx, nil)
+		return s.queryLibraryItemsQuery(ctx, s.db, nil)
 	}
 	return s.listItemsByIDs(ctx, []string{entityID})
 }
@@ -1435,15 +1444,6 @@ func (s *Store) listItemsByIDsQuery(ctx context.Context, queryer libraryQueryer,
 	}
 	return items, nil
 }
-
-func (s *Store) queryLibraryItems(ctx context.Context, entityIDs []string) ([]LibraryItem, error) {
-	return s.queryLibraryItemsQuery(ctx, s.db, entityIDs)
-}
-
-func (s *Store) queryLibraryItemsTx(ctx context.Context, tx *sql.Tx, entityIDs []string) ([]LibraryItem, error) {
-	return s.queryLibraryItemsQuery(ctx, tx, entityIDs)
-}
-
 func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
 	query := `SELECT e.id, e.updated_at, e.display_name, e.kind,
 		COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'),
@@ -1452,13 +1452,11 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 			WHEN 'user-added' THEN 'User added'
 			ELSE COALESCE(sc.label,'')
 		END,
-		COALESCE(lfe.folder_id,''),
 		COALESCE(l.id,''), COALESCE(l.artifact_id,''), COALESCE(l.path,''), COALESCE(l.root_path,''),
 		COALESCE(l.active,0), COALESCE(l.size_bytes,0), COALESCE(l.modified_at,''), COALESCE(l.last_seen_at,''),
 		COALESCE(a.central_fingerprint,''), COALESCE(a.sha256,''), COALESCE(a.manifest_json,'{}'),
 		COALESCE(ast.sha256,'')
 	FROM entities e
-	LEFT JOIN library_folder_entities lfe ON lfe.entity_id=e.id
 	LEFT JOIN archive_links l ON l.id = (
 		SELECT l2.id FROM archive_links l2
 		WHERE l2.entity_id=e.id
@@ -1486,7 +1484,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	for rows.Next() {
 		var item LibraryItem
 		var kind, manifestJSON, assetSHA string
-		if err := rows.Scan(&item.EntityID, &item.Revision, &item.DisplayName, &kind, &item.SourceID, &item.Source, &item.FolderID,
+		if err := rows.Scan(&item.EntityID, &item.Revision, &item.DisplayName, &kind, &item.SourceID, &item.Source,
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
 			&item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
@@ -1500,6 +1498,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		item.NamespaceCount = len(item.Manifest.Namespaces)
 		item.VariantCount = len(item.Manifest.Variants)
 		item.IssueCount = len(item.Manifest.Issues)
+		item.CollectionIDs = []string{}
 		if assetSHA != "" {
 			item.ThumbnailURL = "/cache/" + assetSHA
 		}
@@ -1511,6 +1510,9 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+	if err := attachLibraryItemCollectionsQuery(ctx, queryer, items); err != nil {
+		return nil, err
+	}
 	if err := attachLibraryItemTagsQuery(ctx, queryer, items); err != nil {
 		return nil, err
 	}
@@ -1518,6 +1520,118 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		return nil, err
 	}
 	return items, nil
+}
+
+func attachLibraryItemCollectionsQuery(ctx context.Context, queryer libraryQueryer, items []LibraryItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	byEntity := make(map[string]*LibraryItem, len(items))
+	entityIDs := make([]string, 0, len(items))
+	for index := range items {
+		items[index].CollectionIDs = []string{}
+		if _, exists := byEntity[items[index].EntityID]; exists {
+			continue
+		}
+		byEntity[items[index].EntityID] = &items[index]
+		entityIDs = append(entityIDs, items[index].EntityID)
+	}
+	const chunkSize = 800
+	for start := 0; start < len(entityIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(entityIDs) {
+			end = len(entityIDs)
+		}
+		placeholders := strings.TrimRight(strings.Repeat("?,", end-start), ",")
+		args := make([]any, 0, end-start)
+		for _, entityID := range entityIDs[start:end] {
+			args = append(args, entityID)
+		}
+		rows, err := queryer.QueryContext(ctx, `SELECT entity_id,collection_id
+			FROM collection_mods
+			WHERE entity_id IN (`+placeholders+`)
+			ORDER BY entity_id,position,collection_id`, args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var entityID, collectionID string
+			if err := rows.Scan(&entityID, &collectionID); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			item := byEntity[entityID]
+			if item == nil {
+				continue
+			}
+			if len(item.CollectionIDs) == 0 ||
+				item.CollectionIDs[len(item.CollectionIDs)-1] != collectionID {
+				item.CollectionIDs = append(item.CollectionIDs, collectionID)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// libraryEffectiveCollectionNamesTx resolves every direct membership and its
+// ancestors for the supplied entities. It uses UNION rather than UNION ALL so
+// shared descendants and legacy cycles cannot expand without bounds.
+func libraryEffectiveCollectionNamesTx(ctx context.Context, queryer libraryQueryer, entityIDs []string) (map[string][]string, error) {
+	result := make(map[string][]string, len(entityIDs))
+	if len(entityIDs) == 0 {
+		return result, nil
+	}
+	const chunkSize = 800
+	for start := 0; start < len(entityIDs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(entityIDs) {
+			end = len(entityIDs)
+		}
+		placeholders := strings.TrimRight(strings.Repeat("?,", end-start), ",")
+		args := make([]any, 0, end-start)
+		for _, entityID := range entityIDs[start:end] {
+			args = append(args, entityID)
+		}
+		rows, err := queryer.QueryContext(ctx, `WITH RECURSIVE effective(entity_id,collection_id) AS (
+				SELECT cm.entity_id,cm.collection_id
+				FROM collection_mods cm
+				WHERE cm.entity_id IN (`+placeholders+`)
+				UNION
+				SELECT effective.entity_id,cc.parent_id
+				FROM effective
+				JOIN collection_children cc ON cc.child_id=effective.collection_id
+			)
+			SELECT effective.entity_id,c.name
+			FROM effective
+			JOIN collections c ON c.id=effective.collection_id
+			ORDER BY effective.entity_id,c.position,c.name COLLATE NOCASE,c.id`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var entityID, name string
+			if err := rows.Scan(&entityID, &name); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			result[entityID] = append(result[entityID], name)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
 func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, items []LibraryItem) error {

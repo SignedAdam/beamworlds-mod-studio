@@ -371,6 +371,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
           <ColorSetting label="Light surface" value={draft.lightSurfaceColor} onChange={lightSurfaceColor => setDraft({ ...draft, lightSurfaceColor })}/>
           <ColorSetting label="Light borders" value={draft.lightBorderColor} onChange={lightBorderColor => setDraft({ ...draft, lightBorderColor })}/>
           <ColorSetting label="Light text" value={draft.lightTextColor} onChange={lightTextColor => setDraft({ ...draft, lightTextColor })}/>
+          <ColorSetting label="Scrollbars" value={draft.scrollbarColor} onChange={scrollbarColor => setDraft({ ...draft, scrollbarColor })}/>
         </div>
       </fieldset>
 
@@ -567,6 +568,7 @@ export function settingsUpdate(settings: AppSettings, overrides: Partial<Setting
     lightSurfaceColor: settings.lightSurfaceColor,
     lightBorderColor: settings.lightBorderColor,
     lightTextColor: settings.lightTextColor,
+    scrollbarColor: settings.scrollbarColor,
     preScanModel: settings.preScanModel,
     preScanReasoning: settings.preScanReasoning,
     fullScanModel: settings.fullScanModel,

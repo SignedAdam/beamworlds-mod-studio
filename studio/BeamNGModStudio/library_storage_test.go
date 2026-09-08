@@ -138,7 +138,7 @@ func equalLibraryEntitySet(left, right []LibraryItem) bool {
 	return true
 }
 
-func referenceListLibrary(ctx context.Context, store *Store, health, kind, query, folderID string) ([]LibraryItem, error) {
+func referenceListLibrary(ctx context.Context, store *Store, health, kind, query, collectionID string) ([]LibraryItem, error) {
 	items, err := store.listItems(ctx, "")
 	if err != nil {
 		return nil, err
@@ -146,6 +146,41 @@ func referenceListLibrary(ctx context.Context, store *Store, health, kind, query
 	collectionNames, err := store.libraryCollectionNames(ctx)
 	if err != nil {
 		return nil, err
+	}
+	effectiveCollectionNames, err := libraryEffectiveCollectionNamesTx(ctx, store.db, libraryEntityIDs(items))
+	if err != nil {
+		return nil, err
+	}
+	effectiveEntityIDs := map[string]struct{}{}
+	if collectionID != "" && collectionID != "all" && collectionID != "unfiled" {
+		rows, queryErr := store.db.QueryContext(ctx, `WITH RECURSIVE descendants(id) AS (
+				SELECT ?
+				UNION
+				SELECT cc.child_id
+				FROM collection_children cc
+				JOIN descendants d ON d.id=cc.parent_id
+			)
+			SELECT DISTINCT cm.entity_id
+			FROM collection_mods cm
+			JOIN descendants d ON d.id=cm.collection_id`, collectionID)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for rows.Next() {
+			var entityID string
+			if scanErr := rows.Scan(&entityID); scanErr != nil {
+				_ = rows.Close()
+				return nil, scanErr
+			}
+			effectiveEntityIDs[entityID] = struct{}{}
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			_ = rows.Close()
+			return nil, rowsErr
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return nil, closeErr
+		}
 	}
 	search := parseLibrarySearchQuery(query)
 	health = normalizeLibraryStatus(health)
@@ -157,10 +192,15 @@ func referenceListLibrary(ctx context.Context, store *Store, health, kind, query
 		if kind != "" && kind != "all" && string(item.Kind) != kind {
 			continue
 		}
-		if folderID == "unfiled" && item.FolderID != "" || folderID != "" && folderID != "all" && folderID != "unfiled" && item.FolderID != folderID {
+		if collectionID == "unfiled" && len(item.CollectionIDs) > 0 {
 			continue
 		}
-		if !search.matches(item, collectionNames) {
+		if collectionID != "" && collectionID != "all" && collectionID != "unfiled" {
+			if _, ok := effectiveEntityIDs[item.EntityID]; !ok {
+				continue
+			}
+		}
+		if !search.matches(item, collectionNames, effectiveCollectionNames[item.EntityID]) {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -286,14 +326,12 @@ func TestLibrarySQLFTSSemanticsMatchReference(t *testing.T) {
 	if err := store.SetLibraryItemTags(ctx, first.EntityID, []string{gameplayID, mustPlayID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateLibraryFolder(ctx, "Road Tests", ""); err != nil {
+	collectionDetail, err := store.CreateCollection(ctx, "Road Tests", "", "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	var folderID string
-	if err := store.db.QueryRowContext(ctx, `SELECT id FROM library_folders WHERE name=?`, "Road Tests").Scan(&folderID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.MoveLibraryItem(ctx, first.EntityID, folderID); err != nil {
+	collectionID := collectionDetail.Collection.ID
+	if _, err := store.SetCollectionMods(ctx, collectionID, []string{first.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `UPDATE archive_links SET active=0 WHERE path=?`, second.ArchivePath); err != nil {
@@ -303,28 +341,28 @@ func TestLibrarySQLFTSSemanticsMatchReference(t *testing.T) {
 	queries := []struct {
 		name                string
 		health, kind, query string
-		folderID            string
+		collectionID        string
 	}{
-		{name: "all", health: "all", kind: "all", query: "", folderID: "all"},
-		{name: "quoted name", health: "all", kind: "all", query: `in:name "Road Runner"`, folderID: "all"},
-		{name: "quoted author", health: "all", kind: "all", query: `in:author "Ava Builder"`, folderID: "all"},
-		{name: "quoted tag", health: "all", kind: "all", query: `in:tag "Road Test Favorite"`, folderID: "all"},
-		{name: "namespace", health: "all", kind: "all", query: `in:namespace road_namespace`, folderID: "all"},
-		{name: "collection", health: "all", kind: "all", query: `in:collection "Road Tests"`, folderID: "all"},
-		{name: "source available", health: "all", kind: "all", query: "in:source available", folderID: "all"},
-		{name: "source missing", health: "all", kind: "all", query: "in:source missing", folderID: "all"},
-		{name: "folder", health: "all", kind: "all", query: "", folderID: folderID},
-		{name: "unfiled", health: "all", kind: "all", query: "", folderID: "unfiled"},
-		{name: "status", health: "unscanned", kind: "all", query: "is:unscanned", folderID: "all"},
-		{name: "no result", health: "all", kind: "all", query: `in:name "does not exist"`, folderID: "all"},
+		{name: "all", health: "all", kind: "all", query: "", collectionID: "all"},
+		{name: "quoted name", health: "all", kind: "all", query: `in:name "Road Runner"`, collectionID: "all"},
+		{name: "quoted author", health: "all", kind: "all", query: `in:author "Ava Builder"`, collectionID: "all"},
+		{name: "quoted tag", health: "all", kind: "all", query: `in:tag "Road Test Favorite"`, collectionID: "all"},
+		{name: "namespace", health: "all", kind: "all", query: `in:namespace road_namespace`, collectionID: "all"},
+		{name: "collection", health: "all", kind: "all", query: `in:collection "Road Tests"`, collectionID: "all"},
+		{name: "source available", health: "all", kind: "all", query: "in:source available", collectionID: "all"},
+		{name: "source missing", health: "all", kind: "all", query: "in:source missing", collectionID: "all"},
+		{name: "collection filter", health: "all", kind: "all", query: "", collectionID: collectionID},
+		{name: "unfiled", health: "all", kind: "all", query: "", collectionID: "unfiled"},
+		{name: "status", health: "unscanned", kind: "all", query: "is:unscanned", collectionID: "all"},
+		{name: "no result", health: "all", kind: "all", query: `in:name "does not exist"`, collectionID: "all"},
 	}
 	for _, tc := range queries {
 		t.Run(tc.name, func(t *testing.T) {
-			expected, err := referenceListLibrary(ctx, store, tc.health, tc.kind, tc.query, tc.folderID)
+			expected, err := referenceListLibrary(ctx, store, tc.health, tc.kind, tc.query, tc.collectionID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			actual, err := store.ListLibrary(ctx, tc.health, tc.kind, tc.query, tc.folderID)
+			actual, err := store.ListLibrary(ctx, tc.health, tc.kind, tc.query, tc.collectionID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -359,6 +397,72 @@ func TestListLibraryExceedsLegacyCandidateCap(t *testing.T) {
 	}
 	if len(matches) != 1 || matches[0].DisplayName != "Library Mod 05004" {
 		t.Fatalf("large indexed query = %#v, want one exact item", matches)
+	}
+}
+
+func TestLibraryCollectionsHydrateDirectMembershipAndResolveDescendants(t *testing.T) {
+	store, root := openLibraryStorage(t)
+	ctx := context.Background()
+	items := applyLibraryArchives(t, store, root, libraryFixtureArchives(root, 3, 20))
+	if len(items) != 3 {
+		t.Fatalf("collection fixture items = %d, want 3", len(items))
+	}
+	parent, err := store.CreateCollection(ctx, "Nested Parent", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := store.CreateCollection(ctx, "Nested Left", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := store.CreateCollection(ctx, "Nested Right", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCollectionMods(ctx, left.Collection.ID, []string{items[0].EntityID, items[1].EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCollectionMods(ctx, right.Collection.ID, []string{items[0].EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCollectionChildren(ctx, parent.Collection.ID, []string{left.Collection.ID, right.Collection.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	hydrated, err := store.GetLibraryItem(ctx, items[0].EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hydrated.CollectionIDs) != 2 {
+		t.Fatalf("direct collection IDs = %#v, want both shared memberships", hydrated.CollectionIDs)
+	}
+	parentItems, err := store.ListLibrary(ctx, "all", "all", "", parent.Collection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parentItems) != 2 {
+		t.Fatalf("nested parent filter returned %d items, want 2 unique entities", len(parentItems))
+	}
+	seen := map[string]struct{}{}
+	for _, item := range parentItems {
+		if _, exists := seen[item.EntityID]; exists {
+			t.Fatalf("nested parent filter duplicated entity %q", item.EntityID)
+		}
+		seen[item.EntityID] = struct{}{}
+	}
+	searchItems, err := store.ListLibrary(ctx, "all", "all", `in:collection "Nested Parent"`, "all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searchItems) != 2 {
+		t.Fatalf("ancestor collection search returned %d items, want 2", len(searchItems))
+	}
+	unfiled, err := store.ListLibrary(ctx, "all", "all", "", "unfiled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unfiled) != 1 || unfiled[0].EntityID == items[0].EntityID || unfiled[0].EntityID == items[1].EntityID {
+		t.Fatalf("unfiled filter = %#v, want only the directly unassigned entity", libraryEntityIDs(unfiled))
 	}
 }
 
@@ -878,8 +982,8 @@ func legacyBenchmarkTagNames(tags []json.RawMessage) []string {
 	return names
 }
 
-func legacyBenchmarkMatches(mod legacyCatalogMod, search librarySearchQuery, folderID string) bool {
-	if folderID != "" && folderID != "all" && folderID != "unfiled" {
+func legacyBenchmarkMatches(mod legacyCatalogMod, search librarySearchQuery, collectionID string) bool {
+	if collectionID != "" && collectionID != "all" && collectionID != "unfiled" {
 		return false
 	}
 	if search.status != "" && !legacyBenchmarkHealthMatches(mod, search.status) {
@@ -992,7 +1096,7 @@ func legacyBenchmarkMatches(mod legacyCatalogMod, search librarySearchQuery, fol
 	return true
 }
 
-func legacyBenchmarkFilter(mods []legacyCatalogMod, health, kind, query, folderID string) []legacyCatalogMod {
+func legacyBenchmarkFilter(mods []legacyCatalogMod, health, kind, query, collectionID string) []legacyCatalogMod {
 	search := parseLibrarySearchQuery(query)
 	health = normalizeLibraryStatus(health)
 	filtered := make([]legacyCatalogMod, 0, len(mods))
@@ -1003,7 +1107,7 @@ func legacyBenchmarkFilter(mods []legacyCatalogMod, health, kind, query, folderI
 		if kind != "" && kind != "all" && kind != mod.Kind && kind != mod.AutoCategory {
 			continue
 		}
-		if !legacyBenchmarkMatches(mod, search, folderID) {
+		if !legacyBenchmarkMatches(mod, search, collectionID) {
 			continue
 		}
 		filtered = append(filtered, mod)

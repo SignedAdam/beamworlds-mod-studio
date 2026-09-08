@@ -27,16 +27,6 @@ html[data-theme="light"] .mod-table-panel--library {
 
 html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap {
   background: var(--library-table-surface);
-  scrollbar-color: var(--library-table-divider) var(--library-table-canvas);
-}
-
-html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap::-webkit-scrollbar-track {
-  background: var(--library-table-canvas);
-}
-
-html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap::-webkit-scrollbar-thumb {
-  background: var(--library-table-divider);
-  border-color: var(--library-table-canvas);
 }
 
 html[data-theme="light"] .mod-table-panel--library .mod-table {
@@ -162,17 +152,12 @@ html[data-theme="light"] .mod-table-panel--library .mod-table__selection input:f
   overflow: hidden;
 }
 
-.mod-table-panel--library .health-pill {
-  width: max-content;
-  max-width: 100%;
+.mod-table-panel--library .health-status {
   min-width: 0;
-  box-sizing: border-box;
   overflow: hidden;
-  gap: 5px;
-  padding-inline: 5px;
 }
 
-.mod-table-panel--library .health-pill__label {
+.mod-table-panel--library .health-status__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,12 +172,6 @@ html[data-theme="light"] .mod-table-panel--library .mod-table__selection input:f
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-}
-
-.mod-table-panel--library .mod-tag > svg {
-  flex: none;
-  width: 12px;
-  height: 12px;
 }
 
 .mod-table-panel--library .mod-tag__label {
@@ -224,39 +203,25 @@ html[data-theme="light"] .mod-table-panel--library .mod-tag > svg {
   );
 }
 
-html[data-theme="light"] .mod-table-panel--library .health-pill {
-  border-color: var(--library-table-divider);
-  background: color-mix(
-    in srgb,
-    var(--library-table-header) 58%,
-    var(--library-table-surface)
-  );
+html[data-theme="light"] .mod-table-panel--library .health-status {
   color: var(--library-table-secondary-text);
 }
 
-html[data-theme="light"] .mod-table-panel--library .health-pill--safe {
-  border-color: color-mix(in srgb, var(--library-table-safe) 62%, var(--library-table-divider));
-  background: color-mix(in srgb, var(--library-table-safe) 9%, var(--library-table-surface));
+html[data-theme="light"] .mod-table-panel--library .health-status--safe {
   color: var(--library-table-safe);
 }
 
-html[data-theme="light"] .mod-table-panel--library .health-pill--review {
-  border-color: color-mix(in srgb, var(--library-table-warning) 62%, var(--library-table-divider));
-  background: color-mix(in srgb, var(--library-table-warning) 9%, var(--library-table-surface));
+html[data-theme="light"] .mod-table-panel--library .health-status--review {
   color: var(--library-table-warning);
 }
 
-html[data-theme="light"] .mod-table-panel--library .health-pill--threat,
-html[data-theme="light"] .mod-table-panel--library .health-pill--broken,
-html[data-theme="light"] .mod-table-panel--library .health-pill--scan_failed {
-  border-color: color-mix(in srgb, var(--library-table-danger) 62%, var(--library-table-divider));
-  background: color-mix(in srgb, var(--library-table-danger) 8%, var(--library-table-surface));
+html[data-theme="light"] .mod-table-panel--library .health-status--threat,
+html[data-theme="light"] .mod-table-panel--library .health-status--broken,
+html[data-theme="light"] .mod-table-panel--library .health-status--scan_failed {
   color: var(--library-table-danger);
 }
 
-html[data-theme="light"] .mod-table-panel--library .health-pill--scanning {
-  border-color: color-mix(in srgb, var(--library-table-info) 62%, var(--library-table-divider));
-  background: color-mix(in srgb, var(--library-table-info) 8%, var(--library-table-surface));
+html[data-theme="light"] .mod-table-panel--library .health-status--scanning {
   color: var(--library-table-info);
 }
 
@@ -314,20 +279,6 @@ html[data-theme="light"] .virus-scanner .scanner-mod-table {
 
 html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap {
   background: var(--scanner-surface);
-  scrollbar-color: var(--scanner-divider) var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-track {
-  background: var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-thumb {
-  background: var(--scanner-divider);
-  border-color: var(--scanner-page);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap::-webkit-scrollbar-thumb:hover {
-  background: var(--scanner-focus);
 }
 
 html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table {
@@ -494,46 +445,26 @@ html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .badge--wa
   color: var(--scanner-warning);
 }
 
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .mod-tag {
-  border-color: var(--scanner-divider);
-  background: var(--scanner-header);
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status {
   color: var(--scanner-secondary);
 }
 
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .mod-tag > svg {
-  color: var(--scanner-secondary);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill {
-  border-color: var(--scanner-divider);
-  background: var(--scanner-header);
-  color: var(--scanner-secondary);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--safe {
-  border-color: var(--scanner-safe);
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--safe {
   color: var(--scanner-safe);
 }
 
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--review {
-  border-color: var(--scanner-warning);
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--review {
   color: var(--scanner-warning);
 }
 
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--threat,
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--broken,
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--scan_failed {
-  border-color: var(--scanner-danger);
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--threat,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--broken,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--scan_failed {
   color: var(--scanner-danger);
 }
 
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill--scanning {
-  border-color: var(--scanner-info);
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-status--scanning {
   color: var(--scanner-info);
-}
-
-html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table .health-pill > svg {
-  color: inherit;
 }
 
 html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr.is-selected.is-disabled:focus-visible {
@@ -619,3 +550,25 @@ html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader svg {
   background: var(--scanner-header);
   color: var(--scanner-focus);
 }
+.mod-table__enabled { white-space: nowrap; }
+
+.mod-table__enabled-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mod-table__enabled-control input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--orange);
+  cursor: pointer;
+}
+
+.mod-table__enabled-control input:disabled {
+  cursor: default;
+}
+
+.mod-row--disabled { opacity: .58; }

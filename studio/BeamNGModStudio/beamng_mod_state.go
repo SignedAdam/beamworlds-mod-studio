@@ -11,10 +11,7 @@ import (
 	"strings"
 )
 
-const (
-	managedModDirectoryName = "beamworlds-managed"
-	originalModDBSuffix     = ".beamworlds-original"
-)
+const managedModDirectoryName = "beamworlds-managed"
 
 func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error {
 	selected := make(map[string]bool, len(selectedKeys))
@@ -32,10 +29,7 @@ func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error 
 			return walkErr
 		}
 		if len(unknown) > 0 {
-			return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact mod profile", filepath.Base(unknown[0]))
-		}
-		if err := preserveOriginalBeamNGModDatabase(databasePath, nil); err != nil {
-			return fmt.Errorf("preserve empty BeamNG mod state: %w", err)
+			return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection", filepath.Base(unknown[0]))
 		}
 		return nil
 	}
@@ -83,7 +77,7 @@ func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error 
 		return err
 	}
 	if len(unknown) > 0 {
-		return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact mod profile", filepath.Base(unknown[0]))
+		return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection", filepath.Base(unknown[0]))
 	}
 	updatedMods, err := json.Marshal(mods)
 	if err != nil {
@@ -95,22 +89,11 @@ func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error 
 		return err
 	}
 	updatedDocument = append(updatedDocument, '\n')
-	hadOriginal := hasOriginalBeamNGModDatabase(activeModsDir)
-	if err := preserveOriginalBeamNGModDatabase(databasePath, payload); err != nil {
-		return fmt.Errorf("preserve original BeamNG mod database: %w", err)
-	}
 	if err := writeFileAtomic(databasePath+".beamworlds-backup", append([]byte(nil), payload...), 0o644); err != nil {
-		if !hadOriginal {
-			_ = discardOriginalBeamNGModDatabase(activeModsDir)
-		}
 		return fmt.Errorf("back up BeamNG mod database: %w", err)
 	}
 	if err := writeFileAtomic(databasePath, updatedDocument, 0o644); err != nil {
-		restoreErr := writeFileAtomic(databasePath, payload, 0o644)
-		if restoreErr == nil && !hadOriginal {
-			_ = discardOriginalBeamNGModDatabase(activeModsDir)
-		}
-		if restoreErr != nil {
+		if restoreErr := writeFileAtomic(databasePath, payload, 0o644); restoreErr != nil {
 			return fmt.Errorf("update BeamNG mod database: %w (restoring the original also failed: %v)", err, restoreErr)
 		}
 		return fmt.Errorf("update BeamNG mod database: %w", err)
@@ -118,16 +101,9 @@ func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error 
 	return nil
 }
 
-func preserveOriginalBeamNGModDatabase(databasePath string, payload []byte) error {
-	originalPath := databasePath + originalModDBSuffix
-	if _, err := os.Stat(originalPath); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return writeFileAtomic(originalPath, append([]byte(nil), payload...), 0o644)
-}
-
+// restoreBeamNGModDatabase rolls back a failed apply from the pre-write backup.
+// It is the only rollback mechanism; the one-shot "original selection" snapshot
+// that used to sit beside it existed solely for the removed restore action.
 func restoreBeamNGModDatabase(activeModsDir string) error {
 	databasePath := filepath.Join(activeModsDir, "db.json")
 	payload, err := os.ReadFile(databasePath + ".beamworlds-backup")
@@ -138,44 +114,6 @@ func restoreBeamNGModDatabase(activeModsDir string) error {
 		return err
 	}
 	return writeFileAtomic(databasePath, payload, 0o644)
-}
-
-func hasOriginalBeamNGModDatabase(activeModsDir string) bool {
-	_, err := os.Stat(filepath.Join(activeModsDir, "db.json") + originalModDBSuffix)
-	return err == nil
-}
-
-func restoreOriginalBeamNGModDatabase(activeModsDir string) error {
-	if err := applyOriginalBeamNGModDatabase(activeModsDir); err != nil {
-		return err
-	}
-	return discardOriginalBeamNGModDatabase(activeModsDir)
-}
-
-func applyOriginalBeamNGModDatabase(activeModsDir string) error {
-	databasePath := filepath.Join(activeModsDir, "db.json")
-	payload, err := os.ReadFile(databasePath + originalModDBSuffix)
-	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("no original BeamNG mod selection is available")
-	}
-	if err != nil {
-		return err
-	}
-	if len(payload) == 0 {
-		if err := os.Remove(databasePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	return writeFileAtomic(databasePath, payload, 0o644)
-}
-
-func discardOriginalBeamNGModDatabase(activeModsDir string) error {
-	originalPath := filepath.Join(activeModsDir, "db.json") + originalModDBSuffix
-	if err := os.Remove(originalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
 }
 
 func unmanagedUnknownArchives(activeModsDir string, selected, known map[string]bool) ([]string, error) {

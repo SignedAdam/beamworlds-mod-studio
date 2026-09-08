@@ -16,7 +16,7 @@ declare module "@wailsio/runtime" {
             "ai:connection": main$0.AIConnectionEvent;
             "library:item": main$0.LibraryItem;
             "library:scan": main$0.ScanProgress;
-            "profile:progress": main$0.ProfileProgress;
+            "play:progress": main$0.PlayProgress;
             "virus:scan": main$0.VirusScanProgress;
         }
     }

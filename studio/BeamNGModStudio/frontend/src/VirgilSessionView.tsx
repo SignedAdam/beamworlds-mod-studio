@@ -13,7 +13,6 @@ import type {
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
 import { Icon } from "./icons";
 import { Button } from "./ui";
-import { ReplaceableUIPlaceholder } from "./replaceableUi";
 
 type NoticeTone = "info" | "success" | "error";
 type RoutedActivity = AgentActivity & {
@@ -79,7 +78,6 @@ export interface VirgilSessionViewProps {
   session: VirgilSessionRecord;
   transient?: boolean;
   prompt: string;
-  activeFilePath?: string;
   activityBuffer: MutableRefObject<Record<string, AgentActivity[]>>;
   modelOverride?: string;
   locked?: boolean;
@@ -96,7 +94,6 @@ export function VirgilSessionView({
   session,
   transient = false,
   prompt,
-  activeFilePath,
   activityBuffer,
   locked = false,
   modelOverride = "",
@@ -338,28 +335,6 @@ export function VirgilSessionView({
       className="virgil-session-view"
       aria-label={`Virgil session ${session.title || "Virgil session"}`}
     >
-      <header className="virgil-session-view__header">
-        <div className="virgil-session-view__identity">
-          <ReplaceableUIPlaceholder entity="virgil-logo" />
-          <strong>{session.title || "Virgil session"}</strong>
-          <span
-            className={`virgil-session-status virgil-session-status--${effectiveStatus}`}
-          >
-            {statusLabel(effectiveStatus)}
-          </span>
-          {activeFilePath && (
-            <code title={activeFilePath}>{activeFilePath}</code>
-          )}
-        </div>
-        {session.runtimeSessionId && (
-          <code
-            className="virgil-session-view__runtime-id"
-            title={`Virgil session ${session.runtimeSessionId}`}
-          >
-            {session.runtimeSessionId}
-          </code>
-        )}
-      </header>
       <p className="sr-only" role="status" aria-atomic="true">
         {announcement}
       </p>
@@ -380,7 +355,7 @@ export function VirgilSessionView({
         {ordered.length === 0 ? (
           <p className="virgil-session-view__empty">
             {canSend
-              ? "Start a conversation with Virgil to edit this workspace."
+              ? "No messages yet. Ask Virgil to make a change or add a feature below."
               : "No resumable conversation is available."}
           </p>
         ) : (
@@ -469,20 +444,6 @@ export function VirgilSessionView({
   );
 }
 
-function statusLabel(status: string) {
-  switch (status) {
-    case "starting":
-      return "Starting";
-    case "running":
-      return "Working";
-    case "paused":
-      return "Paused";
-    case "error":
-      return "Error";
-    default:
-      return "Ready";
-  }
-}
 
 function copyActivityBuffer(
   source: Record<string, AgentActivity[]>,

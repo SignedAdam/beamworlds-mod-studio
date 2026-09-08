@@ -21,12 +21,18 @@ export function AIUsage(): $CancellablePromise<$models.AIUsage> {
     return $Call.ByID(1900328351);
 }
 
-export function ActivateProfile(profileID: string): $CancellablePromise<$models.ProfileActivation> {
-    return $Call.ByID(3464844020, profileID);
-}
-
 export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models.RuntimeReport> {
     return $Call.ByID(2967954498, workspaceID);
+}
+
+/**
+ * CacheModArtwork extracts one discovered image through modkit's bounded ZIP
+ * reader and registers the content-addressed file in the existing asset cache.
+ * The operation never changes collection membership or the mod's selected
+ * thumbnail.
+ */
+export function CacheModArtwork(entityID: string, memberPath: string): $CancellablePromise<$models.CollectionCoverImage> {
+    return $Call.ByID(3126905308, entityID, memberPath);
 }
 
 export function CancelAIConnection(loginID: string): $CancellablePromise<void> {
@@ -79,8 +85,8 @@ export function ConfigureWorkspaceVirgil(workspaceID: string, enabled: boolean):
     return $Call.ByID(1209241224, workspaceID, enabled);
 }
 
-export function CreateLibraryFolder(name: string, parentID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(3930565201, name, parentID);
+export function CreateCollection(name: string, description: string, parentID: string): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(2008347414, name, description, parentID);
 }
 
 export function CreateModTag(name: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
@@ -91,12 +97,8 @@ export function CreateNewMod(request: $models.NewModRequest): $CancellablePromis
     return $Call.ByID(3533916892, request);
 }
 
-export function CreatePreset(name: string, description: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2670900301, name, description);
-}
-
-export function CreateProfile(name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1028333027, name);
+export function CreatePlayProfile(collectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
+    return $Call.ByID(728524565, collectionIDs);
 }
 
 export function CreateWorkspace(entityID: string): $CancellablePromise<$models.WorkspaceDetail> {
@@ -115,20 +117,16 @@ export function Dashboard(): $CancellablePromise<$models.Dashboard> {
     return $Call.ByID(2982594826);
 }
 
-export function DeleteLibraryFolder(folderID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1596845892, folderID);
+export function DeleteCollections(collectionIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(4193965494, collectionIDs);
 }
 
 export function DeleteModTag(tagID: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1455379505, tagID);
 }
 
-export function DeletePreset(presetID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(4039770734, presetID);
-}
-
-export function DeleteProfile(profileID: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1212961758, profileID);
+export function DeletePlayProfile(profileID: string): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(1330165372, profileID);
 }
 
 export function DeleteWorkspaceDraft(workspaceID: string, relativePath: string): $CancellablePromise<void> {
@@ -141,6 +139,10 @@ export function DeleteWorkspacePath(workspaceID: string, relativePath: string): 
 
 export function DiscardWorkspaceGitPaths(workspaceID: string, paths: string[] | null, expectedFingerprint: string): $CancellablePromise<$models.GitDiscardResult> {
     return $Call.ByID(1065278057, workspaceID, paths, expectedFingerprint);
+}
+
+export function DuplicateCollection(collectionID: string): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(1225056835, collectionID);
 }
 
 export function ExportWorkspace(workspaceID: string, label: string): $CancellablePromise<$models.ExportResponse> {
@@ -163,6 +165,14 @@ export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void
     return $Call.ByID(2373891276, sessionID);
 }
 
+export function GetCollection(collectionID: string): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(116408958, collectionID);
+}
+
+export function GetCollectionDeleteImpact(collectionIDs: string[] | null): $CancellablePromise<$models.CollectionUsage> {
+    return $Call.ByID(1777098539, collectionIDs);
+}
+
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(2226382837, entityID);
 }
@@ -178,12 +188,21 @@ export function GetKnowledge(entityID: string): $CancellablePromise<$models.Know
     return $Call.ByID(1016561506, entityID);
 }
 
-export function GetPreset(presetID: string): $CancellablePromise<$models.PresetDetail> {
-    return $Call.ByID(1199600373, presetID);
+/**
+ * GetModArtwork returns every bounded image candidate discovered while the
+ * archive was indexed. Candidates are intentionally returned without reading
+ * archive members; only assets already present in the cache get a URL.
+ */
+export function GetModArtwork(entityID: string): $CancellablePromise<$models.CollectionArtworkCandidate[] | null> {
+    return $Call.ByID(3787696818, entityID);
 }
 
-export function GetProfile(profileID: string): $CancellablePromise<$models.ProfileDetail> {
-    return $Call.ByID(3217990731, profileID);
+export function GetPlayRuntimeState(): $CancellablePromise<$models.PlayRuntimeState> {
+    return $Call.ByID(640169425);
+}
+
+export function GetPlayState(): $CancellablePromise<$models.PlayState> {
+    return $Call.ByID(2807498781);
 }
 
 export function GetSetupState(): $CancellablePromise<$models.SetupState> {
@@ -209,10 +228,6 @@ export function GitHubPublishConfiguration(): $CancellablePromise<$models.GitHub
     return $Call.ByID(2877149206);
 }
 
-export function HasAppliedModProfile(): $CancellablePromise<boolean> {
-    return $Call.ByID(2187128874);
-}
-
 export function InstallExportForTest(workspaceID: string, exportID: string): $CancellablePromise<$models.TestInstallRecord> {
     return $Call.ByID(2477417930, workspaceID, exportID);
 }
@@ -221,8 +236,8 @@ export function LaunchBeamNG(workspaceID: string): $CancellablePromise<$models.P
     return $Call.ByID(4029943113, workspaceID);
 }
 
-export function LaunchProfile(profileID: string): $CancellablePromise<$models.ProfileLaunch> {
-    return $Call.ByID(2498686646, profileID);
+export function LaunchPlaySelection(request: $models.PlayRequest): $CancellablePromise<$models.PlayResult> {
+    return $Call.ByID(3098743839, request);
 }
 
 export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[] | null> {
@@ -233,8 +248,8 @@ export function ListAgentModels(): $CancellablePromise<$models.AgentModelOption[
     return $Call.ByID(1394913177);
 }
 
-export function ListLibrary(health: string, kind: string, query: string, folderID: string): $CancellablePromise<$models.LibraryItem[] | null> {
-    return $Call.ByID(621180473, health, kind, query, folderID);
+export function ListLibrary(health: string, kind: string, query: string, collectionID: string): $CancellablePromise<$models.LibraryItem[] | null> {
+    return $Call.ByID(621180473, health, kind, query, collectionID);
 }
 
 export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[] | null> {
@@ -249,14 +264,15 @@ export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[] 
     return $Call.ByID(350918204);
 }
 
-export function MoveLibraryItem(entityID: string, folderID: string): $CancellablePromise<void> {
-    return $Call.ByID(1278964353, entityID, folderID);
-}
-
 export function OpenGameDirectory(): $CancellablePromise<void> {
     return $Call.ByID(565250723);
 }
 
+/**
+ * Organization exposes the unified collection graph, tags, and saved Play
+ * profiles. Folders, presets, and private profile defaults are intentionally
+ * not part of the live API after the organization migration.
+ */
 export function Organization(): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(3433886317);
 }
@@ -296,16 +312,12 @@ export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $C
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
 
-export function RenameLibraryFolder(folderID: string, name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2740790923, folderID, name);
-}
-
 export function RenameModTag(tagID: string, name: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(3546457432, tagID, name);
 }
 
-export function RenameProfile(profileID: string, name: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(1831808545, profileID, name);
+export function RenamePlayProfile(profileID: string, name: string): $CancellablePromise<$models.ModProfile> {
+    return $Call.ByID(3391840099, profileID, name);
 }
 
 export function RenameVirgilSession(sessionID: string, title: string): $CancellablePromise<$models.VirgilSessionRecord> {
@@ -316,12 +328,16 @@ export function RenameWorkspacePath(workspaceID: string, oldPath: string, newPat
     return $Call.ByID(2387663450, workspaceID, oldPath, newPath);
 }
 
-export function RestartApplication(): $CancellablePromise<void> {
-    return $Call.ByID(2071406909);
+export function ReorderCollectionMembers(collectionID: string, entityIDs: string[] | null, childIDs: string[] | null): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(937529560, collectionID, entityIDs, childIDs);
 }
 
-export function RestoreNormalModSelection(): $CancellablePromise<void> {
-    return $Call.ByID(58419305);
+export function ResolvePlaySelection(collectionIDs: string[] | null): $CancellablePromise<$models.PlaySelection> {
+    return $Call.ByID(2225443946, collectionIDs);
+}
+
+export function RestartApplication(): $CancellablePromise<void> {
+    return $Call.ByID(2071406909);
 }
 
 export function ResumeVirgilSession(sessionID: string): $CancellablePromise<$models.VirgilSessionRecord> {
@@ -338,6 +354,10 @@ export function RevealWorkspacePath(workspaceID: string, relativePath: string): 
 
 export function RunVirusScan(entityID: string, mode: string): $CancellablePromise<$models.VirusScanRun> {
     return $Call.ByID(692703645, entityID, mode);
+}
+
+export function SavePlayState(state: $models.PlayState): $CancellablePromise<$models.PlayState> {
+    return $Call.ByID(1809947574, state);
 }
 
 export function SaveSettings(update: $models.SettingsUpdate): $CancellablePromise<$models.AppSettings> {
@@ -364,20 +384,33 @@ export function SendVirgilMessage(sessionID: string, prompt: string, modelOverri
     return $Call.ByID(311073238, sessionID, prompt, modelOverride);
 }
 
+export function SetCollectionChildren(collectionID: string, childIDs: string[] | null, included: boolean): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(256002693, collectionID, childIDs, included);
+}
+
+export function SetCollectionChildrenEnabled(collectionID: string, childIDs: string[] | null, enabled: boolean): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(2233447422, collectionID, childIDs, enabled);
+}
+
+/**
+ * SetCollectionCover validates and persists a stable artwork recipe. Single
+ * and collage recipes are rendered once into the same content-addressed cache
+ * used by library thumbnails; cards therefore never reopen source archives.
+ */
+export function SetCollectionCover(collectionID: string, cover: $models.CollectionCover): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(823798825, collectionID, cover);
+}
+
+export function SetCollectionMods(collectionID: string, entityIDs: string[] | null, included: boolean): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(3883164791, collectionID, entityIDs, included);
+}
+
+export function SetCollectionModsEnabled(collectionID: string, entityIDs: string[] | null, enabled: boolean): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(1406279852, collectionID, entityIDs, enabled);
+}
+
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
     return $Call.ByID(91975591, entityID, tagIDs);
-}
-
-export function SetPresetMod(presetID: string, entityID: string, included: boolean): $CancellablePromise<void> {
-    return $Call.ByID(1960851151, presetID, entityID, included);
-}
-
-export function SetProfileMod(profileID: string, entityID: string, included: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2912892229, profileID, entityID, included);
-}
-
-export function SetProfilePreset(profileID: string, presetID: string, selected: boolean): $CancellablePromise<void> {
-    return $Call.ByID(3296916816, profileID, presetID, selected);
 }
 
 export function SetWorkspaceJSONValue(workspaceID: string, relativePath: string, dottedPath: string, value: any): $CancellablePromise<void> {
@@ -439,6 +472,10 @@ export function UnstageWorkspaceGitPaths(workspaceID: string, paths: string[] | 
     return $Call.ByID(2788470166, workspaceID, paths, expectedFingerprint);
 }
 
+export function UpdateCollection(collectionID: string, name: string, description: string): $CancellablePromise<$models.CollectionDetail> {
+    return $Call.ByID(3840286075, collectionID, name, description);
+}
+
 export function UpdateLibraryItemDetails(entityID: string, update: $models.LibraryItemDetailsUpdate): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(3924468085, entityID, update);
 }
@@ -451,8 +488,8 @@ export function UpdateModTagVisual(tagID: string, color: string, icon: string): 
     return $Call.ByID(719045307, tagID, color, icon);
 }
 
-export function UpdatePreset(presetID: string, name: string, description: string): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2558523108, presetID, name, description);
+export function UpdatePlayProfile(profileID: string, collectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
+    return $Call.ByID(3672296970, profileID, collectionIDs);
 }
 
 export function ValidateWorkspace(workspaceID: string): $CancellablePromise<modkit$0.ValidationResult> {

@@ -11,16 +11,18 @@ import (
 )
 
 const (
-	preferencesKey           = "app.preferences.v1"
-	legacyAgentSecretKey     = "app.agent-api-key.v1"
-	openRouterAgentSecretKey = "app.ai.openrouter-api-key.v1"
-	openAIAgentSecretKey     = "app.ai.openai-api-key.v1"
-	anthropicAgentSecretKey  = "app.ai.anthropic-api-key.v1"
-	releasedPreScanModel     = "gpt-5.6-luna"
-	releasedFullScanModel    = "gpt-5.6-sol"
-	autoFormatDelayDefaultMs = 200
-	autoFormatDelayMinMs     = 50
-	autoFormatDelayMaxMs     = 2000
+	preferencesKey             = "app.preferences.v1"
+	legacyAgentSecretKey       = "app.agent-api-key.v1"
+	openRouterAgentSecretKey   = "app.ai.openrouter-api-key.v1"
+	openAIAgentSecretKey       = "app.ai.openai-api-key.v1"
+	anthropicAgentSecretKey    = "app.ai.anthropic-api-key.v1"
+	releasedPreScanModel       = "gpt-5.6-luna"
+	releasedFullScanModel      = "gpt-5.6-sol"
+	legacyScrollbarColor       = "#3f93c5"
+	scrollbarColorMigrationKey = "app.preferences.scrollbar-orange.v1"
+	autoFormatDelayDefaultMs   = 200
+	autoFormatDelayMinMs       = 50
+	autoFormatDelayMaxMs       = 2000
 )
 
 type AppSettings struct {
@@ -43,6 +45,7 @@ type AppSettings struct {
 	LightSurfaceColor    string `json:"lightSurfaceColor"`
 	LightBorderColor     string `json:"lightBorderColor"`
 	LightTextColor       string `json:"lightTextColor"`
+	ScrollbarColor       string `json:"scrollbarColor"`
 	PreScanModel         string `json:"preScanModel"`
 	PreScanReasoning     string `json:"preScanReasoning"`
 	FullScanModel        string `json:"fullScanModel"`
@@ -72,6 +75,7 @@ type SettingsUpdate struct {
 	LightSurfaceColor     string `json:"lightSurfaceColor"`
 	LightBorderColor      string `json:"lightBorderColor"`
 	LightTextColor        string `json:"lightTextColor"`
+	ScrollbarColor        string `json:"scrollbarColor"`
 	PreScanModel          string `json:"preScanModel"`
 	PreScanReasoning      string `json:"preScanReasoning"`
 	FullScanModel         string `json:"fullScanModel"`
@@ -138,6 +142,7 @@ func defaultAppSettings() AppSettings {
 		LightSurfaceColor:    "#f4f2ed",
 		LightBorderColor:     "#aaa69d",
 		LightTextColor:       "#171614",
+		ScrollbarColor:       "#f26522",
 		PreScanModel:         "",
 		PreScanReasoning:     "medium",
 		FullScanModel:        "",
@@ -176,6 +181,7 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 		LightSurfaceColor:    colorOrDefault(update.LightSurfaceColor, defaults.LightSurfaceColor),
 		LightBorderColor:     colorOrDefault(update.LightBorderColor, defaults.LightBorderColor),
 		LightTextColor:       colorOrDefault(update.LightTextColor, defaults.LightTextColor),
+		ScrollbarColor:       colorOrDefault(update.ScrollbarColor, defaults.ScrollbarColor),
 		PreScanModel:         firstValue(update.PreScanModel, defaults.PreScanModel),
 		PreScanReasoning:     firstValue(strings.ToLower(update.PreScanReasoning), defaults.PreScanReasoning),
 		FullScanModel:        firstValue(update.FullScanModel, defaults.FullScanModel),
@@ -293,6 +299,22 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 	settings.InterfaceSize = sizingOrDefault(settings.InterfaceSize, defaults.InterfaceSize, "interface size", "compact", "default", "comfortable", "large")
 	settings.TextSize = sizingOrDefault(settings.TextSize, defaults.TextSize, "text size", "small", "default", "large", "extra-large")
 	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaults.SubsectionTitleColor)
+	settings.ScrollbarColor = colorOrDefault(settings.ScrollbarColor, defaults.ScrollbarColor)
+	if strings.EqualFold(settings.ScrollbarColor, legacyScrollbarColor) {
+		// Scrollbars shipped with the retired blue accent. Adopt the emphasis orange exactly
+		// once, so a user who deliberately picks that blue afterwards keeps it.
+		if _, err := s.readSetting(ctx, scrollbarColorMigrationKey); errors.Is(err, sql.ErrNoRows) {
+			settings.ScrollbarColor = defaults.ScrollbarColor
+			if err := s.saveAppSettings(ctx, settings); err != nil {
+				return AppSettings{}, fmt.Errorf("migrate scrollbar color: %w", err)
+			}
+			if err := s.writeSetting(ctx, scrollbarColorMigrationKey, defaults.ScrollbarColor); err != nil {
+				return AppSettings{}, fmt.Errorf("record scrollbar color migration: %w", err)
+			}
+		} else if err != nil {
+			return AppSettings{}, err
+		}
+	}
 	settings.AutoFormatDelayMs = clampAutoFormatDelay(settings.AutoFormatDelayMs)
 	if settings.PreScanModel == releasedPreScanModel && settings.FullScanModel == releasedFullScanModel {
 		settings.PreScanModel = ""
@@ -307,6 +329,7 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 func (s *Store) saveAppSettings(ctx context.Context, settings AppSettings) error {
 	settings.InterfaceSize = sizingOrDefault(settings.InterfaceSize, "default", "interface size", "compact", "default", "comfortable", "large")
 	settings.TextSize = sizingOrDefault(settings.TextSize, "default", "text size", "small", "default", "large", "extra-large")
+	settings.ScrollbarColor = colorOrDefault(settings.ScrollbarColor, defaultAppSettings().ScrollbarColor)
 	settings.HasOpenRouterAPIKey = false
 	settings.HasOpenAIAPIKey = false
 	settings.HasAnthropicAPIKey = false

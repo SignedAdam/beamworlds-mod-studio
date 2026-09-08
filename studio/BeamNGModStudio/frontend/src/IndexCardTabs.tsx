@@ -24,6 +24,8 @@ export interface IndexCardTabItem {
   onClose?: () => void;
   closeLabel?: string;
   title?: string;
+  statusTone?: "accent" | "success" | "warning" | "danger";
+  statusLabel?: string;
   onContextMenu?: MouseEventHandler<HTMLButtonElement>;
 }
 
@@ -272,6 +274,7 @@ export function IndexCardTabs({
             const tabClassName = [
               "index-card-tabs__item",
               selected ? "is-selected" : undefined,
+              item.statusTone ? `status-${item.statusTone}` : undefined,
               item.disabled ? "is-disabled" : undefined,
             ].filter(Boolean).join(" ");
 
@@ -301,13 +304,16 @@ export function IndexCardTabs({
                   onContextMenu={item.onContextMenu}
                 >
                   {item.icon !== undefined && item.icon !== null && (
-                    <span className="index-card-tabs__icon" aria-hidden="true">{item.icon}</span>
+                    <span className="index-card-tabs__icon">{item.icon}</span>
                   )}
                   <span className="index-card-tabs__label">{item.label}</span>
                   {item.count !== undefined && (
                     <span className="index-card-tabs__count" aria-label={`Count: ${item.count}`}>
                       {item.count}
                     </span>
+                  )}
+                  {item.statusLabel && (
+                    <span className="index-card-tabs__status">{item.statusLabel}</span>
                   )}
                 </button>
                 {item.onClose && (

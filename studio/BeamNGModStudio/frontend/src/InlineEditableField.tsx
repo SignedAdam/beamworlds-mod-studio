@@ -262,18 +262,25 @@ export function InlineEditableField<T>({
   return <div ref={fieldRootRef} className={rootClassName} data-state={state} role="group" tabIndex={-1} aria-labelledby={labelId} aria-busy={state === 'saving'}>
     <div className="inline-editable-field__heading">
       <span id={labelId} className="inline-editable-field__label">{label}</span>
-      {!readOnly && <button
-        ref={editButtonRef}
-        type="button"
-        className={`inline-editable-field__edit${isEditing ? ' inline-editable-field__edit--suppressed' : ''}`}
-        aria-label={accessibleEditLabel}
-        aria-hidden={isEditing}
-        tabIndex={isEditing ? -1 : 0}
-        disabled={disabled || locked || isEditing}
-        onClick={beginEdit}
-      >
-        Edit
-      </button>}
+      <div className="inline-editable-field__controls" role="group" aria-label={`${actionLabel || 'Field'} actions`}>
+        {isEditing ? <>
+          <button type="button" className="inline-editable-field__action inline-editable-field__action--cancel" disabled={state === 'saving'} onClick={cancel}>
+            {cancelLabel}
+          </button>
+          <button type="button" className="inline-editable-field__action inline-editable-field__action--save" disabled={editorDisabled} onClick={() => void save()}>
+            {state === 'saving' ? 'Saving…' : state === 'error' ? retryLabel : saveLabel}
+          </button>
+        </> : !readOnly && <button
+          ref={editButtonRef}
+          type="button"
+          className="inline-editable-field__edit"
+          aria-label={accessibleEditLabel}
+          disabled={disabled || locked}
+          onClick={beginEdit}
+        >
+          Edit
+        </button>}
+      </div>
     </div>
 
     <div className="inline-editable-field__value" ref={editorHostRef} aria-labelledby={isEditing ? labelId : undefined} aria-describedby={isEditing && resolvedError !== null ? messageId : undefined} onKeyDown={isEditing ? handleEditorKeyDown : undefined}>
@@ -288,17 +295,6 @@ export function InlineEditableField<T>({
         autoFocus: state === 'editing',
         onKeyDown: handleEditorKeyDown,
       }) : renderDisplay(value)}
-    </div>
-
-    <div className="inline-editable-field__actions" role="group" aria-label={`${actionLabel || 'Field'} actions`}>
-      {isEditing && <>
-        <button type="button" className="inline-editable-field__action inline-editable-field__action--cancel" disabled={state === 'saving'} onClick={cancel}>
-          {cancelLabel}
-        </button>
-        <button type="button" className="inline-editable-field__action inline-editable-field__action--save" disabled={editorDisabled} onClick={() => void save()}>
-          {state === 'saving' ? 'Saving…' : state === 'error' ? retryLabel : saveLabel}
-        </button>
-      </>}
     </div>
 
     <div id={messageId} className="inline-editable-field__message" role={resolvedError !== null ? 'alert' : undefined} aria-live={resolvedError !== null ? 'assertive' : 'polite'} aria-atomic="true">

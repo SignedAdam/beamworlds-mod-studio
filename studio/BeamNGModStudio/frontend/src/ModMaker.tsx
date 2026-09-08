@@ -51,6 +51,8 @@ import "./ModMaker.css";
 
 interface EditorDocument {
   path: string;
+  name?: string;
+  untitled?: boolean;
   content: string;
   savedContent: string;
   savedSHA256: string;
@@ -89,6 +91,10 @@ function documentFromFile(
   };
 }
 
+function editorDocumentLabel(document: EditorDocument) {
+  return document.untitled ? document.name || "Untitled" : document.path;
+}
+
 type ActiveEditorTab =
   { kind: "file"; path: string } | { kind: "session"; id: string };
 
@@ -105,6 +111,46 @@ interface SessionContextMenu {
   y: number;
 }
 
+interface EditorIconActionProps {
+  label: string;
+  icon: Parameters<typeof Icon>[0]["name"];
+  shortcut?: string;
+  className?: string;
+  disabled?: boolean;
+  loading?: boolean;
+  onClick: () => void;
+}
+
+function EditorIconAction({
+  label,
+  icon,
+  shortcut,
+  className = "",
+  disabled = false,
+  loading = false,
+  onClick,
+}: EditorIconActionProps) {
+  return (
+    <span className="modmaker-editor-action-shell">
+      <button
+        type="button"
+        className={`modmaker-editor-action modmaker-editor-action--icon${loading ? " is-loading" : ""} ${className}`.trim()}
+        aria-label={label}
+        aria-keyshortcuts={shortcut?.replace(/^Ctrl/, "Control")}
+        aria-busy={loading || undefined}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        {loading ? <Spinner small /> : <Icon name={icon} size={20} />}
+      </button>
+      <span className="modmaker-editor-action-tooltip" role="tooltip">
+        <span>{label}</span>
+        {shortcut && <kbd>{shortcut}</kbd>}
+      </span>
+    </span>
+  );
+}
+
 interface PersistedSessionTabDescriptor {
   id: string;
   workspaceId: string;
@@ -116,8 +162,7 @@ interface PersistedSessionTabDescriptor {
   seededDefault: boolean;
 }
 
-const virgilSessionTabsStoragePrefix =
-  "beamworlds.modmaker-virgil-tabs.v1";
+const virgilSessionTabsStoragePrefix = "beamworlds.modmaker-virgil-tabs.v1";
 
 function virgilSessionTabsStorageKey(workspaceID: string) {
   return `${virgilSessionTabsStoragePrefix}:${workspaceID}`;
@@ -127,8 +172,7 @@ function createSessionTabID(existing?: ReadonlySet<string>) {
   let id = "";
   do {
     const token =
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     id = `draft:${token}`;
@@ -232,8 +276,7 @@ function transientSessionTab(
 
 function sortSessionTabs(tabs: SessionTab[]) {
   return [...tabs].sort((left, right) => {
-    const order =
-      (left.record.tabOrder ?? 0) - (right.record.tabOrder ?? 0);
+    const order = (left.record.tabOrder ?? 0) - (right.record.tabOrder ?? 0);
     if (order) return order;
     const leftCreated = Date.parse(left.record.createdAt);
     const rightCreated = Date.parse(right.record.createdAt);
@@ -250,9 +293,7 @@ function writePersistedSessionTabDescriptors(
 ) {
   if (typeof window === "undefined") return;
   const descriptors = tabs
-    .filter(
-      (tab) => tab.transient && tab.record.workspaceId === workspaceID,
-    )
+    .filter((tab) => tab.transient && tab.record.workspaceId === workspaceID)
     .map(({ record, seededDefault }) => ({
       id: record.id,
       workspaceId: workspaceID,
@@ -344,9 +385,7 @@ function readFileBrowserWidth() {
     const value = window.localStorage.getItem(fileBrowserWidthStorageKey);
     if (!value) return fallback;
     const stored = Number(value);
-    return Number.isFinite(stored)
-      ? clampFileBrowserWidth(stored)
-      : fallback;
+    return Number.isFinite(stored) ? clampFileBrowserWidth(stored) : fallback;
   } catch {
     return fallback;
   }
@@ -358,7 +397,6 @@ interface FileBrowserResize {
   startWidth: number;
   divider: HTMLDivElement;
 }
-
 
 function isEditableSource(path: string) {
   const dot = path.toLowerCase().lastIndexOf(".");
@@ -388,9 +426,7 @@ function searchRanges(
 ): SearchMatchRange[] {
   if (!query) return [];
   const expression = new RegExp(
-    regex
-      ? query
-      : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     caseSensitive ? "g" : "gi",
   );
   const ranges: SearchMatchRange[] = [];
@@ -451,48 +487,97 @@ function revealRangeForSearchResult(
 function searchErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
-const AUTO_FORMAT_DELAY_DEFAULT_MS = 200
-const AUTO_FORMAT_DELAY_MIN_MS = 50
-const AUTO_FORMAT_DELAY_MAX_MS = 2000
+const AUTO_FORMAT_DELAY_DEFAULT_MS = 200;
+const AUTO_FORMAT_DELAY_MIN_MS = 50;
+const AUTO_FORMAT_DELAY_MAX_MS = 2000;
 
 function clampAutoFormatDelay(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return AUTO_FORMAT_DELAY_DEFAULT_MS
-  return Math.min(AUTO_FORMAT_DELAY_MAX_MS, Math.max(AUTO_FORMAT_DELAY_MIN_MS, Math.round(value)))
+  if (!Number.isFinite(value) || value <= 0)
+    return AUTO_FORMAT_DELAY_DEFAULT_MS;
+  return Math.min(
+    AUTO_FORMAT_DELAY_MAX_MS,
+    Math.max(AUTO_FORMAT_DELAY_MIN_MS, Math.round(value)),
+  );
 }
 
-function severityFromSave(formatFailed: boolean, diagnostics: readonly CodeEditorDiagnostic[]): TreeSeverity | undefined {
-  if (formatFailed || diagnostics.some(diagnostic => diagnostic.severity === 'error')) return 'error'
-  if (diagnostics.some(diagnostic => diagnostic.severity === 'warning')) return 'warning'
-  return undefined
+function severityFromSave(
+  formatFailed: boolean,
+  diagnostics: readonly CodeEditorDiagnostic[],
+): TreeSeverity | undefined {
+  if (
+    formatFailed ||
+    diagnostics.some((diagnostic) => diagnostic.severity === "error")
+  )
+    return "error";
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "warning"))
+    return "warning";
+  return undefined;
 }
 
 function formatSaveIssue(path: string, error: unknown) {
-  const record = error && typeof error === 'object' ? error as Record<string, unknown> : {}
-  const rawMessage = typeof record.message === 'string' ? record.message : error instanceof Error ? error.message : String(error)
-  const message = rawMessage.split(/\r?\n/, 1)[0].replace(/^(?:Syntax)?Error:\s*/i, '').trim() || 'The formatter rejected this source.'
-  const location = record.loc && typeof record.loc === 'object' ? record.loc as Record<string, unknown> : {}
-  const start = location.start && typeof location.start === 'object' ? location.start as Record<string, unknown> : location
-  const line = typeof start.line === 'number' && Number.isFinite(start.line) ? Math.max(1, Math.trunc(start.line)) : undefined
-  const column = typeof start.column === 'number' && Number.isFinite(start.column) ? Math.max(1, Math.trunc(start.column)) : undefined
-  const suffix = line ? ` (line ${line}${column ? `, column ${column}` : ''})` : ''
-  return `${path}: Saved, but formatting failed — ${message}${suffix}`
+  const record =
+    error && typeof error === "object"
+      ? (error as Record<string, unknown>)
+      : {};
+  const rawMessage =
+    typeof record.message === "string"
+      ? record.message
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  const message =
+    rawMessage
+      .split(/\r?\n/, 1)[0]
+      .replace(/^(?:Syntax)?Error:\s*/i, "")
+      .trim() || "The formatter rejected this source.";
+  const location =
+    record.loc && typeof record.loc === "object"
+      ? (record.loc as Record<string, unknown>)
+      : {};
+  const start =
+    location.start && typeof location.start === "object"
+      ? (location.start as Record<string, unknown>)
+      : location;
+  const line =
+    typeof start.line === "number" && Number.isFinite(start.line)
+      ? Math.max(1, Math.trunc(start.line))
+      : undefined;
+  const column =
+    typeof start.column === "number" && Number.isFinite(start.column)
+      ? Math.max(1, Math.trunc(start.column))
+      : undefined;
+  const suffix = line
+    ? ` (line ${line}${column ? `, column ${column}` : ""})`
+    : "";
+  return `${path}: Saved, but formatting failed — ${message}${suffix}`;
 }
-function validationSaveIssue(path: string, source: string, diagnostics: readonly CodeEditorDiagnostic[]) {
-  const diagnostic = diagnostics.find(item => item.severity === 'error') ?? diagnostics.find(item => item.severity === 'warning')
-  if (!diagnostic) return undefined
-  const severity: 'error' | 'warning' = diagnostic.severity === 'error' ? 'error' : 'warning'
-  const message = diagnostic.message.split(/\r?\n/, 1)[0].trim() || 'Validation reported an issue.'
-  const from = Math.max(0, Math.min(source.length, diagnostic.from))
-  const lineStart = source.lastIndexOf('\n', Math.max(0, from - 1)) + 1
-  const line = source.slice(0, from).split(/\r?\n/).length
-  const column = from - lineStart + 1
-  return { message: `${path}: Saved with ${severity} — ${message} (line ${line}, column ${column})`, severity }
+function validationSaveIssue(
+  path: string,
+  source: string,
+  diagnostics: readonly CodeEditorDiagnostic[],
+) {
+  const diagnostic =
+    diagnostics.find((item) => item.severity === "error") ??
+    diagnostics.find((item) => item.severity === "warning");
+  if (!diagnostic) return undefined;
+  const severity: "error" | "warning" =
+    diagnostic.severity === "error" ? "error" : "warning";
+  const message =
+    diagnostic.message.split(/\r?\n/, 1)[0].trim() ||
+    "Validation reported an issue.";
+  const from = Math.max(0, Math.min(source.length, diagnostic.from));
+  const lineStart = source.lastIndexOf("\n", Math.max(0, from - 1)) + 1;
+  const line = source.slice(0, from).split(/\r?\n/).length;
+  const column = from - lineStart + 1;
+  return {
+    message: `${path}: Saved with ${severity} — ${message} (line ${line}, column ${column})`,
+    severity,
+  };
 }
 const yieldToQueuedWork = () =>
   new Promise<void>((resolve) => {
     window.setTimeout(resolve, 0);
   });
-
 
 interface ModMakerProps {
   allItems: LibraryItem[];
@@ -583,12 +668,16 @@ export function ModMaker({
   const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [newModOpen, setNewModOpen] = useState(false);
   const [sourceSaveToast, setSourceSaveToast] = useState("");
-  const [sourceSaveToastTone, setSourceSaveToastTone] = useState<'success' | 'error' | 'warning'>('success');
+  const [sourceSaveToastTone, setSourceSaveToastTone] = useState<
+    "success" | "error" | "warning"
+  >("success");
   const [fileManagerLabel, setFileManagerLabel] = useState<string | null>(null);
   const [fileManagerLabelError, setFileManagerLabelError] = useState("");
   const initializedWorkspace = useRef("");
   const draftTimer = useRef<number | undefined>(undefined);
-  const [fileSeverity, setFileSeverity] = useState<Record<string, TreeSeverity>>({});
+  const [fileSeverity, setFileSeverity] = useState<
+    Record<string, TreeSeverity>
+  >({});
   const documentsRef = useRef<EditorDocument[]>([]);
   const documentRevisions = useRef<Record<string, number>>({});
   const diagnosticsByPath = useRef<Record<string, CodeEditorDiagnostic[]>>({});
@@ -599,6 +688,7 @@ export function ModMaker({
   const externalReadVersion = useRef<Record<string, number>>({});
   const sessionTabsRef = useRef<SessionTab[]>([]);
   const fileOpenVersion = useRef(0);
+  const untitledSequence = useRef(0);
   const transientSequence = useRef(0);
   const closedTransientSessions = useRef(new Set<string>());
   const sessionTabsInitializedWorkspace = useRef("");
@@ -616,9 +706,8 @@ export function ModMaker({
   const savesInFlight = useRef(new Set<string>());
   const sourceSaveToastTimer = useRef<number | undefined>(undefined);
   const workspaceMainRef = useRef<HTMLElement>(null);
-  const [fileBrowserWidth, setFileBrowserWidth] = useState(
-    readFileBrowserWidth,
-  );
+  const [fileBrowserWidth, setFileBrowserWidth] =
+    useState(readFileBrowserWidth);
   const [fileBrowserResizing, setFileBrowserResizing] = useState(false);
   const editorLayoutRef = useRef<HTMLDivElement>(null);
   const fileBrowserResizeRef = useRef<FileBrowserResize | null>(null);
@@ -634,7 +723,10 @@ export function ModMaker({
       sourceSaveToastTimer.current = undefined;
     }
   };
-  const showSourceSaveToast = (message: string, tone: 'success' | 'error' | 'warning' = 'success') => {
+  const showSourceSaveToast = (
+    message: string,
+    tone: "success" | "error" | "warning" = "success",
+  ) => {
     if (sourceSaveToastTimer.current !== undefined) {
       window.clearTimeout(sourceSaveToastTimer.current);
     }
@@ -656,7 +748,8 @@ export function ModMaker({
     formatGeneration.current += 1;
     const cancelledRequestVersion = formatRequestVersion.current;
     formatRequestVersion.current += 1;
-    for (const timer of formatTimers.current.values()) window.clearTimeout(timer);
+    for (const timer of formatTimers.current.values())
+      window.clearTimeout(timer);
     formatTimers.current.clear();
     setBusy((current) =>
       current === "format" &&
@@ -694,7 +787,8 @@ export function ModMaker({
         active = false;
       };
     }
-    void labelAPI.FileManagerActionLabel()
+    void labelAPI
+      .FileManagerActionLabel()
       .then((label) => {
         if (
           label === "Open in Explorer" ||
@@ -730,17 +824,24 @@ export function ModMaker({
       ? sessionTabs.find((tab) => tab.record.id === activeTab.id)
       : undefined;
   const dirty = documents.some(
-    (document) => document.content !== document.savedContent,
+    (document) =>
+      document.untitled || document.content !== document.savedContent,
   );
   const dirtyPaths = useMemo(
     () =>
       new Set(
         documents
-          .filter((document) => document.content !== document.savedContent)
+          .filter(
+            (document) =>
+              !document.untitled && document.content !== document.savedContent,
+          )
           .map((document) => document.path),
       ),
     [documents],
   );
+  const activeDocumentLabel = activeDocument
+    ? editorDocumentLabel(activeDocument)
+    : "";
   const activeSizeBytes = useMemo(
     () =>
       activeDocument
@@ -816,8 +917,8 @@ export function ModMaker({
     event.preventDefault();
     event.stopPropagation();
     const divider = event.currentTarget;
-    const availableWidth = editorLayoutRef.current?.getBoundingClientRect()
-      .width;
+    const availableWidth =
+      editorLayoutRef.current?.getBoundingClientRect().width;
     fileBrowserResizeRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -834,8 +935,8 @@ export function ModMaker({
     const active = fileBrowserResizeRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const availableWidth = editorLayoutRef.current?.getBoundingClientRect()
-      .width;
+    const availableWidth =
+      editorLayoutRef.current?.getBoundingClientRect().width;
     setFileBrowserWidth(
       clampFileBrowserWidth(
         active.startWidth + event.clientX - active.startX,
@@ -844,9 +945,7 @@ export function ModMaker({
     );
   };
 
-  const endFileBrowserResize = (
-    event: React.PointerEvent<HTMLDivElement>,
-  ) => {
+  const endFileBrowserResize = (event: React.PointerEvent<HTMLDivElement>) => {
     const active = fileBrowserResizeRef.current;
     if (!active || active.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -869,8 +968,8 @@ export function ModMaker({
     event.preventDefault();
     event.stopPropagation();
     const step = event.shiftKey ? 32 : 16;
-    const availableWidth = editorLayoutRef.current?.getBoundingClientRect()
-      .width;
+    const availableWidth =
+      editorLayoutRef.current?.getBoundingClientRect().width;
     setFileBrowserWidth((current) => {
       const delta =
         event.key === "ArrowLeft"
@@ -888,7 +987,6 @@ export function ModMaker({
     editorLayoutRef.current?.getBoundingClientRect().width,
   );
 
-
   useEffect(() => {
     cancelFormatTasks();
     documentRevisions.current = {};
@@ -903,6 +1001,7 @@ export function ModMaker({
     editorInteractionVersion.current += 1;
     preferenceRequestVersion.current += 1;
     transientSequence.current = 0;
+    untitledSequence.current = 0;
     sessionTabsRef.current = [];
     activeTabRef.current = null;
     setDocuments([]);
@@ -1002,7 +1101,11 @@ export function ModMaker({
     )
       .then((restored) => {
         if (cancelled) return;
-        for (const document of restored) documentRevisions.current[document.path] = Math.max(0, Math.trunc(documentRevisions.current[document.path] ?? 0));
+        for (const document of restored)
+          documentRevisions.current[document.path] = Math.max(
+            0,
+            Math.trunc(documentRevisions.current[document.path] ?? 0),
+          );
         setDocuments((current) => {
           const openPaths = new Set(current.map((document) => document.path));
           const next = [
@@ -1047,8 +1150,7 @@ export function ModMaker({
           Date.parse(left.record.createdAt) - Date.parse(right.record.createdAt)
         );
       });
-    const isInitial =
-      sessionTabsInitializedWorkspace.current !== workspace.id;
+    const isInitial = sessionTabsInitializedWorkspace.current !== workspace.id;
     const persisted = isInitial
       ? readPersistedSessionTabDescriptors(workspace.id)
       : undefined;
@@ -1167,13 +1269,13 @@ export function ModMaker({
 
   useEffect(() => {
     onEditorStatus({
-      path: activeSession ? "" : activePath,
+      path: activeSession ? "" : activeDocumentLabel,
       dirty,
       sizeBytes: activeSession ? 0 : activeSizeBytes,
     });
     return () => onEditorStatus({ path: "", dirty: false, sizeBytes: 0 });
   }, [
-    activePath,
+    activeDocumentLabel,
     activeSession?.record.id,
     dirty,
     activeSizeBytes,
@@ -1205,14 +1307,18 @@ export function ModMaker({
       activeWorkspaceIDRef.current === workspaceID &&
       !staleRef.current;
     const normalizePath = (path: string) =>
-      path.replace(/\\/g, "/").replace(/^\.\/+/, "").toLowerCase();
+      path
+        .replace(/\\/g, "/")
+        .replace(/^\.\/+/, "")
+        .toLowerCase();
     const changedPaths =
       change.paths && change.paths.length > 0
         ? new Set(change.paths.map(normalizePath))
         : null;
     const targets = documentsRef.current.filter(
       (document) =>
-        !changedPaths || changedPaths.has(normalizePath(document.path)),
+        !document.untitled &&
+        (!changedPaths || changedPaths.has(normalizePath(document.path))),
     );
     const readVersions = new Map<string, number>();
     for (const document of targets) {
@@ -1303,9 +1409,7 @@ export function ModMaker({
         continue;
       }
       bumpDocumentRevision(currentDocument.path);
-      if (
-        currentDocument.content !== currentDocument.savedContent
-      ) {
+      if (currentDocument.content !== currentDocument.savedContent) {
         updates.set(currentDocument.path, {
           ...currentDocument,
           externalContent: "",
@@ -1375,7 +1479,6 @@ export function ModMaker({
       );
     }
   };
-
 
   useEffect(() => {
     if (!workspace) return;
@@ -1502,13 +1605,14 @@ export function ModMaker({
     };
   }, [workspace?.id, onReload, onError]);
 
-
   useEffect(() => {
     if (draftTimer.current !== undefined)
       window.clearTimeout(draftTimer.current);
     if (mutationBlocked() || !workspace || documents.length === 0) return;
 
-    const snapshot = documents.map((document) => ({ ...document }));
+    const snapshot = documents
+      .filter((document) => !document.untitled)
+      .map((document) => ({ ...document }));
     draftTimer.current = window.setTimeout(() => {
       if (mutationBlocked()) return;
       void Promise.all(
@@ -1531,7 +1635,6 @@ export function ModMaker({
         window.clearTimeout(draftTimer.current);
     };
   }, [documents, stale, writeBlocked, workspace?.id]);
-
 
   const selectFile = async (
     path: string,
@@ -1558,7 +1661,10 @@ export function ModMaker({
     const workspaceID = workspace.id;
     const existing = documents.find((document) => document.path === path);
     if (existing) {
-      documentRevisions.current[path] = Math.max(0, Math.trunc(documentRevisions.current[path] ?? 0));
+      documentRevisions.current[path] = Math.max(
+        0,
+        Math.trunc(documentRevisions.current[path] ?? 0),
+      );
       setFileLoadingPath("");
       setActivePath(path);
       setActiveTab({ kind: "file", path });
@@ -1575,7 +1681,10 @@ export function ModMaker({
       if (requestVersion !== fileOpenVersion.current) return;
       const draft = detail?.drafts?.find((item) => item.path === path);
       const document = documentFromFile(file, draft);
-      documentRevisions.current[file.path] = Math.max(0, Math.trunc(documentRevisions.current[file.path] ?? 0));
+      documentRevisions.current[file.path] = Math.max(
+        0,
+        Math.trunc(documentRevisions.current[file.path] ?? 0),
+      );
       setDocuments((current) =>
         current.some((item) => item.path === file.path)
           ? current
@@ -1594,38 +1703,78 @@ export function ModMaker({
     }
   };
 
-  const runAutoFormat = async (snapshot: { workspaceID: string; path: string; content: string; revision: number; generation: number }) => {
-    if (formatGeneration.current !== snapshot.generation || activeWorkspaceIDRef.current !== snapshot.workspaceID || activeEditorPathRef.current !== snapshot.path) return
-    const current = documentsRef.current.find(document => document.path === snapshot.path)
-    if (!current || current.content !== snapshot.content || documentRevisions.current[snapshot.path] !== snapshot.revision) return
-    let formatted: string
+  const runAutoFormat = async (snapshot: {
+    workspaceID: string;
+    path: string;
+    content: string;
+    revision: number;
+    generation: number;
+  }) => {
+    if (
+      formatGeneration.current !== snapshot.generation ||
+      activeWorkspaceIDRef.current !== snapshot.workspaceID ||
+      activeEditorPathRef.current !== snapshot.path
+    )
+      return;
+    const current = documentsRef.current.find(
+      (document) => document.path === snapshot.path,
+    );
+    if (
+      !current ||
+      current.content !== snapshot.content ||
+      documentRevisions.current[snapshot.path] !== snapshot.revision
+    )
+      return;
+    let formatted: string;
     try {
-      formatted = await formatSource(snapshot.path, snapshot.content)
+      formatted = await formatSource(snapshot.path, snapshot.content);
     } catch {
-      return
+      return;
     }
-    if (formatGeneration.current !== snapshot.generation || activeWorkspaceIDRef.current !== snapshot.workspaceID || activeEditorPathRef.current !== snapshot.path) return
-    const latest = documentsRef.current.find(document => document.path === snapshot.path)
-    if (!latest || latest.content !== snapshot.content || documentRevisions.current[snapshot.path] !== snapshot.revision) return
-    if (formatted === snapshot.content) return
-    bumpDocumentRevision(snapshot.path)
-    const next = documentsRef.current.map(document => document.path === snapshot.path ? { ...document, content: formatted, restored: false } : document)
-    documentsRef.current = next
-    setDocuments(next)
-  }
+    if (
+      formatGeneration.current !== snapshot.generation ||
+      activeWorkspaceIDRef.current !== snapshot.workspaceID ||
+      activeEditorPathRef.current !== snapshot.path
+    )
+      return;
+    const latest = documentsRef.current.find(
+      (document) => document.path === snapshot.path,
+    );
+    if (
+      !latest ||
+      latest.content !== snapshot.content ||
+      documentRevisions.current[snapshot.path] !== snapshot.revision
+    )
+      return;
+    if (formatted === snapshot.content) return;
+    bumpDocumentRevision(snapshot.path);
+    const next = documentsRef.current.map((document) =>
+      document.path === snapshot.path
+        ? { ...document, content: formatted, restored: false }
+        : document,
+    );
+    documentsRef.current = next;
+    setDocuments(next);
+  };
 
-  const scheduleAutoFormat = (snapshot: { workspaceID: string; path: string; content: string; revision: number }) => {
-    clearFormatTimer(snapshot.path)
-    if (!canFormatSource(snapshot.path)) return
-    const generation = formatGeneration.current
+  const scheduleAutoFormat = (snapshot: {
+    workspaceID: string;
+    path: string;
+    content: string;
+    revision: number;
+  }) => {
+    clearFormatTimer(snapshot.path);
+    if (!canFormatSource(snapshot.path)) return;
+    const generation = formatGeneration.current;
     const timer = window.setTimeout(() => {
-      formatTimers.current.delete(snapshot.path)
-      void runAutoFormat({ ...snapshot, generation })
-    }, clampAutoFormatDelay(autoFormatDelayMs))
-    formatTimers.current.set(snapshot.path, timer)
-  }
+      formatTimers.current.delete(snapshot.path);
+      void runAutoFormat({ ...snapshot, generation });
+    }, clampAutoFormatDelay(autoFormatDelayMs));
+    formatTimers.current.set(snapshot.path, timer);
+  };
   const formatDocument = async () => {
-    if (mutationBlocked() || !workspace || !activeDocument || busy !== "") return;
+    if (mutationBlocked() || !workspace || !activeDocument || busy !== "")
+      return;
     const workspaceID = workspace.id;
     const path = activeDocument.path;
     if (!canFormatSource(path)) return;
@@ -1644,7 +1793,9 @@ export function ModMaker({
       ) {
         return;
       }
-      const latest = documentsRef.current.find((document) => document.path === path);
+      const latest = documentsRef.current.find(
+        (document) => document.path === path,
+      );
       if (!latest || latest.content !== source) return;
       if (formatted !== source) {
         bumpDocumentRevision(path);
@@ -1657,7 +1808,9 @@ export function ModMaker({
         setDocuments(next);
       }
       showSourceSaveToast(
-        formatted === source ? `${path}: Already formatted` : `${path}: Formatted`,
+        formatted === source
+          ? `${path}: Already formatted`
+          : `${path}: Formatted`,
         "success",
       );
     } catch (error) {
@@ -1668,102 +1821,232 @@ export function ModMaker({
       ) {
         return;
       }
-      const message =
-        error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       showSourceSaveToast(`${path}: Formatting failed — ${message}`, "error");
     } finally {
       if (requestVersion === formatRequestVersion.current) setBusy("");
     }
   };
 
-
   const updateDocument = (content: string) => {
-    const path = activeEditorPathRef.current || activePath
-    if (!workspace || !path) return
-    const current = documentsRef.current.find(document => document.path === path)
-    if (!current) return
-    const revision = bumpDocumentRevision(path)
-    const next = documentsRef.current.map(document => document.path === path ? { ...document, content, restored: false } : document)
-    documentsRef.current = next
-    setDocuments(next)
-    scheduleAutoFormat({ workspaceID: workspace.id, path, content, revision })
-  }
+    const path = activeEditorPathRef.current || activePath;
+    if (!workspace || !path) return;
+    const current = documentsRef.current.find(
+      (document) => document.path === path,
+    );
+    if (!current) return;
+    const revision = bumpDocumentRevision(path);
+    const next = documentsRef.current.map((document) =>
+      document.path === path
+        ? { ...document, content, restored: false }
+        : document,
+    );
+    documentsRef.current = next;
+    setDocuments(next);
+    scheduleAutoFormat({ workspaceID: workspace.id, path, content, revision });
+  };
 
   const saveFile = async (editorSnapshot?: CodeEditorSaveSnapshot) => {
-    if (mutationBlocked()) return;
-    if (!workspace) return;
+    if (mutationBlocked() || !workspace) return;
     const workspaceID = workspace.id;
     const targetPath = activeEditorPathRef.current;
-    if (!targetPath || savesInFlight.current.has(workspaceID)) return;
+    const targetDocument = documentsRef.current.find(
+      (document) => document.path === targetPath,
+    );
+    if (
+      !targetPath ||
+      !targetDocument ||
+      savesInFlight.current.has(workspaceID)
+    )
+      return;
+
+    let writePath = targetPath;
+    if (targetDocument.untitled) {
+      const requestedPath = window
+        .prompt(
+          "Save new workspace-relative file as",
+          `${editorDocumentLabel(targetDocument)}.txt`,
+        )
+        ?.trim();
+      if (!requestedPath) return;
+      writePath = requestedPath.replace(/\\/g, "/").replace(/^\.\/+/, "");
+      if (!writePath) return;
+      if (
+        documentsRef.current.some(
+          (document) =>
+            document.path !== targetPath &&
+            !document.untitled &&
+            document.path.toLowerCase() === writePath.toLowerCase(),
+        )
+      ) {
+        onError(new Error(`${writePath} is already open in another tab`));
+        return;
+      }
+      await yieldToQueuedWork();
+      if (
+        mutationBlocked() ||
+        activeWorkspaceIDRef.current !== workspaceID ||
+        !documentsRef.current.some((document) => document.path === targetPath)
+      )
+        return;
+    }
+
     let attemptPath = "";
+    let attemptWasUntitled = false;
     savesInFlight.current.add(workspaceID);
     setBusy("save");
     try {
       let requestedSnapshot = editorSnapshot;
       for (;;) {
-        const path = targetPath;
-        const document = documentsRef.current.find(item => item.path === path);
-        if (!document || activeWorkspaceIDRef.current !== workspaceID || document.content === document.savedContent) return;
-        clearFormatTimer(path);
+        const document = documentsRef.current.find(
+          (item) => item.path === targetPath,
+        );
+        if (
+          !document ||
+          activeWorkspaceIDRef.current !== workspaceID ||
+          (!document.untitled && document.content === document.savedContent)
+        )
+          return;
+        clearFormatTimer(targetPath);
         formatGeneration.current += 1;
-        const source = requestedSnapshot?.value === document.content ? requestedSnapshot.value : document.content;
-        const revision = documentRevisions.current[path] ?? 0;
-        const diagnostics = requestedSnapshot && requestedSnapshot.value === source ? requestedSnapshot.diagnostics : diagnosticsByPath.current[path] ?? [];
+        const source =
+          requestedSnapshot?.value === document.content
+            ? requestedSnapshot.value
+            : document.content;
+        const revision = documentRevisions.current[targetPath] ?? 0;
+        const diagnostics =
+          requestedSnapshot && requestedSnapshot.value === source
+            ? requestedSnapshot.diagnostics
+            : (diagnosticsByPath.current[targetPath] ?? []);
         requestedSnapshot = undefined;
         let contentToWrite = source;
         let formatError: unknown;
-        if (canFormatSource(path)) {
+        if (canFormatSource(writePath)) {
           try {
-            contentToWrite = await formatSource(path, source);
+            contentToWrite = await formatSource(writePath, source);
           } catch (error) {
             formatError = error;
           }
         }
-        const latest = documentsRef.current.find(item => item.path === path);
+        const latest = documentsRef.current.find(
+          (item) => item.path === targetPath,
+        );
         if (activeWorkspaceIDRef.current !== workspaceID) return;
-        if (!latest || latest.content !== source || documentRevisions.current[path] !== revision) continue;
-        const expectedSHA256 = latest.externalContent !== undefined ? (latest.externalSHA256 ?? latest.savedSHA256) : latest.savedSHA256;
+        if (
+          !latest ||
+          latest.content !== source ||
+          documentRevisions.current[targetPath] !== revision
+        )
+          continue;
+        const expectedSHA256 = latest.untitled
+          ? ""
+          : latest.externalContent !== undefined
+            ? (latest.externalSHA256 ?? latest.savedSHA256)
+            : latest.savedSHA256;
         if (mutationBlocked()) return;
         if (latest.externalContent !== undefined) {
-          if (!window.confirm(`The file ${path} changed on disk. Save your version and overwrite the external version?`)) return;
+          if (
+            !window.confirm(
+              `The file ${writePath} changed on disk. Save your version and overwrite the external version?`,
+            )
+          )
+            return;
           await yieldToQueuedWork();
           if (mutationBlocked()) return;
         }
         if (mutationBlocked()) return;
-        attemptPath = path;
-        await API.WriteWorkspaceFile(workspaceID, path, contentToWrite, expectedSHA256);
+        attemptPath = writePath;
+        attemptWasUntitled = Boolean(latest.untitled);
+        await API.WriteWorkspaceFile(
+          workspaceID,
+          writePath,
+          contentToWrite,
+          expectedSHA256,
+        );
         if (mutationBlocked()) return;
         const savedSHA256 = await sha256Text(contentToWrite);
-        const saveSeverity = severityFromSave(Boolean(formatError), diagnostics);
-        const validationIssue = validationSaveIssue(path, source, diagnostics);
-        externalReadVersion.current[path] = (externalReadVersion.current[path] ?? 0) + 1;
-        const currentAfter = documentsRef.current.find(item => item.path === path);
-        const sameSnapshot = activeWorkspaceIDRef.current === workspaceID && currentAfter?.content === source && documentRevisions.current[path] === revision;
-        const next = documentsRef.current.map(item => item.path === path ? {
-          ...item,
-          ...(sameSnapshot ? { content: contentToWrite } : {}),
-          savedContent: contentToWrite,
-          savedSHA256,
-          restored: false,
-          externalContent: undefined,
-          externalSHA256: undefined,
-        } : item);
+        const saveSeverity = severityFromSave(
+          Boolean(formatError),
+          diagnostics,
+        );
+        const validationIssue = validationSaveIssue(
+          writePath,
+          source,
+          diagnostics,
+        );
+        externalReadVersion.current[writePath] =
+          (externalReadVersion.current[writePath] ?? 0) + 1;
+        const currentAfter = documentsRef.current.find(
+          (item) => item.path === targetPath,
+        );
+        const sameSnapshot =
+          activeWorkspaceIDRef.current === workspaceID &&
+          currentAfter?.content === source &&
+          documentRevisions.current[targetPath] === revision;
+        const wasActive = activeEditorPathRef.current === targetPath;
+        const next = documentsRef.current.map((item) =>
+          item.path === targetPath
+            ? {
+                ...item,
+                path: writePath,
+                name: undefined,
+                untitled: false,
+                ...(sameSnapshot ? { content: contentToWrite } : {}),
+                savedContent: contentToWrite,
+                savedSHA256,
+                restored: false,
+                externalContent: undefined,
+                externalSHA256: undefined,
+              }
+            : item,
+        );
+        if (latest.untitled) {
+          clearFormatTimer(targetPath);
+          formatGeneration.current += 1;
+          documentRevisions.current[writePath] =
+            documentRevisions.current[targetPath] ?? revision;
+          delete documentRevisions.current[targetPath];
+          if (diagnosticsByPath.current[targetPath]) {
+            diagnosticsByPath.current[writePath] =
+              diagnosticsByPath.current[targetPath];
+          }
+          delete diagnosticsByPath.current[targetPath];
+          delete externalReadVersion.current[targetPath];
+        }
         documentsRef.current = next;
         setDocuments(next);
         if (activeWorkspaceIDRef.current === workspaceID) {
-          setFileSeverity(current => {
+          setFileSeverity((current) => {
             const nextSeverity = { ...current };
-            if (saveSeverity) nextSeverity[path] = saveSeverity;
-            else delete nextSeverity[path];
+            if (targetPath !== writePath) delete nextSeverity[targetPath];
+            if (saveSeverity) nextSeverity[writePath] = saveSeverity;
+            else delete nextSeverity[writePath];
             return nextSeverity;
           });
-          if (sameSnapshot && activeEditorPathRef.current === targetPath) {
+          if (latest.untitled) {
+            setActivePath((current) =>
+              current === targetPath ? writePath : current,
+            );
+            if (wasActive) {
+              const nextActive = {
+                kind: "file" as const,
+                path: writePath,
+              };
+              activeEditorPathRef.current = writePath;
+              activeTabRef.current = nextActive;
+              setActiveTab(nextActive);
+              setTreeSelection({ path: writePath, kind: "file" });
+            }
+          }
+          if (sameSnapshot && wasActive) {
             const message = formatError
-              ? formatSaveIssue(path, formatError)
+              ? formatSaveIssue(writePath, formatError)
               : validationIssue
                 ? validationIssue.message
-                : `Saved ${path}`;
-            const tone = formatError ? "error" : validationIssue?.severity ?? "success";
+                : `Saved ${writePath}`;
+            const tone = formatError
+              ? "error"
+              : (validationIssue?.severity ?? "success");
             showSourceSaveToast(message, tone);
           }
         }
@@ -1772,11 +2055,19 @@ export function ModMaker({
         return;
       }
     } catch (error) {
-      if (attemptPath) {
+      if (attemptPath && !attemptWasUntitled) {
         try {
           const file = await API.ReadWorkspaceFile(workspaceID, attemptPath);
           if (activeWorkspaceIDRef.current === workspaceID) {
-            const next = documentsRef.current.map(item => item.path === attemptPath && item.savedSHA256 !== file.sha256 ? { ...item, externalContent: file.content, externalSHA256: file.sha256 } : item);
+            const next = documentsRef.current.map((item) =>
+              item.path === attemptPath && item.savedSHA256 !== file.sha256
+                ? {
+                    ...item,
+                    externalContent: file.content,
+                    externalSHA256: file.sha256,
+                  }
+                : item,
+            );
             documentsRef.current = next;
             setDocuments(next);
           }
@@ -1824,11 +2115,20 @@ export function ModMaker({
   };
 
   const closeDocument = (path: string) => {
+    const document = documentsRef.current.find((item) => item.path === path);
+    if (!document) return;
+    if (
+      document.untitled &&
+      document.content.length > 0 &&
+      !window.confirm(`Discard changes to ${editorDocumentLabel(document)}?`)
+    )
+      return;
+
     clearFormatTimer(path);
     formatGeneration.current += 1;
     delete documentRevisions.current[path];
     delete diagnosticsByPath.current[path];
-    setFileSeverity(current => {
+    setFileSeverity((current) => {
       if (!(path in current)) return current;
       const next = { ...current };
       delete next[path];
@@ -1836,8 +2136,7 @@ export function ModMaker({
     });
     externalReadVersion.current[path] =
       (externalReadVersion.current[path] ?? 0) + 1;
-    const document = documents.find((item) => item.path === path);
-    if (!mutationBlocked() && workspace && document) {
+    if (!document.untitled && !mutationBlocked() && workspace) {
       const draftRequest =
         document.content === document.savedContent
           ? API.DeleteWorkspaceDraft(workspace.id, path)
@@ -1850,22 +2149,38 @@ export function ModMaker({
       void draftRequest.catch(onError);
     }
 
-    const remaining = documents.filter((item) => item.path !== path);
+    const remaining = documentsRef.current.filter((item) => item.path !== path);
+    const nextDocument = remaining[remaining.length - 1];
+    documentsRef.current = remaining;
     setDocuments(remaining);
     if (activePath === path) {
-      setActivePath(remaining[remaining.length - 1]?.path ?? "");
+      setActivePath(nextDocument?.path ?? "");
     }
-    if (activeTab?.kind === "file" && activeTab.path === path) {
-      const next = remaining[remaining.length - 1];
-      if (next) {
-        setActivePath(next.path);
-        setActiveTab({ kind: "file", path: next.path });
-        setTreeSelection({ path: next.path, kind: "file" });
-      } else {
-        const nextSession = sessionTabs[sessionTabs.length - 1];
-        setActiveTab(
-          nextSession ? { kind: "session", id: nextSession.record.id } : null,
+    const currentActive = activeTabRef.current;
+    if (currentActive?.kind === "file" && currentActive.path === path) {
+      if (nextDocument) {
+        const nextActive = {
+          kind: "file" as const,
+          path: nextDocument.path,
+        };
+        activeEditorPathRef.current = nextDocument.path;
+        activeTabRef.current = nextActive;
+        setActivePath(nextDocument.path);
+        setActiveTab(nextActive);
+        setTreeSelection(
+          nextDocument.untitled
+            ? null
+            : { path: nextDocument.path, kind: "file" },
         );
+      } else {
+        const nextSession =
+          sessionTabsRef.current[sessionTabsRef.current.length - 1];
+        const nextActive = nextSession
+          ? { kind: "session" as const, id: nextSession.record.id }
+          : null;
+        activeEditorPathRef.current = "";
+        activeTabRef.current = nextActive;
+        setActiveTab(nextActive);
         setActivePath("");
         setTreeSelection(null);
       }
@@ -1879,6 +2194,44 @@ export function ModMaker({
     return treeSelection.path.includes("/")
       ? treeSelection.path.slice(0, treeSelection.path.lastIndexOf("/"))
       : "";
+  };
+
+  const openNewDocument = () => {
+    if (mutationBlocked() || !workspace || busy !== "") return;
+    editorInteractionVersion.current += 1;
+    cancelFormatTasks();
+    fileOpenVersion.current += 1;
+    const sequence = ++untitledSequence.current;
+    const path = `untitled:${sequence}`;
+    const document: EditorDocument = {
+      path,
+      name: `Untitled-${sequence}`,
+      untitled: true,
+      content: "",
+      savedContent: "",
+      savedSHA256: "",
+      restored: false,
+    };
+    const next = [...documentsRef.current, document];
+    documentsRef.current = next;
+    documentRevisions.current[path] = 0;
+    setDocuments(next);
+    const nextActive = { kind: "file" as const, path };
+    activeEditorPathRef.current = path;
+    activeTabRef.current = nextActive;
+    setActivePath(path);
+    setActiveTab(nextActive);
+    setTreeSelection(null);
+    setUtility(null);
+    setSessionMenu(null);
+    setWorkspaceSearchOpen(false);
+    setFileSearchOpen(false);
+    setPendingEditorReveal(null);
+    setEditorSelection({
+      from: 0,
+      to: 0,
+      requestId: ++editorSelectionRequest.current,
+    });
   };
 
   const createFile = async () => {
@@ -1946,14 +2299,19 @@ export function ModMaker({
             ? `${newPath}${path.slice(oldPath.length)}`
             : path;
       const migratedRevisions: Record<string, number> = {};
-      for (const [path, revision] of Object.entries(documentRevisions.current)) migratedRevisions[migrate(path)] = revision;
+      for (const [path, revision] of Object.entries(documentRevisions.current))
+        migratedRevisions[migrate(path)] = revision;
       documentRevisions.current = migratedRevisions;
       const migratedDiagnostics: Record<string, CodeEditorDiagnostic[]> = {};
-      for (const [path, diagnostics] of Object.entries(diagnosticsByPath.current)) migratedDiagnostics[migrate(path)] = diagnostics;
+      for (const [path, diagnostics] of Object.entries(
+        diagnosticsByPath.current,
+      ))
+        migratedDiagnostics[migrate(path)] = diagnostics;
       diagnosticsByPath.current = migratedDiagnostics;
-      setFileSeverity(current => {
+      setFileSeverity((current) => {
         const next: Record<string, TreeSeverity> = {};
-        for (const [path, severity] of Object.entries(current)) next[migrate(path)] = severity;
+        for (const [path, severity] of Object.entries(current))
+          next[migrate(path)] = severity;
         return next;
       });
       setDocuments((current) =>
@@ -2008,15 +2366,18 @@ export function ModMaker({
       await API.DeleteWorkspacePath(workspace.id, deleted);
       if (mutationBlocked()) return;
       for (const path of Object.keys(documentRevisions.current)) {
-        if (path === deleted || path.startsWith(`${deleted}/`)) delete documentRevisions.current[path];
+        if (path === deleted || path.startsWith(`${deleted}/`))
+          delete documentRevisions.current[path];
       }
       for (const path of Object.keys(diagnosticsByPath.current)) {
-        if (path === deleted || path.startsWith(`${deleted}/`)) delete diagnosticsByPath.current[path];
+        if (path === deleted || path.startsWith(`${deleted}/`))
+          delete diagnosticsByPath.current[path];
       }
-      setFileSeverity(current => {
+      setFileSeverity((current) => {
         const next = { ...current };
         for (const path of Object.keys(next)) {
-          if (path === deleted || path.startsWith(`${deleted}/`)) delete next[path];
+          if (path === deleted || path.startsWith(`${deleted}/`))
+            delete next[path];
         }
         return next;
       });
@@ -2024,6 +2385,7 @@ export function ModMaker({
         (document) =>
           document.path !== deleted && !document.path.startsWith(`${deleted}/`),
       );
+      documentsRef.current = remaining;
       setDocuments(remaining);
       if (
         activeTab?.kind === "file" &&
@@ -2031,9 +2393,19 @@ export function ModMaker({
       ) {
         const nextDocument = remaining[remaining.length - 1];
         if (nextDocument) {
+          const nextActive = {
+            kind: "file" as const,
+            path: nextDocument.path,
+          };
+          activeEditorPathRef.current = nextDocument.path;
+          activeTabRef.current = nextActive;
           setActivePath(nextDocument.path);
-          setActiveTab({ kind: "file", path: nextDocument.path });
-          setTreeSelection({ path: nextDocument.path, kind: "file" });
+          setActiveTab(nextActive);
+          setTreeSelection(
+            nextDocument.untitled
+              ? null
+              : { path: nextDocument.path, kind: "file" },
+          );
         } else {
           const nextSession = sessionTabs[sessionTabs.length - 1];
           setActivePath("");
@@ -2060,11 +2432,9 @@ export function ModMaker({
     void API.RevealWorkspacePath(workspace.id, selection.path).catch(onError);
   };
 
-
   const rememberSearchFocus = () => {
     const focused = document.activeElement;
-    searchReturnFocus.current =
-      focused instanceof HTMLElement ? focused : null;
+    searchReturnFocus.current = focused instanceof HTMLElement ? focused : null;
   };
 
   const restoreSearchFocus = () => {
@@ -2127,10 +2497,7 @@ export function ModMaker({
     }
     if (workspaceSearchRegex) {
       try {
-        new RegExp(
-          query,
-          workspaceSearchCaseSensitive ? "g" : "gi",
-        );
+        new RegExp(query, workspaceSearchCaseSensitive ? "g" : "gi");
       } catch (error) {
         workspaceSearchRequestVersion.current += 1;
         setWorkspaceSearchLoading(false);
@@ -2222,8 +2589,7 @@ export function ModMaker({
     if (!workspace) return;
     const handleShortcut = (event: KeyboardEvent) => {
       if (workspace.id !== selectedID) return;
-      const target =
-        event.target instanceof Element ? event.target : null;
+      const target = event.target instanceof Element ? event.target : null;
       const inEditorScope = Boolean(
         target?.closest(
           ".ide-workspace, .workspace-search-overlay, .editor-find-panel",
@@ -2274,11 +2640,7 @@ export function ModMaker({
       requestId: ++editorSelectionRequest.current,
     });
     setPendingEditorReveal(null);
-  }, [
-    activeDocument?.content,
-    activeDocument?.path,
-    pendingEditorReveal,
-  ]);
+  }, [activeDocument?.content, activeDocument?.path, pendingEditorReveal]);
   useEffect(() => {
     if (!fileSearchOpen) return;
     if (!activeFileSearchMatch) {
@@ -2290,11 +2652,7 @@ export function ModMaker({
       to: activeFileSearchMatch.to,
       requestId: ++editorSelectionRequest.current,
     });
-  }, [
-    activeFileSearchMatch?.from,
-    activeFileSearchMatch?.to,
-    fileSearchOpen,
-  ]);
+  }, [activeFileSearchMatch?.from, activeFileSearchMatch?.to, fileSearchOpen]);
 
   useEffect(() => {
     setEditorSelection(null);
@@ -2451,8 +2809,8 @@ export function ModMaker({
   };
 
   const openNewSession = () => {
-    if (mutationBlocked()) return;
-    if (!workspace) return;
+    if (mutationBlocked() || !workspace || preferenceBusy || busy !== "")
+      return;
     editorInteractionVersion.current += 1;
     const currentIDs = new Set(
       sessionTabsRef.current.map((tab) => tab.record.id),
@@ -2475,6 +2833,27 @@ export function ModMaker({
     setActiveTab(nextActive);
     setSessionMenu(null);
   };
+
+  useEffect(() => {
+    if (!workspace) return;
+    const handleNewShortcut = (event: KeyboardEvent) => {
+      if (
+        workspace.id !== selectedID ||
+        event.isComposing ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.key.toLowerCase() !== "n"
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (event.shiftKey) openNewSession();
+      else openNewDocument();
+    };
+    window.addEventListener("keydown", handleNewShortcut, true);
+    return () => window.removeEventListener("keydown", handleNewShortcut, true);
+  }, [workspace?.id, selectedID, busy, preferenceBusy, stale, writeBlocked]);
 
   const updateSession = (
     record: VirgilSessionRecord,
@@ -2581,8 +2960,13 @@ export function ModMaker({
       const nextDocument =
         documentsRef.current[documentsRef.current.length - 1];
       if (nextDocument) {
+        activeEditorPathRef.current = nextDocument.path;
         setActivePath(nextDocument.path);
-        setTreeSelection({ path: nextDocument.path, kind: "file" });
+        setTreeSelection(
+          nextDocument.untitled
+            ? null
+            : { path: nextDocument.path, kind: "file" },
+        );
         return { kind: "file", path: nextDocument.path };
       }
       return null;
@@ -2671,10 +3055,7 @@ export function ModMaker({
     }
   };
 
-  const configureVirgil = async (
-    enabled: boolean,
-    source: "choice",
-  ) => {
+  const configureVirgil = async (enabled: boolean, source: "choice") => {
     if (mutationBlocked()) return;
     if (!workspace) return;
     const workspaceID = workspace.id;
@@ -2828,7 +3209,6 @@ export function ModMaker({
         transient={activeSession.transient}
         locked={Boolean(activeSession.busy) || mutationBlocked()}
         prompt={sessionPrompts[activeSession.record.id] ?? ""}
-        activeFilePath={activePath}
         activityBuffer={agentActivityBuffer}
         onPromptChange={(value) => {
           const id = activeSession.record.id;
@@ -2879,7 +3259,7 @@ export function ModMaker({
           </div>
         )}
         <CodeEditor
-          path={activeDocument.path}
+          path={activeDocumentLabel}
           value={activeDocument.content}
           onChange={updateDocument}
           onSave={(snapshot) => void saveFile(snapshot)}
@@ -2902,29 +3282,31 @@ export function ModMaker({
       emptySurface
     );
 
-  const fileTabItems: IndexCardTabItem[] = documents.map((document) => ({
-    id: `file:${document.path}`,
-    label: (
-      <>
-        {document.path.split("/").pop()}
-        {document.restored && (
-          <i
-            className="modmaker-tab__restored"
-            aria-label="Draft restored"
-            title="Draft restored"
-          />
-        )}
-        {document.content !== document.savedContent && (
-          <i className="modmaker-tab__dirty" aria-label="Unsaved" />
-        )}
-      </>
-    ),
-    icon: <Icon name="files" size={14} />,
-    panel: null,
-    onClose: () => closeDocument(document.path),
-    closeLabel: `Close ${document.path}`,
-    title: document.path,
-  }));
+  const fileTabItems: IndexCardTabItem[] = documents.map((document) => {
+    const isDirty =
+      document.untitled || document.content !== document.savedContent;
+    const statusLabel = document.restored
+      ? isDirty
+        ? "Draft restored; unsaved changes"
+        : "Draft restored"
+      : isDirty
+        ? "Unsaved"
+        : undefined;
+
+    return {
+      id: `file:${document.path}`,
+      label: editorDocumentLabel(document),
+      statusTone: statusLabel ? "warning" : undefined,
+      statusLabel,
+      icon: <Icon name={document.untitled ? "filePlus" : "files"} size={14} />,
+      panel: null,
+      onClose: () => closeDocument(document.path),
+      closeLabel: `Close ${editorDocumentLabel(document)}`,
+      title: document.untitled
+        ? `${editorDocumentLabel(document)} (unsaved)`
+        : document.path,
+    };
+  });
   if (
     activeTab?.kind === "file" &&
     !documents.some((document) => document.path === activeTab.path)
@@ -2937,103 +3319,112 @@ export function ModMaker({
       title: activeTab.path,
     });
   }
-  const editorActions =
-    !activeSession && activeDocument ? (
-      <div className="modmaker-editor-actions" role="group" aria-label="Editor actions">
-        <button
-          type="button"
-          className={`modmaker-editor-action modmaker-editor-action--icon${busy === "save" ? " is-loading" : ""}`}
-          title="Save"
-          aria-label="Save"
-          aria-busy={busy === "save"}
-          disabled={
-            mutationBlocked() ||
-            activeDocument.content === activeDocument.savedContent ||
-            busy !== ""
-          }
-          onClick={() => void saveFile()}
-        >
-          {busy === "save" ? <Spinner small /> : <Icon name="save" size={16} />}
-        </button>
-        <button
-          type="button"
-          className={`modmaker-editor-action modmaker-editor-action--icon${busy === "format" ? " is-loading" : ""}`}
-          title="Format document"
-          aria-label="Format document"
-          aria-busy={busy === "format"}
-          disabled={
-            mutationBlocked() ||
-            busy !== "" ||
-            !canFormatSource(activeDocument.path)
-          }
-          onClick={() => void formatDocument()}
-        >
-          {busy === "format" ? <Spinner small /> : <Icon name="code" size={16} />}
-        </button>
-        {activeDocument.path.toLowerCase().endsWith(".pc") && (
-          <Button
-            className="modmaker-editor-action modmaker-editor-action--secondary"
-            tone="quiet"
-            disabled={mutationBlocked() || busy !== ""}
-            icon="copy"
-            onClick={() => void cloneSelectedVariant()}
-          >
-            Clone variant
-          </Button>
-        )}
-        {activeDocument.externalContent !== undefined && (
-          <Button
-            className="modmaker-editor-action modmaker-editor-action--secondary"
-            tone="quiet"
-            disabled={busy !== ""}
-            icon="refresh"
-            onClick={reloadExternalChange}
-          >
-            Reload
-          </Button>
-        )}
-        <Button
-          type="button"
-          className="modmaker-editor-action modmaker-editor-action--secondary"
-          icon="plus"
-          disabled={preferenceBusy || busy !== "" || mutationBlocked()}
-          onClick={openNewSession}
-        >
-          New Virgil Session
-        </Button>
-      </div>
-    ) : (
-      <Button
-        type="button"
+  const activeDocumentNeedsSave = Boolean(
+    activeDocument &&
+    (activeDocument.untitled ||
+      activeDocument.content !== activeDocument.savedContent),
+  );
+  const editorActions = (
+    <div
+      className="modmaker-editor-actions"
+      role="group"
+      aria-label="Editor actions"
+    >
+      {!activeSession && activeDocument && (
+        <>
+          <EditorIconAction
+            label={activeDocumentNeedsSave ? "Save file" : "File saved"}
+            shortcut="Ctrl+S"
+            icon="save"
+            className={`modmaker-editor-action--save ${
+              activeDocumentNeedsSave ? "is-dirty" : "is-saved"
+            }`}
+            loading={busy === "save"}
+            disabled={
+              mutationBlocked() || !activeDocumentNeedsSave || busy !== ""
+            }
+            onClick={() => void saveFile()}
+          />
+          <EditorIconAction
+            label="Format document"
+            icon="code"
+            className="modmaker-editor-action--format"
+            loading={busy === "format"}
+            disabled={
+              mutationBlocked() ||
+              busy !== "" ||
+              !canFormatSource(activeDocument.path)
+            }
+            onClick={() => void formatDocument()}
+          />
+          {!activeDocument.untitled &&
+            activeDocument.path.toLowerCase().endsWith(".pc") && (
+              <EditorIconAction
+                label="Clone variant"
+                icon="copy"
+                className="modmaker-editor-action--contextual modmaker-editor-action--clone"
+                disabled={mutationBlocked() || busy !== ""}
+                onClick={() => void cloneSelectedVariant()}
+              />
+            )}
+          {activeDocument.externalContent !== undefined && (
+            <EditorIconAction
+              label="Reload external changes"
+              icon="refresh"
+              className="modmaker-editor-action--contextual modmaker-editor-action--reload"
+              disabled={busy !== ""}
+              onClick={reloadExternalChange}
+            />
+          )}
+        </>
+      )}
+      <EditorIconAction
+        label="New untitled file"
+        shortcut="Ctrl+N"
+        icon="filePlus"
+        className="modmaker-editor-action--new-file"
+        disabled={busy !== "" || mutationBlocked()}
+        onClick={openNewDocument}
+      />
+      <EditorIconAction
+        label="New Virgil session"
+        shortcut="Ctrl+Shift+N"
         icon="plus"
+        className="modmaker-editor-action--new-session"
         disabled={preferenceBusy || busy !== "" || mutationBlocked()}
         onClick={openNewSession}
-      >
-        New Virgil Session
-      </Button>
-    );
+      />
+    </div>
+  );
 
   const tabItems: IndexCardTabItem[] = [
     ...fileTabItems,
     ...sessionTabs.map((tab) => {
-      const status = tab.record.status || "idle";
+      const status = (tab.record.status || "idle").trim().toLowerCase();
+      const title = tab.record.title || "Virgil session";
+      const statusTone: IndexCardTabItem["statusTone"] =
+        status === "idle"
+          ? "success"
+          : status === "paused"
+            ? "warning"
+            : status === "error"
+              ? "danger"
+              : "accent";
+      const statusLabel = status
+        ? `${status.charAt(0).toUpperCase()}${status.slice(1)}`
+        : "Idle";
+
       return {
         id: `session:${tab.record.id}`,
-        label: (
-          <>
-            {tab.record.title || "Virgil session"}
-            <i
-              className={`modmaker-tab__status modmaker-tab__status--${status}`}
-              aria-label={status}
-            />
-          </>
-        ),
+        label: title,
+        statusTone,
+        statusLabel,
         icon: <ReplaceableUIPlaceholder entity="virgil-logo" />,
         panel: null,
         onClose: () => {
           void closeSession(tab.record.id);
         },
-        closeLabel: `Close ${tab.record.title || "Virgil session"}`,
+        closeLabel: `Close ${title}`,
         title: tab.transient
           ? "Transient Virgil session"
           : tab.record.runtimeSessionId || "Legacy Virgil history",
@@ -3046,17 +3437,11 @@ export function ModMaker({
             id: tab.record.id,
             x: Math.max(
               margin,
-              Math.min(
-                event.clientX,
-                window.innerWidth - menuWidth - margin,
-              ),
+              Math.min(event.clientX, window.innerWidth - menuWidth - margin),
             ),
             y: Math.max(
               margin,
-              Math.min(
-                event.clientY,
-                window.innerHeight - menuHeight - margin,
-              ),
+              Math.min(event.clientY, window.innerHeight - menuHeight - margin),
             ),
           });
         },
@@ -3069,7 +3454,10 @@ export function ModMaker({
 
   return (
     <section className={`maker-shell${stale ? " maker-shell--stale" : ""}`}>
-      <main ref={workspaceMainRef} className={`maker-main${stale ? " is-stale" : ""}`}>
+      <main
+        ref={workspaceMainRef}
+        className={`maker-main${stale ? " is-stale" : ""}`}
+      >
         <header className="maker-header">
           <Button
             className="maker-back"
@@ -3100,7 +3488,18 @@ export function ModMaker({
             {dirty && <span className="status-test">Unsaved changes</span>}
           </div>
         </header>
-        {stale && <div className="maker-stale-warning" role="alert" aria-live="assertive"><Icon name="warning" size={18}/><strong>Changed. Please close and reopen this mod&apos;s details.</strong></div>}
+        {stale && (
+          <div
+            className="maker-stale-warning"
+            role="alert"
+            aria-live="assertive"
+          >
+            <Icon name="warning" size={18} />
+            <strong>
+              Changed. Please close and reopen this mod&apos;s details.
+            </strong>
+          </div>
+        )}
 
         <nav className="workspace-tool-toggles" aria-label="Workspace tools">
           {workspaceTools.map((tool) => (
@@ -3123,13 +3522,17 @@ export function ModMaker({
           ))}
         </nav>
 
-        <div className={`maker-content${utility ? " has-utility" : ""}${utility === "source" ? " has-source-utility" : ""}`}>
+        <div
+          className={`maker-content${utility ? " has-utility" : ""}${utility === "source" ? " has-source-utility" : ""}`}
+        >
           <div className="ide-workspace">
             <div
               className={`editor-layout${fileBrowserResizing ? " is-resizing" : ""}`}
               ref={editorLayoutRef}
               style={
-                { "--file-browser-width": `${fileBrowserWidth}px` } as React.CSSProperties
+                {
+                  "--file-browser-width": `${fileBrowserWidth}px`,
+                } as React.CSSProperties
               }
             >
               <aside className="file-browser">
@@ -3208,11 +3611,19 @@ export function ModMaker({
                   onValueChange={(id) => {
                     if (id.startsWith("file:")) {
                       const path = id.slice("file:".length);
+                      const document = documentsRef.current.find(
+                        (item) => item.path === path,
+                      );
                       editorInteractionVersion.current += 1;
                       cancelFormatTasks();
+                      const nextActive = { kind: "file" as const, path };
+                      activeEditorPathRef.current = path;
+                      activeTabRef.current = nextActive;
                       setActivePath(path);
-                      setActiveTab({ kind: "file", path });
-                      setTreeSelection({ path, kind: "file" });
+                      setActiveTab(nextActive);
+                      setTreeSelection(
+                        document?.untitled ? null : { path, kind: "file" },
+                      );
                       return;
                     }
                     if (!id.startsWith("session:")) return;
@@ -3274,7 +3685,7 @@ export function ModMaker({
             <section
               className="editor-find-panel"
               role="dialog"
-              aria-label={`Find in ${activeDocument.path}`}
+              aria-label={`Find in ${activeDocumentLabel}`}
             >
               <form
                 className="editor-find-panel__form"
@@ -3301,7 +3712,7 @@ export function ModMaker({
                     }
                   }}
                   placeholder="Find in file"
-                  aria-label={`Find in ${activeDocument.path}`}
+                  aria-label={`Find in ${activeDocumentLabel}`}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -3406,8 +3817,7 @@ export function ModMaker({
                       tone="primary"
                       icon="search"
                       disabled={
-                        workspaceSearchLoading ||
-                        !workspaceSearchQuery.trim()
+                        workspaceSearchLoading || !workspaceSearchQuery.trim()
                       }
                     >
                       Search
@@ -3435,9 +3845,7 @@ export function ModMaker({
                         onChange={(event) => {
                           workspaceSearchRequestVersion.current += 1;
                           setWorkspaceSearchLoading(false);
-                          setWorkspaceSearchCaseSensitive(
-                            event.target.checked,
-                          );
+                          setWorkspaceSearchCaseSensitive(event.target.checked);
                           setWorkspaceSearchResults([]);
                           setWorkspaceSearchError("");
                         }}
@@ -3804,13 +4212,13 @@ function NewModStart({
           <Button
             icon="plus"
             tone="primary"
-              disabled={
-                blocked ||
-                !name.trim() ||
-                !modID.trim() ||
-                !version.trim() ||
-                creating
-              }
+            disabled={
+              blocked ||
+              !name.trim() ||
+              !modID.trim() ||
+              !version.trim() ||
+              creating
+            }
             onClick={createManual}
           >
             {creating ? "Creating mod" : "Create mod"}

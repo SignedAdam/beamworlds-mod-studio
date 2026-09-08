@@ -1,7 +1,8 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import type { ModTag } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import { Icon, type IconName } from './icons'
+import { Icon } from './icons'
+import { TAG_ICONS, safeTagIcon, tagColor, type TagIconName } from './tagIcons'
 import './TagEditor.css'
 
 export interface TagEditorProps {
@@ -18,7 +19,6 @@ export interface TagEditorProps {
   locked?: boolean
 }
 
-type TagIconName = Extract<IconName, 'tag' | 'vehicle' | 'map' | 'code' | 'files' | 'shield' | 'user'>
 type MenuBusy = '' | 'save' | 'delete'
 
 type NewTagEdit = {
@@ -35,7 +35,6 @@ type MenuState = {
   y: number
   color: string
   icon: TagIconName
-  error: string
   busy: MenuBusy
 }
 
@@ -69,8 +68,10 @@ interface AssignmentRuntime {
   epoch: number
 }
 
-const TAG_COLORS = ['#f26522', '#3f93c5', '#47bd75', '#ffb12c', '#a978e5', '#e85d8f', '#7a8791'] as const
-const TAG_ICONS: TagIconName[] = ['tag', 'vehicle', 'map', 'code', 'files', 'shield', 'user']
+const TAG_COLORS = [
+  '#f26522', '#3f93c5', '#47bd75', '#ffb12c', '#a978e5', '#e85d8f', '#7a8791',
+  '#e5484d', '#14b8a6', '#9bcc3c', '#38bdf8', '#6366f1', '#a3714f', '#d6d3cb',
+] as const
 const FALLBACK_TAG_COLOR = '#7a8791'
 const DEFAULT_SELECTION_KEY = '__tag-editor-selection__'
 
@@ -180,7 +181,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     left = clamp(left, margin, Math.max(margin, window.innerWidth - rect.width - margin))
     top = clamp(top, margin, Math.max(margin, window.innerHeight - rect.height - margin))
     setMenuPosition({ left, top })
-  }, [contextMenu?.tag.id, contextMenu?.x, contextMenu?.y, contextMenu?.error, contextMenu?.busy])
+  }, [contextMenu?.tag.id, contextMenu?.x, contextMenu?.y, contextMenu?.busy])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -342,7 +343,6 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
       y: event.clientY,
       color: safeTagColor(tag.color),
       icon: safeTagIcon(tag.icon),
-      error: '',
       busy: '',
     })
   }
@@ -359,7 +359,6 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
       y: rect.bottom,
       color: safeTagColor(tag.color),
       icon: safeTagIcon(tag.icon),
-      error: '',
       busy: '',
     })
   }
@@ -385,19 +384,19 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     const tagID = menu.tag.id
     const color = safeTagColor(menu.color)
     const icon = safeTagIcon(menu.icon)
-    updateMenu({ busy: 'save', error: '' })
+    updateMenu({ busy: 'save' })
     try {
       await onUpdateVisualRef.current(tagID, color, icon)
       const current = contextMenuRef.current
       if (!current || current.tag.id !== tagID) return
       if (lockedRef.current) {
-        updateMenu({ busy: '', error: '' })
+        updateMenu({ busy: '' })
         return
       }
       closeContextMenu()
     } catch (error) {
       if (contextMenuRef.current?.tag.id !== tagID) return
-      updateMenu({ busy: '', error: errorMessage(error) })
+      updateMenu({ busy: '' })
       onErrorRef.current(error)
     }
   }
@@ -414,13 +413,13 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     if (!window.confirm(message)) return
 
     const tagID = menu.tag.id
-    updateMenu({ busy: 'delete', error: '' })
+    updateMenu({ busy: 'delete' })
     try {
       await onDeleteRef.current(tagID)
       if (contextMenuRef.current?.tag.id === tagID) closeContextMenu()
     } catch (error) {
       if (contextMenuRef.current?.tag.id !== tagID) return
-      updateMenu({ busy: '', error: errorMessage(error) })
+      updateMenu({ busy: '' })
       onErrorRef.current(error)
     }
   }
@@ -473,7 +472,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
       <div className="tag-editor__option-group">
         <span>Icon</span>
         <div className="tag-editor__icon-options">
-          {TAG_ICONS.map(icon => <button type="button" key={icon} className={edit.icon === icon ? 'is-selected' : ''} aria-label={`Use ${icon} icon`} aria-pressed={edit.icon === icon} onClick={() => setEdit(current => current ? { ...current, icon } : current)} disabled={createBusy}><Icon name={icon} size={15} /></button>)}
+          {TAG_ICONS.map(icon => <button type="button" key={icon} className={edit.icon === icon ? 'is-selected' : ''} aria-label={`Use ${icon} icon`} aria-pressed={edit.icon === icon} onClick={() => setEdit(current => current ? { ...current, icon } : current)} disabled={createBusy}><Icon name={icon} size={19} /></button>)}
         </div>
       </div>
     </div>
@@ -503,17 +502,17 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
         onContextMenu={event => openContextMenu(event, tag)}
         onKeyDown={event => openKeyboardMenu(event, tag)}
       >
-        <Icon name={icon} size={13} />
+        <Icon name={icon} size={18} />
         <span>{tag.name}</span>
         <small>{tag.modCount.toLocaleString()}</small>
-        <span className={`tag-editor__chip-status${status?.kind === 'pending' ? ' is-pending' : ''}${status?.kind === 'error' ? ' is-error' : ''}`} title={status?.kind === 'error' ? status.message : undefined}>
-          {status?.kind === 'pending' && <span className="tag-editor__pending-dot" aria-hidden="true" />}
-          {status?.kind === 'error' && <><Icon name="error" size={12} /><span className="tag-editor__visually-hidden">{status.message}</span></>}
-        </span>
+        {status && <span className={`tag-editor__chip-status${status.kind === 'pending' ? ' is-pending' : ''}${status.kind === 'error' ? ' is-error' : ''}`} title={status.kind === 'error' ? status.message : undefined}>
+          {status.kind === 'pending' && <span className="tag-editor__pending-dot" aria-hidden="true" />}
+          {status.kind === 'error' && <><Icon name="error" size={12} /><span className="tag-editor__visually-hidden">{status.message}</span></>}
+        </span>}
       </button>
-      <span className="tag-editor__retry-slot">
-        {status?.kind === 'error' && <button type="button" className="tag-editor__retry" aria-label={`Retry saving ${tag.name} assignment`} title={`Retry saving ${tag.name} assignment`} disabled={locked} onClick={() => retryAssignment(tag.id)}><Icon name="refresh" size={12} /></button>}
-      </span>
+      {status?.kind === 'error' && <span className="tag-editor__retry-slot">
+        <button type="button" className="tag-editor__retry" aria-label={`Retry saving ${tag.name} assignment`} title={`Retry saving ${tag.name} assignment`} disabled={locked} onClick={() => retryAssignment(tag.id)}><Icon name="refresh" size={12} /></button>
+      </span>}
     </span>
   }
 
@@ -521,19 +520,31 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
   if (contextMenu && !customColors.includes(safeTagColor(contextMenu.color)) && !TAG_COLORS.includes(safeTagColor(contextMenu.color) as typeof TAG_COLORS[number])) customColors.push(safeTagColor(contextMenu.color))
   const saveDisabled = !contextMenu || locked || contextMenu.busy !== '' || (safeTagColor(contextMenu.color) === safeTagColor(contextMenu.tag.color) && safeTagIcon(contextMenu.icon) === safeTagIcon(contextMenu.tag.icon))
 
+  const assignedTags = allTags.filter(tag => assignedIDs.has(tag.id))
+  const availableTags = allTags.filter(tag => !assignedIDs.has(tag.id))
+
   return <div className="tag-editor">
     <header>
-      <small id={helperId}>Click to assign or remove tags</small>
+      <small id={helperId}>Click a tag to assign or remove it</small>
     </header>
 
-    <div className="tag-editor__group">
-      <div className="tag-editor__chips" role="group" aria-label="Tags" aria-describedby={helperId}>
+    <div className="tag-editor__group tag-editor__group--assigned">
+      <span className="tag-editor__group-label">Assigned<em>{assignedTags.length.toLocaleString()}</em></span>
+      <div className="tag-editor__chips" role="group" aria-label="Assigned tags" aria-describedby={helperId}>
+        {assignedTags.length === 0
+          ? <span className="tag-editor__empty">No tags assigned yet</span>
+          : assignedTags.map(chip)}
+      </div>
+    </div>
+
+    <div className="tag-editor__group tag-editor__group--available">
+      <span className="tag-editor__group-label">Available</span>
+      <div className="tag-editor__chips" role="group" aria-label="Available tags" aria-describedby={helperId}>
         <button ref={createButtonRef} type="button" className="tag-editor__chip tag-editor__new-chip" aria-label="Create a new tag" title="Create a new tag" disabled={locked || createBusy} onClick={beginNew}>
           <span>+ New tag</span>
-          <span className="tag-editor__chip-status" aria-hidden="true" />
         </button>
         {editor}
-        {allTags.map(chip)}
+        {availableTags.map(chip)}
         {allTags.length === 0 && <span className="tag-editor__empty">No tags yet</span>}
       </div>
     </div>
@@ -545,25 +556,24 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
           </div>
 
           <div className="tag-editor__icon-grid" role="radiogroup" aria-label="Tag icons">
-            {TAG_ICONS.map(icon => <button key={icon} type="button" role="radio" className={contextMenu.icon === icon ? 'is-selected' : ''} aria-label={`Use ${icon} icon`} aria-checked={contextMenu.icon === icon} onClick={() => updateMenu({ icon: icon, error: '' })} disabled={contextMenu.busy !== ''}><Icon name={icon} size={15} /></button>)}
+            {TAG_ICONS.map(icon => <button key={icon} type="button" role="radio" className={contextMenu.icon === icon ? 'is-selected' : ''} aria-label={`Use ${icon} icon`} aria-checked={contextMenu.icon === icon} onClick={() => updateMenu({ icon })} disabled={contextMenu.busy !== ''}><Icon name={icon} size={19} /></button>)}
           </div>
 
           <div className="tag-editor__swatch-row tag-editor__swatch-row--built-in" role="radiogroup" aria-label="Built-in tag colors">
-            {TAG_COLORS.map(color => <button key={color} type="button" role="radio" className={safeTagColor(contextMenu.color) === color ? 'is-selected' : ''} style={{ '--tag-color': color } as CSSProperties} aria-label={`Use ${color} tag color`} aria-checked={safeTagColor(contextMenu.color) === color} onClick={() => updateMenu({ color, error: '' })} disabled={contextMenu.busy !== ''}><i /></button>)}
+            {TAG_COLORS.map(color => <button key={color} type="button" role="radio" className={safeTagColor(contextMenu.color) === color ? 'is-selected' : ''} style={{ '--tag-color': color } as CSSProperties} aria-label={`Use ${color} tag color`} aria-checked={safeTagColor(contextMenu.color) === color} onClick={() => updateMenu({ color })} disabled={contextMenu.busy !== ''}><i /></button>)}
           </div>
 
           {customColors.length > 0 && <div className="tag-editor__swatch-row tag-editor__swatch-row--custom" role="radiogroup" aria-label="Custom tag colors">
-            {customColors.map(color => <button key={color} type="button" role="radio" className={safeTagColor(contextMenu.color) === color ? 'is-selected' : ''} style={{ '--tag-color': color } as CSSProperties} aria-label={`Use ${color} tag color`} aria-checked={safeTagColor(contextMenu.color) === color} onClick={() => updateMenu({ color, error: '' })} disabled={contextMenu.busy !== ''}><i /></button>)}
+            {customColors.map(color => <button key={color} type="button" role="radio" className={safeTagColor(contextMenu.color) === color ? 'is-selected' : ''} style={{ '--tag-color': color } as CSSProperties} aria-label={`Use ${color} tag color`} aria-checked={safeTagColor(contextMenu.color) === color} onClick={() => updateMenu({ color })} disabled={contextMenu.busy !== ''}><i /></button>)}
           </div>}
 
           <div className="tag-editor__custom-row">
             <label className="tag-editor__custom-picker">
-              <input type="color" aria-label="Custom color…" value={safeTagColor(contextMenu.color)} disabled={contextMenu.busy !== ''} onChange={event => updateMenu({ color: event.target.value, error: '' })} />
+              <input type="color" aria-label="Custom color…" value={safeTagColor(contextMenu.color)} disabled={contextMenu.busy !== ''} onChange={event => updateMenu({ color: event.target.value })} />
               <span>Custom color…</span>
             </label>
           </div>
 
-          {contextMenu.error && <div className="tag-editor__menu-error" role="alert" aria-live="polite"><Icon name="error" size={13} /><span>{contextMenu.error}</span><button type="button" onClick={() => void saveAppearance()} disabled={locked || contextMenu.busy !== ''}>Retry</button></div>}
 
           <footer className="tag-editor__menu-footer">
             <button type="button" className="text-button" onClick={closeContextMenu}>Cancel</button>
@@ -681,11 +691,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 function safeTagColor(value: string | undefined): string {
-  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : FALLBACK_TAG_COLOR
-}
-
-function safeTagIcon(value: string | undefined): TagIconName {
-  return TAG_ICONS.includes(value as TagIconName) ? value as TagIconName : 'tag'
+  return tagColor(value) ?? FALLBACK_TAG_COLOR
 }
 
 function errorMessage(error: unknown): string {

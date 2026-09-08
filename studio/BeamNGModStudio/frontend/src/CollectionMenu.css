@@ -9,8 +9,8 @@
   width: clamp(112px, 18vw, 220px);
   min-width: 112px;
   max-width: 240px;
-  height: 31px;
-  min-height: 31px;
+  height: var(--control-height);
+  min-height: var(--control-height);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -100,74 +100,29 @@
   animation: collection-menu-in .13s cubic-bezier(.2, .8, .2, 1);
 }
 
-.collection-control .collection-menu > header {
-  min-height: 35px;
-  height: 35px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 3px 4px 6px;
+/* Rows carry no explanatory copy: label, count, and one separator before the scope list. */
+.collection-control .collection-menu__choice--last-scope {
+  margin-bottom: 4px;
+  padding-bottom: 7px;
   border-bottom: 1px solid var(--line);
-}
-
-.collection-control .collection-menu > header > div {
-  min-width: 0;
-  flex: 1;
-}
-
-.collection-control .collection-menu > header strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: var(--font-control);
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.collection-control .collection-menu .collection-menu__create {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-}
-
-.collection-control .collection-menu .collection-menu__create:hover:not(:disabled),
-.collection-control .collection-menu .collection-menu__action:hover:not(:disabled) {
-  border-color: var(--line);
-  background: var(--surface-soft);
-  color: var(--text);
-}
-
-.collection-control .collection-menu .collection-menu__create:focus-visible,
-.collection-control .collection-menu .collection-menu__action:focus-visible {
-  outline: 2px solid var(--active-tab);
-  outline-offset: 1px;
 }
 
 .collection-control .collection-menu__choice {
   width: 100%;
   min-width: 0;
-  min-height: var(--menu-item-height);
-  height: auto;
+  min-height: var(--control-height);
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  padding: 6px 7px;
+  gap: 8px;
+  margin: 0;
+  padding: 0 8px;
   border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 4px;
   background: transparent;
-  color: var(--text-2);
+  color: var(--text);
   font: inherit;
+  font-size: var(--font-control);
   text-align: left;
   cursor: pointer;
 }
@@ -190,13 +145,31 @@
 }
 
 .collection-control .collection-menu__choice.is-active {
-  background: color-mix(in srgb, var(--active-tab) 12%, transparent);
+  background: color-mix(in srgb, var(--active-tab) 16%, transparent);
   box-shadow: inset 2px 0 var(--active-tab);
   color: var(--text);
+  font-weight: 650;
 }
 
 .collection-control .collection-menu__choice.is-active > svg {
   color: var(--active-tab);
+}
+
+.collection-control .collection-menu__choice--empty {
+  color: var(--disabled);
+  cursor: default;
+}
+
+.collection-control .collection-menu__choice--empty > svg {
+  color: var(--disabled);
+}
+
+.collection-control .collection-menu__manage {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 4px 4px;
+  color: var(--text-2);
 }
 
 .collection-control .collection-menu__choice:disabled,
@@ -207,27 +180,7 @@
 
 .collection-control .collection-menu__choice-label {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.collection-control .collection-menu__choice strong {
-  min-width: 0;
   overflow: hidden;
-  color: var(--text);
-  font-size: var(--font-control);
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.collection-control .collection-menu__choice small {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-3);
-  font-size: var(--font-caption);
-  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

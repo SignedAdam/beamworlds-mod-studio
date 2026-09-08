@@ -74,6 +74,33 @@ func TestCleanInstallSeedsTerrainDefaultTagIdempotently(t *testing.T) {
 	}
 }
 
+// The Tag editor offers every name in modTagIcons, so each must survive persistence.
+func TestTagVisualAcceptsEveryOfferedIcon(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "icons.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	id, _, _ := terrainTagForTest(t, store)
+
+	for _, icon := range modTagIcons {
+		if err := store.UpdateModTagVisual(context.Background(), id, "#3f93c5", icon); err != nil {
+			t.Fatalf("icon %q rejected: %v", icon, err)
+		}
+		var stored string
+		if err := store.db.QueryRowContext(context.Background(), `SELECT icon FROM mod_tags WHERE id=?`, id).Scan(&stored); err != nil {
+			t.Fatal(err)
+		}
+		if stored != icon {
+			t.Fatalf("stored icon = %q, want %q", stored, icon)
+		}
+	}
+
+	if err := store.UpdateModTagVisual(context.Background(), id, "#3f93c5", "rocket"); err == nil {
+		t.Fatal("unsupported tag icon was accepted")
+	}
+}
+
 func TestCurrentV4MigrationAddsTerrainAndPreservesFTSAndAssignments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "current-v4.sqlite")
 	store, err := OpenStore(path)

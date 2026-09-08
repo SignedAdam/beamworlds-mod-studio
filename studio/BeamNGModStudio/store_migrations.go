@@ -21,12 +21,12 @@ import (
 )
 
 const (
-	storeSchemaVersion          = 4
+	storeSchemaVersion          = 5
 	legacyCatalogSchemaVersion  = 1
 	legacyCatalogImportMarker   = "legacy_catalog_imported"
 	legacyCatalogImportAbsent   = "absent"
 	legacyCatalogImportImported = "imported"
-	libraryFTSVersion           = "1"
+	libraryFTSVersion           = "2"
 	libraryFTSFreshnessKey      = "fts_fresh"
 	libraryFTSVersionKey        = "fts_version"
 	legacyCatalogBackupSuffix   = ".bak"
@@ -60,15 +60,53 @@ var (
 		FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
 		FOREIGN KEY(source_id) REFERENCES source_classifications(id)
 	)`
-	v4LibraryFoldersTableDDL = `CREATE TABLE IF NOT EXISTS library_folders (
-		id TEXT PRIMARY KEY,
-		name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-		parent_id TEXT,
-		position INTEGER NOT NULL DEFAULT 0,
-		created_at TEXT NOT NULL DEFAULT '',
-		updated_at TEXT NOT NULL DEFAULT '',
-		FOREIGN KEY(parent_id) REFERENCES library_folders(id) ON DELETE SET NULL
-	)`
+	collectionsTableDDL = `CREATE TABLE IF NOT EXISTS collections (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+	description TEXT NOT NULL DEFAULT '',
+	position INTEGER NOT NULL DEFAULT 0,
+	cover_json TEXT NOT NULL DEFAULT '{"mode":"automatic","images":[]}',
+	cover_asset_sha TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT ''
+)`
+	collectionModsTableDDL = `CREATE TABLE IF NOT EXISTS collection_mods (
+	collection_id TEXT NOT NULL,
+	entity_id TEXT NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY(collection_id,entity_id),
+	FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+	FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
+)`
+	collectionChildrenTableDDL = `CREATE TABLE IF NOT EXISTS collection_children (
+	parent_id TEXT NOT NULL,
+	child_id TEXT NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY(parent_id,child_id),
+	CHECK(parent_id<>child_id),
+	FOREIGN KEY(parent_id) REFERENCES collections(id) ON DELETE CASCADE,
+	FOREIGN KEY(child_id) REFERENCES collections(id) ON DELETE CASCADE
+)`
+	playProfilesTableDDL = `CREATE TABLE IF NOT EXISTS play_profiles (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+	created_at TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT ''
+)`
+	playProfileCollectionsTableDDL = `CREATE TABLE IF NOT EXISTS play_profile_collections (
+	profile_id TEXT NOT NULL,
+	collection_id TEXT NOT NULL,
+	position INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY(profile_id,collection_id),
+	FOREIGN KEY(profile_id) REFERENCES play_profiles(id) ON DELETE CASCADE,
+	FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE
+)`
+	playStateTableDDL = `CREATE TABLE IF NOT EXISTS play_state (
+	id INTEGER PRIMARY KEY CHECK(id=1),
+	state_json TEXT NOT NULL
+)`
 	v4TestInstallsTableDDL = `CREATE TABLE IF NOT EXISTS test_installs (
 		id TEXT PRIMARY KEY,
 		workspace_id TEXT NOT NULL,
@@ -87,9 +125,8 @@ var (
 
 // migrateVersioned creates the complete normalized schema and advances the
 // metadata marker only after every schema/index/data operation has succeeded.
-// Databases that predate v4 are rebuilt inside this transaction before any
-// marker is advanced, so a failed copy leaves the previous schema and rows
-// untouched.
+// Legacy folder/preset/profile tables are copied into the unified collection
+// graph in this transaction and dropped before the marker advances.
 func (s *Store) migrateVersioned(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return errors.New("SQLite store is not initialized")
@@ -114,6 +151,10 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if startingVersion < 0 {
 		return fmt.Errorf("invalid SQLite schema version %d", startingVersion)
 	}
+	legacyOrganizationPresent, err := legacyOrganizationTablesPresentTx(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("inspect legacy organization tables: %w", err)
+	}
 	preV4TablesPresent := false
 	if startingVersion < storeSchemaVersion {
 		preV4TablesPresent, err = preV4TablesPresentTx(ctx, tx)
@@ -133,19 +174,24 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if err := backfillSourceIDsTx(ctx, tx); err != nil {
 		return fmt.Errorf("backfill source IDs: %w", err)
 	}
+	if legacyOrganizationPresent {
+		if err := migrateLegacyOrganizationTx(ctx, tx); err != nil {
+			return fmt.Errorf("migrate legacy organization: %w", err)
+		}
+	}
 	needsRebuild := false
 	if startingVersion < storeSchemaVersion {
 		needsRebuild = preV4TablesPresent
 	} else if needsRebuild, err = v4SchemaNeedsRebuildTx(ctx, tx); err != nil {
-		return fmt.Errorf("inspect SQLite v4 constraints: %w", err)
+		return fmt.Errorf("inspect SQLite v5 constraints: %w", err)
 	}
 	if needsRebuild {
 		if err := rebuildV3ToV4Tx(ctx, tx); err != nil {
-			return fmt.Errorf("rebuild SQLite schema v%d to v4: %w", startingVersion, err)
+			return fmt.Errorf("rebuild SQLite schema v%d to v5: %w", startingVersion, err)
 		}
 	}
 	if err := ensureV4ConstraintsTx(ctx, tx); err != nil {
-		return fmt.Errorf("enforce SQLite v4 constraints: %w", err)
+		return fmt.Errorf("enforce SQLite constraints: %w", err)
 	}
 	if err := ensureVersionedAdditiveMigrationsTx(ctx, tx); err != nil {
 		return fmt.Errorf("apply additive SQLite migrations: %w", err)
@@ -154,7 +200,7 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 		return fmt.Errorf("build library search index: %w", err)
 	}
 	if err := validateIntegrityTx(ctx, tx); err != nil {
-		return fmt.Errorf("validate SQLite v4 integrity: %w", err)
+		return fmt.Errorf("validate SQLite v5 integrity: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.Itoa(storeSchemaVersion)); err != nil {
 		return fmt.Errorf("record settings schema version: %w", err)
@@ -165,7 +211,7 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO library_index_metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, libraryFTSFreshnessKey, "1"); err != nil {
 		return fmt.Errorf("record FTS freshness: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version=4`); err != nil {
+	if _, err := tx.ExecContext(ctx, `PRAGMA user_version=5`); err != nil {
 		return fmt.Errorf("record SQLite user version: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM schema_meta`); err != nil {
@@ -275,6 +321,15 @@ func tableExistsTx(ctx context.Context, tx *sql.Tx, table string) (bool, error) 
 	}
 	return present != 0, nil
 }
+func legacyOrganizationTablesPresentTx(ctx context.Context, tx *sql.Tx) (bool, error) {
+	const query = `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN
+		('library_folders','library_folder_entities','mod_presets','mod_preset_entities','mod_profiles','mod_profile_presets')`
+	var count int
+	if err := tx.QueryRowContext(ctx, query).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
 func preV4TablesPresentTx(ctx context.Context, tx *sql.Tx) (bool, error) {
 	placeholders := make([]string, len(v4RebuildTables))
 	args := make([]interface{}, len(v4RebuildTables))
@@ -355,7 +410,12 @@ func v4SchemaNeedsRebuildTx(ctx context.Context, tx *sql.Tx) (bool, error) {
 		{"archive_links", "entity_id", "entities", "CASCADE"},
 		{"archive_links", "artifact_id", "artifacts", "CASCADE"},
 		{"archive_links", "source_id", "source_classifications", "NO ACTION"},
-		{"library_folders", "parent_id", "library_folders", "SET NULL"},
+		{"collection_mods", "collection_id", "collections", "CASCADE"},
+		{"collection_mods", "entity_id", "entities", "CASCADE"},
+		{"collection_children", "parent_id", "collections", "CASCADE"},
+		{"collection_children", "child_id", "collections", "CASCADE"},
+		{"play_profile_collections", "profile_id", "play_profiles", "CASCADE"},
+		{"play_profile_collections", "collection_id", "collections", "CASCADE"},
 		{"test_installs", "workspace_id", "workspaces", "CASCADE"},
 		{"test_installs", "export_id", "exports", "CASCADE"},
 	}
@@ -398,6 +458,16 @@ func v4SchemaNeedsRebuildTx(ctx context.Context, tx *sql.Tx) (bool, error) {
 	if !strings.Contains(normalized, "check(activein(0,1))") {
 		return true, nil
 	}
+	collectionChildrenSQL, err := tableSQLTx(ctx, tx, "collection_children")
+	if err != nil {
+		return false, err
+	}
+	normalized = strings.ReplaceAll(strings.ToLower(collectionChildrenSQL), " ", "")
+	normalized = strings.ReplaceAll(normalized, "\n", "")
+	normalized = strings.ReplaceAll(normalized, "\t", "")
+	if !strings.Contains(normalized, "check(parent_id<>child_id)") && !strings.Contains(normalized, "check(parent_id!=child_id)") {
+		return true, nil
+	}
 	return false, nil
 }
 
@@ -418,10 +488,13 @@ var v4RebuildTables = []string{
 	"virgil_sessions",
 	"agent_runs",
 	"agent_events",
-	"library_folders",
-	"library_folder_entities",
+	"collections",
+	"collection_mods",
+	"collection_children",
+	"play_profiles",
+	"play_profile_collections",
+	"play_state",
 	"mod_tag_entities",
-	"mod_preset_entities",
 	"mod_audits",
 	"mod_audit_files",
 	"virus_scans",
@@ -864,11 +937,11 @@ func mergeEntityRecordsTx(ctx context.Context, tx *sql.Tx, fromID, toID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM entity_assets WHERE entity_id=?`, fromID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO library_folder_entities(entity_id,folder_id,position)
-		SELECT ?,folder_id,position FROM library_folder_entities WHERE entity_id=?`, toID, fromID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collection_mods(collection_id,entity_id,position)
+		SELECT collection_id,?,position FROM collection_mods WHERE entity_id=?`, toID, fromID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM library_folder_entities WHERE entity_id=?`, fromID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM collection_mods WHERE entity_id=?`, fromID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO mod_tag_entities(tag_id,entity_id,created_at)
@@ -876,13 +949,6 @@ func mergeEntityRecordsTx(ctx context.Context, tx *sql.Tx, fromID, toID string) 
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM mod_tag_entities WHERE entity_id=?`, fromID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO mod_preset_entities(preset_id,entity_id,position)
-		SELECT preset_id,?,position FROM mod_preset_entities WHERE entity_id=?`, toID, fromID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM mod_preset_entities WHERE entity_id=?`, fromID); err != nil {
 		return err
 	}
 	for _, statement := range []string{
@@ -985,6 +1051,14 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if err := ensureColumnTx(ctx, tx, "agent_runs", "session_id", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("agent run session_id column: %w", err)
 	}
+	// Membership rows carry their own enabled flag. Existing rows are enabled,
+	// which is what they effectively were before the column existed.
+	if err := ensureColumnTx(ctx, tx, "collection_mods", "enabled", `INTEGER NOT NULL DEFAULT 1`); err != nil {
+		return fmt.Errorf("collection mod enabled column: %w", err)
+	}
+	if err := ensureColumnTx(ctx, tx, "collection_children", "enabled", `INTEGER NOT NULL DEFAULT 1`); err != nil {
+		return fmt.Errorf("collection child enabled column: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS agent_runs_session_idx ON agent_runs(session_id, started_at, id)`); err != nil {
 		return fmt.Errorf("agent run session index: %w", err)
 	}
@@ -1058,6 +1132,457 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	}
 	if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
 		return fmt.Errorf("seed Terrain default tag: %w", err)
+	}
+	return nil
+}
+
+type legacyOrganizationFolderRow struct {
+	id, name, parentID, createdAt, updatedAt string
+	position                                 int
+}
+
+type legacyOrganizationPresetRow struct {
+	id, name, description, createdAt, updatedAt string
+}
+
+type legacyOrganizationProfileRow struct {
+	id, name, defaultPresetID, createdAt, updatedAt string
+}
+
+type legacyOrganizationPresetMember struct {
+	entityID string
+	position int
+}
+
+type legacyOrganizationProfileMember struct {
+	profileID, presetID string
+	position            int
+}
+
+// migrateLegacyOrganizationTx performs the only live-table cutover from the
+// former folder/preset/profile model. Every read, copy, graph validation, and
+// old-table drop occurs under the caller's migration transaction; returning an
+// error therefore rolls the complete conversion back to the untouched legacy
+// schema.
+func migrateLegacyOrganizationTx(ctx context.Context, tx *sql.Tx) error {
+	folders := []legacyOrganizationFolderRow{}
+	if present, err := tableExistsTx(ctx, tx, "library_folders"); err != nil {
+		return err
+	} else if present {
+		rows, err := tx.QueryContext(ctx, `SELECT id,name,COALESCE(parent_id,''),position,created_at,updated_at FROM library_folders ORDER BY position,name COLLATE NOCASE,id`)
+		if err != nil {
+			return fmt.Errorf("read legacy folders: %w", err)
+		}
+		for rows.Next() {
+			var row legacyOrganizationFolderRow
+			if err := rows.Scan(&row.id, &row.name, &row.parentID, &row.position, &row.createdAt, &row.updatedAt); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			folders = append(folders, row)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	presets := []legacyOrganizationPresetRow{}
+	if present, err := tableExistsTx(ctx, tx, "mod_presets"); err != nil {
+		return err
+	} else if present {
+		rows, err := tx.QueryContext(ctx, `SELECT id,name,description,created_at,updated_at FROM mod_presets ORDER BY created_at,name COLLATE NOCASE,id`)
+		if err != nil {
+			return fmt.Errorf("read legacy presets: %w", err)
+		}
+		for rows.Next() {
+			var row legacyOrganizationPresetRow
+			if err := rows.Scan(&row.id, &row.name, &row.description, &row.createdAt, &row.updatedAt); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			presets = append(presets, row)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	presetMembers := map[string][]legacyOrganizationPresetMember{}
+	if present, err := tableExistsTx(ctx, tx, "mod_preset_entities"); err != nil {
+		return err
+	} else if present {
+		rows, err := tx.QueryContext(ctx, `SELECT preset_id,entity_id,position FROM mod_preset_entities ORDER BY preset_id,position,entity_id`)
+		if err != nil {
+			return fmt.Errorf("read legacy preset memberships: %w", err)
+		}
+		for rows.Next() {
+			var presetID, entityID string
+			var position int
+			if err := rows.Scan(&presetID, &entityID, &position); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			presetMembers[presetID] = append(presetMembers[presetID], legacyOrganizationPresetMember{entityID: entityID, position: position})
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	profiles := []legacyOrganizationProfileRow{}
+	if present, err := tableExistsTx(ctx, tx, "mod_profiles"); err != nil {
+		return err
+	} else if present {
+		rows, err := tx.QueryContext(ctx, `SELECT id,name,default_preset_id,created_at,updated_at FROM mod_profiles ORDER BY id`)
+		if err != nil {
+			return fmt.Errorf("read legacy profiles: %w", err)
+		}
+		for rows.Next() {
+			var row legacyOrganizationProfileRow
+			if err := rows.Scan(&row.id, &row.name, &row.defaultPresetID, &row.createdAt, &row.updatedAt); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			profiles = append(profiles, row)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	profileMembers := []legacyOrganizationProfileMember{}
+	if present, err := tableExistsTx(ctx, tx, "mod_profile_presets"); err != nil {
+		return err
+	} else if present {
+		// Deliberately do not filter selected here. Existing organization
+		// behavior used row existence to determine the effective set.
+		rows, err := tx.QueryContext(ctx, `SELECT profile_id,preset_id,position FROM mod_profile_presets ORDER BY profile_id,position,preset_id`)
+		if err != nil {
+			return fmt.Errorf("read legacy profile memberships: %w", err)
+		}
+		for rows.Next() {
+			var row legacyOrganizationProfileMember
+			if err := rows.Scan(&row.profileID, &row.presetID, &row.position); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			profileMembers = append(profileMembers, row)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+
+	legacyAdjacency := map[string][]string{}
+	legacyFolderIDs := map[string]struct{}{}
+	for _, folder := range folders {
+		legacyAdjacency[folder.id] = []string{}
+		legacyFolderIDs[folder.id] = struct{}{}
+	}
+	for _, folder := range folders {
+		if folder.parentID == "" {
+			continue
+		}
+		if _, ok := legacyFolderIDs[folder.parentID]; !ok {
+			return fmt.Errorf("legacy folder %q references missing parent %q", folder.id, folder.parentID)
+		}
+		legacyAdjacency[folder.parentID] = append(legacyAdjacency[folder.parentID], folder.id)
+	}
+	if err := validateCollectionAdjacency(legacyAdjacency); err != nil {
+		return fmt.Errorf("legacy folder graph is invalid: %w", err)
+	}
+
+	usedCollectionIDs := map[string]struct{}{}
+	usedCollectionNames := map[string]struct{}{}
+	rows, err := tx.QueryContext(ctx, `SELECT id,name FROM collections`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		usedCollectionIDs[id] = struct{}{}
+		usedCollectionNames[sqliteNoCaseKey(name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	allocateCollectionID := func(namespace, oldID string) string {
+		candidate := oldID
+		if _, exists := usedCollectionIDs[candidate]; exists {
+			candidate = stableLegacyID("legacy-"+namespace, oldID)
+			for suffix := 2; ; suffix++ {
+				if _, exists := usedCollectionIDs[candidate]; !exists {
+					break
+				}
+				candidate = stableLegacyID(fmt.Sprintf("legacy-%s-%d", namespace, suffix), oldID)
+			}
+		}
+		usedCollectionIDs[candidate] = struct{}{}
+		return candidate
+	}
+	allocateCollectionName := func(base string) string {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "Untitled collection"
+		}
+		if len(base) > 80 {
+			base = base[:80]
+		}
+		candidate := base
+		for suffix := 2; ; suffix++ {
+			key := sqliteNoCaseKey(candidate)
+			if _, exists := usedCollectionNames[key]; !exists {
+				usedCollectionNames[key] = struct{}{}
+				return candidate
+			}
+			extra := fmt.Sprintf(" (%d)", suffix)
+			prefix := base
+			if len(prefix)+len(extra) > 80 {
+				prefix = strings.TrimSpace(prefix[:80-len(extra)])
+			}
+			candidate = prefix + extra
+		}
+	}
+
+	folderCollectionIDs := map[string]string{}
+	for _, folder := range folders {
+		folderCollectionIDs[folder.id] = allocateCollectionID("folder", folder.id)
+	}
+	extraNameByPreset := map[string]string{}
+	skipPreset := map[string]struct{}{}
+	for _, profile := range profiles {
+		if len(presetMembers[profile.defaultPresetID]) == 0 {
+			skipPreset[profile.defaultPresetID] = struct{}{}
+			continue
+		}
+		if _, exists := extraNameByPreset[profile.defaultPresetID]; !exists {
+			extraNameByPreset[profile.defaultPresetID] = strings.TrimSpace(profile.name) + " - Extra mods"
+		}
+	}
+	presetCollectionIDs := map[string]string{}
+	for _, preset := range presets {
+		if _, skip := skipPreset[preset.id]; skip && len(presetMembers[preset.id]) == 0 {
+			continue
+		}
+		presetCollectionIDs[preset.id] = allocateCollectionID("preset", preset.id)
+	}
+
+	for index, folder := range folders {
+		collectionID := folderCollectionIDs[folder.id]
+		name := allocateCollectionName(folder.name)
+		createdAt, updatedAt := folder.createdAt, folder.updatedAt
+		if createdAt == "" {
+			createdAt = nowUTC()
+		}
+		if updatedAt == "" {
+			updatedAt = createdAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collections(id,name,description,position,cover_json,cover_asset_sha,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, collectionID, name, "", index, automaticCollectionCover, "", createdAt, updatedAt); err != nil {
+			return fmt.Errorf("insert migrated folder %q: %w", folder.name, err)
+		}
+	}
+	presetIndex := len(folders)
+	for _, preset := range presets {
+		collectionID, ok := presetCollectionIDs[preset.id]
+		if !ok {
+			continue
+		}
+		name := preset.name
+		if extraName, exists := extraNameByPreset[preset.id]; exists {
+			name = extraName
+		}
+		name = allocateCollectionName(name)
+		createdAt, updatedAt := preset.createdAt, preset.updatedAt
+		if createdAt == "" {
+			createdAt = nowUTC()
+		}
+		if updatedAt == "" {
+			updatedAt = createdAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collections(id,name,description,position,cover_json,cover_asset_sha,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, collectionID, name, preset.description, presetIndex, automaticCollectionCover, "", createdAt, updatedAt); err != nil {
+			return fmt.Errorf("insert migrated preset %q: %w", preset.name, err)
+		}
+		presetIndex++
+	}
+	for _, folder := range folders {
+		if folder.parentID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collection_children(parent_id,child_id,position) VALUES(?,?,?)`, folderCollectionIDs[folder.parentID], folderCollectionIDs[folder.id], folder.position); err != nil {
+			return fmt.Errorf("migrate folder relationship %q -> %q: %w", folder.parentID, folder.id, err)
+		}
+	}
+	if present, err := tableExistsTx(ctx, tx, "library_folder_entities"); err != nil {
+		return err
+	} else if present {
+		rows, err := tx.QueryContext(ctx, `SELECT folder_id,entity_id,position FROM library_folder_entities ORDER BY folder_id,position,entity_id`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var folderID, entityID string
+			var position int
+			if err := rows.Scan(&folderID, &entityID, &position); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			collectionID, ok := folderCollectionIDs[folderID]
+			if !ok {
+				_ = rows.Close()
+				return fmt.Errorf("legacy folder membership references missing folder %q", folderID)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collection_mods(collection_id,entity_id,position) VALUES(?,?,?)`, collectionID, entityID, position); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("migrate folder membership %q: %w", folderID, err)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+	for _, preset := range presets {
+		collectionID, ok := presetCollectionIDs[preset.id]
+		if !ok {
+			continue
+		}
+		for _, member := range presetMembers[preset.id] {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collection_mods(collection_id,entity_id,position) VALUES(?,?,?)`, collectionID, member.entityID, member.position); err != nil {
+				return fmt.Errorf("migrate preset membership %q: %w", preset.id, err)
+			}
+		}
+	}
+
+	usedProfileIDs := map[string]struct{}{}
+	usedProfileNames := map[string]struct{}{}
+	rows, err = tx.QueryContext(ctx, `SELECT id,name FROM play_profiles`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		usedProfileIDs[id] = struct{}{}
+		usedProfileNames[sqliteNoCaseKey(name)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	allocateProfileID := func(oldID string) string {
+		candidate := oldID
+		if _, exists := usedProfileIDs[candidate]; exists {
+			candidate = stableLegacyID("legacy-profile", oldID)
+		}
+		for suffix := 2; ; suffix++ {
+			if _, exists := usedProfileIDs[candidate]; !exists {
+				break
+			}
+			candidate = stableLegacyID(fmt.Sprintf("legacy-profile-%d", suffix), oldID)
+		}
+		usedProfileIDs[candidate] = struct{}{}
+		return candidate
+	}
+	allocateProfileName := func(base string) string {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "Profile"
+		}
+		if strings.EqualFold(base, "Default") {
+			base = "Default (2)"
+		}
+		if len(base) > 80 {
+			base = base[:80]
+		}
+		candidate := base
+		for suffix := 2; ; suffix++ {
+			key := sqliteNoCaseKey(candidate)
+			if _, exists := usedProfileNames[key]; !exists && !strings.EqualFold(candidate, "Default") {
+				usedProfileNames[key] = struct{}{}
+				return candidate
+			}
+			extra := fmt.Sprintf(" (%d)", suffix)
+			prefix := base
+			if len(prefix)+len(extra) > 80 {
+				prefix = strings.TrimSpace(prefix[:80-len(extra)])
+			}
+			candidate = prefix + extra
+		}
+	}
+	profileIDs := map[string]string{}
+	for _, profile := range profiles {
+		profileIDs[profile.id] = allocateProfileID(profile.id)
+	}
+	for _, profile := range profiles {
+		profileID := profileIDs[profile.id]
+		name := allocateProfileName(profile.name)
+		createdAt, updatedAt := profile.createdAt, profile.updatedAt
+		if createdAt == "" {
+			createdAt = nowUTC()
+		}
+		if updatedAt == "" {
+			updatedAt = createdAt
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO play_profiles(id,name,created_at,updated_at) VALUES(?,?,?,?)`, profileID, name, createdAt, updatedAt); err != nil {
+			return fmt.Errorf("insert migrated profile %q: %w", profile.name, err)
+		}
+	}
+	for _, member := range profileMembers {
+		profileID, profileOK := profileIDs[member.profileID]
+		collectionID, collectionOK := presetCollectionIDs[member.presetID]
+		if !profileOK {
+			return fmt.Errorf("legacy profile membership references missing profile %q", member.profileID)
+		}
+		if !collectionOK {
+			// Empty private defaults intentionally disappear.
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO play_profile_collections(profile_id,collection_id,position) VALUES(?,?,?)`, profileID, collectionID, member.position); err != nil {
+			return fmt.Errorf("migrate profile membership %q: %w", member.profileID, err)
+		}
+	}
+	for _, table := range []string{"mod_profile_presets", "mod_profiles", "mod_preset_entities", "mod_presets", "library_folder_entities", "library_folders"} {
+		if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS `+quoteSQLiteIdentifier(table)); err != nil {
+			return fmt.Errorf("drop legacy organization table %q: %w", table, err)
+		}
 	}
 	return nil
 }
@@ -1171,15 +1696,13 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
 			FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
 		)`,
-		v4LibraryFoldersTableDDL,
+		collectionsTableDDL,
+		collectionModsTableDDL,
+		collectionChildrenTableDDL,
+		playProfilesTableDDL,
+		playProfileCollectionsTableDDL,
+		playStateTableDDL,
 		v4TestInstallsTableDDL,
-		`CREATE TABLE IF NOT EXISTS library_folder_entities (
-			entity_id TEXT PRIMARY KEY,
-			folder_id TEXT NOT NULL,
-			position INTEGER NOT NULL DEFAULT 0,
-			FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-			FOREIGN KEY(folder_id) REFERENCES library_folders(id) ON DELETE CASCADE
-		)`,
 		`CREATE TABLE IF NOT EXISTS mod_tags (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -1195,38 +1718,6 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			PRIMARY KEY(tag_id,entity_id),
 			FOREIGN KEY(tag_id) REFERENCES mod_tags(id) ON DELETE CASCADE,
 			FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_presets (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-			description TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL DEFAULT '',
-			updated_at TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_preset_entities (
-			preset_id TEXT NOT NULL,
-			entity_id TEXT NOT NULL,
-			position INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(preset_id,entity_id),
-			FOREIGN KEY(preset_id) REFERENCES mod_presets(id) ON DELETE CASCADE,
-			FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_profiles (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-			default_preset_id TEXT NOT NULL,
-			created_at TEXT NOT NULL DEFAULT '',
-			updated_at TEXT NOT NULL DEFAULT '',
-			FOREIGN KEY(default_preset_id) REFERENCES mod_presets(id) ON DELETE RESTRICT
-		)`,
-		`CREATE TABLE IF NOT EXISTS mod_profile_presets (
-			profile_id TEXT NOT NULL,
-			preset_id TEXT NOT NULL,
-			selected INTEGER NOT NULL DEFAULT 0 CHECK(selected IN (0,1)),
-			position INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY(profile_id,preset_id),
-			FOREIGN KEY(profile_id) REFERENCES mod_profiles(id) ON DELETE CASCADE,
-			FOREIGN KEY(preset_id) REFERENCES mod_presets(id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS workspace_drafts (
 			workspace_id TEXT NOT NULL,
@@ -1429,7 +1920,9 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS archive_links_fingerprint_idx ON archive_links(basename_key)`,
 		`CREATE INDEX IF NOT EXISTS artifacts_fingerprint_idx ON artifacts(central_fingerprint)`,
 		`CREATE INDEX IF NOT EXISTS mod_tag_entities_entity_idx ON mod_tag_entities(entity_id,tag_id)`,
-		`CREATE INDEX IF NOT EXISTS library_folder_entities_folder_idx ON library_folder_entities(folder_id,position,entity_id)`,
+		`CREATE INDEX IF NOT EXISTS collection_mods_entity_idx ON collection_mods(entity_id,collection_id,position)`,
+		`CREATE INDEX IF NOT EXISTS collection_children_child_idx ON collection_children(child_id,parent_id,position)`,
+		`CREATE INDEX IF NOT EXISTS play_profile_collections_collection_idx ON play_profile_collections(collection_id,profile_id,position)`,
 		`CREATE INDEX IF NOT EXISTS scans_status_idx ON scans(status,started_at)`,
 		`CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity_id,id)`,
 		`CREATE INDEX IF NOT EXISTS agent_runs_session_idx ON agent_runs(session_id,started_at,id)`,
@@ -1653,16 +2146,23 @@ func rebuildLibrarySearchFTSTx(ctx context.Context, tx *sql.Tx) error {
 }
 
 // refreshLibrarySearchEntryTx rebuilds one aggregate FTS row from canonical
-// entity, latest archive/artifact, folder, and tag rows. Every value is bound as
-// a SQL argument; IDs and searchable text containing quotes are not interpolated.
+// entity, latest archive/artifact, direct collection, and tag rows. Every value
+// is bound as a SQL argument; IDs and searchable text containing quotes are not
+// interpolated.
 func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID string) error {
 	entityID = strings.TrimSpace(entityID)
 	if entityID == "" {
 		return errors.New("cannot refresh an empty library entity ID")
 	}
-	var displayName, kind, sourceID, pathValue, rootPath, manifestJSON, folderName string
+	var displayName, kind, sourceID, pathValue, rootPath, manifestJSON, collectionNames string
 	err := tx.QueryRowContext(ctx, `SELECT e.display_name,e.kind,e.source_id,
-		COALESCE(l.path,''),COALESCE(l.root_path,''),COALESCE(a.manifest_json,'{}'),COALESCE(lf.name,'')
+		COALESCE(l.path,''),COALESCE(l.root_path,''),COALESCE(a.manifest_json,'{}'),
+		COALESCE((SELECT GROUP_CONCAT(name,' ') FROM (
+			SELECT c.name AS name FROM collection_mods cm
+			JOIN collections c ON c.id=cm.collection_id
+			WHERE cm.entity_id=e.id
+			ORDER BY c.name COLLATE NOCASE,c.id
+		)), '')
 		FROM entities e
 		LEFT JOIN archive_links l ON l.id=(
 			SELECT l2.id FROM archive_links l2
@@ -1670,9 +2170,7 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 			ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1
 		)
 		LEFT JOIN artifacts a ON a.id=l.artifact_id
-		LEFT JOIN library_folder_entities lfe ON lfe.entity_id=e.id
-		LEFT JOIN library_folders lf ON lf.id=lfe.folder_id
-		WHERE e.id=?`, entityID).Scan(&displayName, &kind, &sourceID, &pathValue, &rootPath, &manifestJSON, &folderName)
+		WHERE e.id=?`, entityID).Scan(&displayName, &kind, &sourceID, &pathValue, &rootPath, &manifestJSON, &collectionNames)
 	if err != nil {
 		return err
 	}
@@ -1758,7 +2256,7 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 	if err := tagRows.Close(); err != nil {
 		return err
 	}
-	content := canonicalLibrarySearchText(displayName, string(manifest.Kind), kind, sourceID, pathValue, rootPath, manifest.Author, strings.Join(descriptions, " "), manifest.Namespaces, folderName, tagNames)
+	content := canonicalLibrarySearchText(displayName, string(manifest.Kind), kind, sourceID, pathValue, rootPath, manifest.Author, strings.Join(descriptions, " "), manifest.Namespaces, collectionNames, tagNames)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM library_search_fts WHERE entity_id=?`, entityID); err != nil {
 		return err
 	}
@@ -1773,8 +2271,8 @@ func markLibraryFTSFreshTx(ctx context.Context, tx *sql.Tx) error {
 	return err
 }
 
-func canonicalLibrarySearchText(displayName, manifestKind, storedKind, sourceID, pathValue, rootPath, author, description string, namespaces map[string][]string, folderName string, tags []string) string {
-	values := []string{displayName, manifestKind, storedKind, sourceID, pathValue, rootPath, author, description, folderName}
+func canonicalLibrarySearchText(displayName, manifestKind, storedKind, sourceID, pathValue, rootPath, author, description string, namespaces map[string][]string, collectionNames string, tags []string) string {
+	values := []string{displayName, manifestKind, storedKind, sourceID, pathValue, rootPath, author, description, collectionNames}
 	if manifestKind != "" {
 		values = append(values, libraryKindSearchName(manifestKind))
 	}

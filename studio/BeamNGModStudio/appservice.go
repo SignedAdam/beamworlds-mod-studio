@@ -106,6 +106,9 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 	}
 	service.githubPublish = NewGitHubPublishServiceWithDependencies(GitHubPublishDependencies{Git: git, WorkspaceLock: agents.workspaceToolMutex})
 	service.auditAI = service.runManagedAIAudit
+	// An already-indexed library never triggers a scan, so seeding has to be
+	// attempted here too; it is a no-op once the marker is written.
+	service.seedDefaultPlayProfile(context.Background())
 	return service
 }
 

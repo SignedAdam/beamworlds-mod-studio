@@ -271,3 +271,46 @@ func TestFirstScanSeedsDefaultProfileFromEnabledMods(t *testing.T) {
 		t.Fatalf("seeding ran a second time: %d collections, %d profiles", len(organization.Collections), len(organization.Profiles))
 	}
 }
+
+func TestSeedingReadsSnapshotWhenLiveDatabaseHasNothingActive(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	ctx := context.Background()
+	mod, err := service.CreateNewMod(NewModRequest{Name: "Snapshot Mod", ModID: "snapshot_mod", Kind: "script", Version: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := service.store.GetLibraryItem(ctx, mod.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Base(item.ArchivePath)
+	database := func(active bool) []byte {
+		payload, marshalErr := json.Marshal(map[string]any{"header": map[string]any{"version": 1.1}, "mods": map[string]any{
+			"snapshot-mod": map[string]any{"active": active, "filename": filename, "fullpath": "/mods/"},
+		}})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return payload
+	}
+	// An earlier apply left the live database with everything switched off,
+	// which is exactly the state that must not be mistaken for "the user
+	// enables nothing".
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), database(false), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json.beamworlds-original"), database(true), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service.seedDefaultPlayProfile(ctx)
+
+	organization, err := service.Organization()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(organization.Collections) != 1 || organization.Collections[0].ModCount != 1 {
+		t.Fatalf("the snapshot was not used to seed: %#v", organization.Collections)
+	}
+}

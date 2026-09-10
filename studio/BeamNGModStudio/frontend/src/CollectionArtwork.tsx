@@ -10,7 +10,7 @@ import type {
   ModCollection,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
 import { Icon } from "./icons";
-import { Button, Spinner } from "./ui";
+import { Button, Spinner, thumbUrl } from "./ui";
 import { CollectionDialog } from "./CollectionUI";
 import "./CollectionArtwork.css";
 
@@ -102,7 +102,7 @@ export function CollectionCoverEditor({
   }, [entityID, onError]);
 
   const currentItem = items.find((item) => item.entityId === entityID);
-  const automaticURL = collection.coverUrl || currentItem?.thumbnailUrl || "";
+  const automaticURL = thumbUrl(collection.coverUrl || currentItem?.thumbnailUrl || "");
   const previewImages = mode === "automatic" ? [] : selected;
   const failedSelectedCount = selected.filter((image) => failedAssets.has(image.assetId)).length;
   const markAssetFailed = (assetID: string) => {
@@ -351,22 +351,25 @@ export function CollectionCoverEditor({
                 {filteredItems.length === 0 ? (
                   <p className="collection-artwork-editor__empty">No indexed mods match this search.</p>
                 ) : (
-                  filteredItems.map((item) => (
-                    <button
-                      key={item.entityId}
-                      type="button"
-                      role="option"
-                      aria-selected={item.entityId === entityID}
-                      className={`collection-artwork-editor__mod${item.entityId === entityID ? " is-active" : ""}`}
-                      onClick={() => setEntityID(item.entityId)}
-                    >
-                      <span className="collection-artwork-editor__mod-image">
-                        {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="archive" size={16} />}
-                      </span>
-                      <span className="collection-artwork-editor__mod-name">{item.displayName || "Unnamed mod"}</span>
-                      <span className="collection-artwork-editor__mod-kind">{String(item.kind)}</span>
-                    </button>
-                  ))
+                  filteredItems.map((item) => {
+                    const thumbnail = thumbUrl(item.thumbnailUrl);
+                    return (
+                      <button
+                        key={item.entityId}
+                        type="button"
+                        role="option"
+                        aria-selected={item.entityId === entityID}
+                        className={`collection-artwork-editor__mod${item.entityId === entityID ? " is-active" : ""}`}
+                        onClick={() => setEntityID(item.entityId)}
+                      >
+                        <span className="collection-artwork-editor__mod-image">
+                          {thumbnail ? <img src={thumbnail} alt="" width={38} height={23} decoding="async" loading="lazy" /> : <Icon name="archive" size={16} />}
+                        </span>
+                        <span className="collection-artwork-editor__mod-name">{item.displayName || "Unnamed mod"}</span>
+                        <span className="collection-artwork-editor__mod-kind">{String(item.kind)}</span>
+                      </button>
+                    );
+                  })
                 )}
               </div>
               <div className="collection-artwork-editor__candidate-heading">
@@ -380,6 +383,7 @@ export function CollectionCoverEditor({
                   candidates.map((candidate) => {
                     const key = `${entityID}:${candidate.path}`;
                     const shown = candidateOverrides[key] ?? candidate;
+                    const thumbnail = thumbUrl(shown.url);
                     const busy = candidateBusy === key;
                     return (
                       <button
@@ -391,7 +395,7 @@ export function CollectionCoverEditor({
                         aria-label={`Choose ${candidate.name || candidate.path}`}
                       >
                         <span className="collection-artwork-candidate__image">
-                          {shown.url ? <img src={shown.url} alt="" loading="lazy" /> : <Icon name="archive" size={22} />}
+                          {thumbnail ? <img src={thumbnail} alt="" width={104} height={59} decoding="async" loading="lazy" /> : <Icon name="archive" size={22} />}
                           {busy && <span className="collection-artwork-candidate__loading"><Spinner small /></span>}
                         </span>
                         <span className="collection-artwork-candidate__name" title={candidate.path}>{candidate.name || candidate.path}</span>
@@ -430,8 +434,11 @@ export function CollectionCoverEditor({
                           <UnavailableArtwork />
                         ) : (
                           <img
-                            src={image.url || `/cache/${image.assetId}`}
+                            src={thumbUrl(image.url || `/cache/${image.assetId}`)}
                             alt=""
+                            width={84}
+                            height={47}
+                            decoding="async"
                             loading="lazy"
                             style={{ objectPosition: `${image.focalX * 100}% ${image.focalY * 100}%` }}
                             onError={() => markAssetFailed(image.assetId)}

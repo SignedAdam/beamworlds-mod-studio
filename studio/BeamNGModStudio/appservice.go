@@ -109,6 +109,9 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 	// An already-indexed library never triggers a scan, so seeding has to be
 	// attempted here too; it is a no-op once the marker is written.
 	service.seedDefaultPlayProfile(context.Background())
+	// Libraries indexed before derivatives existed have none. Generating them
+	// in the background keeps the first scroll from paying for a full decode.
+	go backfillAssetThumbnails(context.Background(), store)
 	return service
 }
 

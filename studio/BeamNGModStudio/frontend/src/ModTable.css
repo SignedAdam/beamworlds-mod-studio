@@ -572,3 +572,17 @@ html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader svg {
 }
 
 .mod-row--disabled { opacity: .58; }
+.mod-table__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+}
+
+.mod-table__icon img {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+}

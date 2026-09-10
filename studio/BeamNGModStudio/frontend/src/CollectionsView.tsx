@@ -32,6 +32,7 @@ import {
   formatDate,
   kindIcon,
   kindLabel,
+  thumbUrl,
 } from "./ui";
 import "./CollectionsView.css";
 
@@ -1075,7 +1076,7 @@ export function CollectionsView({
             {filtered.length === 0 ? <p className="collections-empty">No mods match.</p> : filtered.map((item) => (
               <label className={`collections-picker-row${modPicker.selected.has(item.entityId) ? " is-selected" : ""}`} key={item.entityId}>
                 <input type="checkbox" checked={modPicker.selected.has(item.entityId)} onChange={() => toggle(item.entityId)} />
-                <span className="collections-picker-thumb">{item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" loading="lazy" /> : <Icon name={kindIcon(String(item.kind))} size={18} />}</span>
+                <span className="collections-picker-thumb">{item.thumbnailUrl ? <img src={thumbUrl(item.thumbnailUrl)} alt="" width={40} height={26} decoding="async" loading="lazy" /> : <Icon name={kindIcon(String(item.kind))} size={18} />}</span>
                 <span className="collections-picker-row__text"><strong>{item.displayName || item.archivePath || "Unnamed mod"}</strong><small>{kindLabel(String(item.kind))} · {item.archivePath || "No archive path"} · {formatBytes(item.sizeBytes)}</small></span>
                 {!item.linked && <Badge tone="warning">Unavailable</Badge>}
               </label>

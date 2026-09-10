@@ -22,6 +22,8 @@ const (
 	seededCollectionName   = "My mods"
 	seededProfileName      = "My setup"
 	seededCollectionDetail = "Created from the mods BeamNG had enabled when BeamWorlds first indexed your library."
+	// BeamWorlds' own throwaway installs share this archive prefix.
+	testInstallPrefix = "modstudio-test-"
 )
 
 // beamNGEnabledArchiveKeys returns lookup keys for the archives BeamNG lists
@@ -32,10 +34,10 @@ const (
 // nothing: an earlier apply may have left it that way. When BeamWorlds has a
 // snapshot of the state it found first, that is the better description of
 // "the setup the user had", so it is read instead.
-func beamNGEnabledArchiveKeys(activeModsDir string) (map[string]struct{}, map[string]struct{}, int, error) {
+func beamNGEnabledArchiveKeys(activeModsDir string) (map[string]struct{}, map[string]string, int, error) {
 	activeModsDir = strings.TrimSpace(activeModsDir)
 	if activeModsDir == "" {
-		return map[string]struct{}{}, map[string]struct{}{}, 0, nil
+		return map[string]struct{}{}, map[string]string{}, 0, nil
 	}
 	for _, name := range []string{"db.json", "db.json.beamworlds-original", "db.json.beamworlds-backup"} {
 		paths, filenames, enabled, err := beamNGEnabledArchiveKeysFrom(activeModsDir, filepath.Join(activeModsDir, name))
@@ -46,12 +48,12 @@ func beamNGEnabledArchiveKeys(activeModsDir string) (map[string]struct{}, map[st
 			return paths, filenames, enabled, nil
 		}
 	}
-	return map[string]struct{}{}, map[string]struct{}{}, 0, nil
+	return map[string]struct{}{}, map[string]string{}, 0, nil
 }
 
-func beamNGEnabledArchiveKeysFrom(activeModsDir, databasePath string) (map[string]struct{}, map[string]struct{}, int, error) {
+func beamNGEnabledArchiveKeysFrom(activeModsDir, databasePath string) (map[string]struct{}, map[string]string, int, error) {
 	paths := map[string]struct{}{}
-	filenames := map[string]struct{}{}
+	filenames := map[string]string{}
 	payload, err := os.ReadFile(databasePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return paths, filenames, 0, nil
@@ -87,12 +89,14 @@ func beamNGEnabledArchiveKeysFrom(activeModsDir, databasePath string) (map[strin
 			continue
 		}
 		filename := beamNGDatabaseString(entry, "filename")
-		if filename == "" {
+		if filename == "" || strings.HasPrefix(strings.ToLower(filename), testInstallPrefix) {
+			// BeamWorlds' own test installs are not the user's mods, and their
+			// archives are deleted after use.
 			continue
 		}
 		enabled++
 		paths[archiveSourcePathKey(beamNGDatabaseArchivePath(activeModsDir, beamNGDatabaseString(entry, "fullpath"), filename))] = struct{}{}
-		filenames[archiveSourceFilenameKey(filename)] = struct{}{}
+		filenames[archiveSourceFilenameKey(filename)] = filename
 	}
 	return paths, filenames, enabled, nil
 }
@@ -179,9 +183,9 @@ func (service *AppService) seedDefaultPlayProfile(ctx context.Context) {
 		return
 	}
 	notices := []string{}
-	if unmatched := len(filenames) - len(matchedFilenames); unmatched > 0 {
-		notices = append(notices, fmt.Sprintf("%d mod%s enabled in BeamNG %s not in your library yet, so %s not in %q.",
-			unmatched, plural(unmatched, "", "s"), plural(unmatched, "is", "are"), plural(unmatched, "it is", "they are"), seededCollectionName))
+	if missing := unmatchedEnabledNames(filenames, matchedFilenames); len(missing) > 0 {
+		notices = append(notices, fmt.Sprintf("Not added to %q, because %s not in your library yet: %s. Add %s to a scanned folder and rescan.",
+			seededCollectionName, plural(len(missing), "it is", "they are"), strings.Join(missing, ", "), plural(len(missing), "it", "them")))
 	}
 	if _, err := store.SavePlayState(ctx, PlayState{
 		ProfileID:     profile.ID,
@@ -191,6 +195,24 @@ func (service *AppService) seedDefaultPlayProfile(ctx context.Context) {
 		return
 	}
 	_ = store.writeSetting(ctx, defaultProfileSeedKey, "1")
+}
+
+// unmatchedEnabledNames names the archives BeamNG has enabled that nothing in
+// the library matches. A count alone tells the user nothing they can act on.
+func unmatchedEnabledNames(enabled map[string]string, matched map[string]struct{}) []string {
+	names := make([]string, 0, len(enabled))
+	for key, filename := range enabled {
+		if _, found := matched[key]; found {
+			continue
+		}
+		names = append(names, filename)
+	}
+	slices.Sort(names)
+	const listed = 5
+	if len(names) > listed {
+		return append(names[:listed:listed], fmt.Sprintf("and %d more", len(names)-listed))
+	}
+	return names
 }
 
 func plural(count int, singular, pluralForm string) string {

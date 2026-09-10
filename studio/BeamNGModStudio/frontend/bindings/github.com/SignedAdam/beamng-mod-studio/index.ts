@@ -31,6 +31,7 @@ export type {
     CollectionUsage,
     Dashboard,
     EntityDetail,
+    EntityPreviewCandidate,
     EventRecord,
     ExportRecord,
     ExportResponse,

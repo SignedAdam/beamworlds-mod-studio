@@ -251,6 +251,17 @@ export interface EntityDetail {
     "historyTotal": number;
 }
 
+export interface EntityPreviewCandidate {
+    "memberPath": string;
+    "label": string;
+    "width": number;
+    "height": number;
+    "sizeBytes": number;
+    "assetSha": string;
+    "selected": boolean;
+    "automatic": boolean;
+}
+
 export interface EventRecord {
     "id": number;
     "at": string;

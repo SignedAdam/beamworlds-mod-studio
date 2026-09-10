@@ -9,6 +9,7 @@ import {
   Page,
   kindIcon,
   kindLabel,
+  thumbUrl,
 } from "./ui";
 import { Icon } from "./icons";
 import { ModTable } from "./ModTable";
@@ -96,7 +97,7 @@ function ProjectCard({
   item?: LibraryItem;
   onOpen: (workspaceID: string) => void;
 }) {
-  const thumbnailUrl = item?.thumbnailUrl?.trim() || "";
+  const thumbnailUrl = thumbUrl(item?.thumbnailUrl);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const hasThumbnail = Boolean(thumbnailUrl) && !thumbnailFailed;
 

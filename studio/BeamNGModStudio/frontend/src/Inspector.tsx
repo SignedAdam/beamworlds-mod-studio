@@ -21,6 +21,7 @@ import { Icon } from './icons'
 import { IndexCardTabs, type IndexCardTabItem } from './IndexCardTabs'
 import InlineEditableField from './InlineEditableField'
 import { MetaPanel, HistoryPanel, StructuralIssuesPanel } from './InspectorPanels'
+import { PreviewPicker } from './PreviewPicker'
 import { TagEditor } from './TagEditor'
 import { Button, Spinner, formatBytes, formatDate, kindIcon, kindLabel } from './ui'
 
@@ -84,6 +85,7 @@ export function Inspector({
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
   const [selectedVariant, setSelectedVariant] = useState<Variant | null>(null)
+  const [previewItem, setPreviewItem] = useState<LibraryItem | null>(null)
   const dirtyFieldsRef = useRef(new Set<string>())
   const onDirtyChangeRef = useRef(onDirtyChange)
   onDirtyChangeRef.current = onDirtyChange
@@ -96,8 +98,14 @@ export function Inspector({
   // Selecting another mod keeps the reader in the same pane; an unavailable pane falls back below.
   useEffect(() => {
     setSelectedVariant(null)
+    setPreviewItem(null)
     dirtyFieldsRef.current.clear()
     onDirtyChangeRef.current?.(false)
+  }, [item.entityId])
+
+  const displayItem = previewItem?.entityId === item.entityId ? previewItem : item
+  const handlePreviewChanged = useCallback((next: LibraryItem) => {
+    if (next.entityId === item.entityId) setPreviewItem(next)
   }, [item.entityId])
 
   const currentDetail = detail?.item.entityId === item.entityId ? detail : null
@@ -119,7 +127,7 @@ export function Inspector({
         label: 'Overview',
         panel: <Overview
           key={item.entityId}
-          item={item}
+          item={displayItem}
           manifest={manifest}
           tags={tags}
           stale={stale}
@@ -129,6 +137,8 @@ export function Inspector({
           onUpdateTagVisual={onUpdateTagVisual}
           onDeleteTag={onDeleteTag}
           onSaveDetails={onSaveDetails}
+          onPreviewChanged={handlePreviewChanged}
+          onPreviewMember={onPreviewMember}
           reportDirty={reportDirty}
           onError={onError}
         />,
@@ -171,7 +181,7 @@ export function Inspector({
       },
     )
     return items
-  }, [currentDetail?.history, historyCount, issueCount, item, loading, manifest, onCreateTag, onDeleteTag, onError, onPreviewMember, onSaveDetails, onSaveVariant, onSetTags, onUpdateTagVisual, reportDirty, selectedVariant, stale, tags, variants, writeBlocked])
+  }, [currentDetail?.history, displayItem, handlePreviewChanged, historyCount, issueCount, item, loading, manifest, onCreateTag, onDeleteTag, onError, onPreviewMember, onSaveDetails, onSaveVariant, onSetTags, onUpdateTagVisual, reportDirty, selectedVariant, stale, tags, variants, writeBlocked])
 
   const scanState = securityScanState(item)
   const scanLabel = securityScanStatus(item, scanState)
@@ -374,6 +384,8 @@ function Overview({
   onUpdateTagVisual,
   onDeleteTag,
   onSaveDetails,
+  onPreviewChanged,
+  onPreviewMember,
   reportDirty,
   onError,
 }: {
@@ -387,10 +399,19 @@ function Overview({
   onUpdateTagVisual: (tagID: string, color: string, icon: string) => Promise<void>
   onDeleteTag: (tagID: string) => Promise<void>
   onSaveDetails: (update: LibraryItemDetailsUpdate) => Promise<void>
+  onPreviewChanged: (item: LibraryItem) => void
+  onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   reportDirty: DirtyReporter
   onError: (error: unknown) => void
 }) {
   return <div className="inspector-section-stack">
+    <PreviewPicker
+      item={item}
+      disabled={stale || writeBlocked}
+      onChanged={onPreviewChanged}
+      onPreviewMember={onPreviewMember}
+      onError={onError}
+    />
     <Details item={item} manifest={manifest} stale={stale} writeBlocked={writeBlocked} onSave={onSaveDetails} reportDirty={reportDirty}/>
     <fieldset className="inspector-fieldset inspector-tags">
       <legend>Tags</legend>

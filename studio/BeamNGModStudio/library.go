@@ -319,7 +319,9 @@ func (engine *LibraryEngine) Scan(parent context.Context) (ScanSummary, error) {
 				if manifest.SelectedImagePath != "" {
 					cachedAsset, imageErr := modkit.ExtractImage(job.path, manifest.SelectedImagePath, engine.config.ImageCacheDir)
 					if imageErr == nil {
-						asset = &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
+						cached := &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
+						asset = cached
+						_, _ = ensureAssetThumbnail(*cached)
 					}
 				}
 				appendArchive(ScanArchive{

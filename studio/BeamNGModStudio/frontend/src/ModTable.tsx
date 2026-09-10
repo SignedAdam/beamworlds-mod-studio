@@ -11,6 +11,7 @@ import type {
 import { Icon } from "./icons";
 import { isTagIcon, tagColor } from "./tagIcons";
 import "./ModTable.css";
+
 import {
   Badge,
   Button,
@@ -20,6 +21,7 @@ import {
   kindIcon,
   kindLabel,
   Spinner,
+  thumbUrl,
 } from "./ui";
 
 export type ModTableSortKey =
@@ -1065,15 +1067,19 @@ function Cell({
           </label>
         </td>
       );
-    case "thumbnail":
+    case "thumbnail": {
+      const thumbnail = thumbUrl(item.thumbnailUrl);
       return (
         <td className="mod-table__thumbnail">
           <span className="mod-table__icon">
-            {item.thumbnailUrl ? (
+            {thumbnail ? (
               <img
-                src={item.thumbnailUrl}
+                src={thumbnail}
                 alt=""
+                width={30}
+                height={30}
                 loading="lazy"
+                decoding="async"
                 onError={(event) => {
                   event.currentTarget.style.display = "none";
                 }}
@@ -1084,6 +1090,7 @@ function Cell({
           </span>
         </td>
       );
+    }
     case "name":
       return (
         <td className="mod-table__name">

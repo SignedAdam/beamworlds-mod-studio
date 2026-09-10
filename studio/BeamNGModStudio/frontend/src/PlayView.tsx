@@ -13,7 +13,7 @@ import {
   CollectionMenuPopup,
 } from "./CollectionUI";
 import { Icon } from "./icons";
-import { Badge, Button, Page, Spinner } from "./ui";
+import { Badge, Button, Page, Spinner, thumbUrl } from "./ui";
 import type { PlaySession } from "./usePlaySession";
 import "./PlayView.css";
 
@@ -447,7 +447,7 @@ export function PlayView({
         {session.preview?.warnings?.map((warning) => <div className="play-dialog-warning" key={warning}><Icon name="warning" size={14} /><span>{warning}</span></div>)}
         <div className="play-mod-review">
           {(session.preview?.mods ?? []).map((mod) => <article className={`play-mod-review__row${mod.available ? "" : " is-missing"}`} key={mod.entityId}>
-            <div className="play-mod-review__image">{mod.thumbnailUrl ? <img src={mod.thumbnailUrl} alt="" loading="lazy" /> : <Icon name="archive" size={18} />}</div>
+            <div className="play-mod-review__image">{mod.thumbnailUrl ? <img src={thumbUrl(mod.thumbnailUrl)} alt="" width={44} height={28} decoding="async" loading="lazy" /> : <Icon name="archive" size={18} />}</div>
             <div className="play-mod-review__copy"><strong>{mod.displayName}</strong><span>{mod.archivePath || mod.entityId}</span><small>{modProvenance(mod, byID)}</small></div>
             <Badge tone={mod.available ? "success" : "danger"}>{mod.available ? "Available" : "Missing"}</Badge>
           </article>)}

@@ -145,6 +145,10 @@ export function DuplicateCollection(collectionID: string): $CancellablePromise<$
     return $Call.ByID(1225056835, collectionID);
 }
 
+export function EntityPreviewCandidates(entityID: string): $CancellablePromise<$models.EntityPreviewCandidate[] | null> {
+    return $Call.ByID(193290949, entityID);
+}
+
 export function ExportWorkspace(workspaceID: string, label: string): $CancellablePromise<$models.ExportResponse> {
     return $Call.ByID(2564207477, workspaceID, label);
 }
@@ -332,6 +336,10 @@ export function ReorderCollectionMembers(collectionID: string, entityIDs: string
     return $Call.ByID(937529560, collectionID, entityIDs, childIDs);
 }
 
+export function ResetEntityPreview(entityID: string): $CancellablePromise<$models.LibraryItem> {
+    return $Call.ByID(3865490126, entityID);
+}
+
 export function ResolvePlaySelection(collectionIDs: string[] | null): $CancellablePromise<$models.PlaySelection> {
     return $Call.ByID(2225443946, collectionIDs);
 }
@@ -407,6 +415,14 @@ export function SetCollectionMods(collectionID: string, entityIDs: string[] | nu
 
 export function SetCollectionModsEnabled(collectionID: string, entityIDs: string[] | null, enabled: boolean): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(1406279852, collectionID, entityIDs, enabled);
+}
+
+export function SetEntityPreviewFromArchive(entityID: string, memberPath: string): $CancellablePromise<$models.LibraryItem> {
+    return $Call.ByID(2556088127, entityID, memberPath);
+}
+
+export function SetEntityPreviewFromFile(entityID: string, sourcePath: string): $CancellablePromise<$models.LibraryItem> {
+    return $Call.ByID(602868577, entityID, sourcePath);
 }
 
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {

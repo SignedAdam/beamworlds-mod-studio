@@ -146,6 +146,19 @@ export function formatBytes(value = 0): string {
   const amount = value / 1024 ** exponent;
   return `${amount >= 100 || exponent === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[exponent]}`;
 }
+export function thumbUrl(url?: string): string {
+  const value = url?.trim() ?? "";
+  if (!value) return "";
+  const hashIndex = value.indexOf("#");
+  const query = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const hash = hashIndex >= 0 ? value.slice(hashIndex) : "";
+  if (/(?:^|[?&])size=thumb(?:&|$)/i.test(query)) return value;
+  if (/(?:^|[?&])size=[^&#]*/i.test(query)) {
+    return `${query.replace(/([?&])size=[^&#]*/i, "$1size=thumb")}${hash}`;
+  }
+  return `${query}${query.includes("?") ? "&" : "?"}size=thumb${hash}`;
+}
+
 
 export function formatDate(value?: string | Date): string {
   if (!value) return "Not recorded";

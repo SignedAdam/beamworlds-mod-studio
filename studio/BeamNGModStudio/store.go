@@ -1276,6 +1276,16 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 }
 
 func applyAssetTx(ctx context.Context, tx *sql.Tx, entityID string, archive ScanArchive, now string) error {
+	var manualSelection string
+	selectionErr := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, entityPreviewSelectionKey(entityID)).Scan(&manualSelection)
+	if selectionErr != nil && !errors.Is(selectionErr, sql.ErrNoRows) {
+		return selectionErr
+	}
+	if selectionErr == nil && strings.TrimSpace(manualSelection) != "" {
+		// A manual preview is intentionally independent of the scanner's
+		// heuristic so rescans cannot silently replace the user's choice.
+		return nil
+	}
 	if archive.Asset != nil {
 		if strings.TrimSpace(archive.Asset.SHA256) == "" {
 			return errors.New("asset SHA-256 is required")
@@ -1847,6 +1857,28 @@ func (s *Store) GetAsset(ctx context.Context, sha string) (AssetRecord, error) {
 	var asset AssetRecord
 	err := s.db.QueryRowContext(ctx, `SELECT sha256,path,mime,width,height,size_bytes FROM assets WHERE sha256=?`, sha).Scan(&asset.SHA256, &asset.Path, &asset.MIME, &asset.Width, &asset.Height, &asset.SizeBytes)
 	return asset, err
+}
+
+// AssetsNeedingThumbnails lists the cached images whose size makes a
+// derivative worthwhile, largest first, so the backfill removes the worst
+// stutters before the small ones.
+func (s *Store) AssetsNeedingThumbnails(ctx context.Context) ([]AssetRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT sha256,path,mime,width,height,size_bytes FROM assets
+		WHERE path<>'' AND (width>? OR height>?)
+		ORDER BY size_bytes DESC`, thumbnailMaxEdge, thumbnailMaxEdge)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var assets []AssetRecord
+	for rows.Next() {
+		var asset AssetRecord
+		if err := rows.Scan(&asset.SHA256, &asset.Path, &asset.MIME, &asset.Width, &asset.Height, &asset.SizeBytes); err != nil {
+			return nil, err
+		}
+		assets = append(assets, asset)
+	}
+	return assets, rows.Err()
 }
 
 const workspaceQuery = `

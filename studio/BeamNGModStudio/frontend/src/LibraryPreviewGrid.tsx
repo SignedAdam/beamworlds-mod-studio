@@ -2,10 +2,16 @@ import { useEffect, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { LibraryItem } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
 import { Icon } from "./icons";
-import { EmptyState, kindIcon, Spinner } from "./ui";
+import { EmptyState, kindIcon, Spinner, thumbUrl } from "./ui";
 import "./LibraryPreviewGrid.css";
 
 export type LibraryPreviewSize = "small" | "medium" | "large";
+
+const thumbnailDimensions: Record<LibraryPreviewSize, { width: number; height: number }> = {
+  small: { width: 200, height: 116 },
+  medium: { width: 260, height: 148 },
+  large: { width: 340, height: 194 },
+};
 
 export interface LibraryPreviewGridProps {
   items: LibraryItem[];
@@ -117,6 +123,7 @@ export function LibraryPreviewGrid({
             <LibraryPreviewCard
               key={item.entityId}
               item={item}
+              thumbnailDimensions={thumbnailDimensions[previewSize]}
               selected={item.entityId === selectedID}
               bulkSelected={Boolean(selectedIDs?.has(item.entityId))}
               onSelect={onSelect}
@@ -132,6 +139,7 @@ export function LibraryPreviewGrid({
 
 function LibraryPreviewCard({
   item,
+  thumbnailDimensions,
   selected,
   bulkSelected,
   onSelect,
@@ -139,6 +147,7 @@ function LibraryPreviewCard({
   onContextMenu,
 }: {
   item: LibraryItem;
+  thumbnailDimensions: { width: number; height: number };
   selected: boolean;
   bulkSelected: boolean;
   onSelect: (item: LibraryItem) => void;
@@ -148,7 +157,7 @@ function LibraryPreviewCard({
     event: ReactMouseEvent<HTMLElement>,
   ) => void;
 }) {
-  const thumbnailUrl = item.thumbnailUrl?.trim() || "";
+  const thumbnailUrl = thumbUrl(item.thumbnailUrl);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const hasThumbnail = Boolean(thumbnailUrl) && !thumbnailFailed;
   const status = normalizedHealthStatus(item.healthStatus);
@@ -188,7 +197,10 @@ function LibraryPreviewCard({
             <img
               src={thumbnailUrl}
               alt=""
+              width={thumbnailDimensions.width}
+              height={thumbnailDimensions.height}
               loading="lazy"
+              decoding="async"
               onError={() => setThumbnailFailed(true)}
             />
           ) : (

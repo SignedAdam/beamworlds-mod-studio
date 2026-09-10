@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -212,6 +213,9 @@ func TestFirstScanSeedsDefaultProfileFromEnabledMods(t *testing.T) {
 		"seed-enabled": map[string]any{"active": true, "filename": filepath.Base(item.ArchivePath), "fullpath": "/mods/"},
 		"seed-missing": map[string]any{"active": true, "filename": "not-in-library.zip", "fullpath": "/mods/"},
 		"seed-off":     map[string]any{"active": false, "filename": "irrelevant.zip", "fullpath": "/mods/"},
+		// BeamWorlds' own throwaway install: never the user's mod, and its
+		// archive is gone, so it must not be seeded or reported.
+		"modstudio-test-01a05af2": map[string]any{"active": true, "filename": "modstudio-test-01a05af2.zip", "fullpath": "/mods/"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -244,8 +248,13 @@ func TestFirstScanSeedsDefaultProfileFromEnabledMods(t *testing.T) {
 	if state.ProfileID != profile.ID || len(state.CollectionIDs) != 1 || state.CollectionIDs[0] != seededCollection.ID {
 		t.Fatalf("seeded profile was not selected: %#v", state)
 	}
-	if len(state.Notices) == 0 {
-		t.Fatal("an enabled mod outside the library was not reported")
+	// The notice has to name the archive and say nothing about BeamWorlds' own
+	// test install, which was filtered out before matching.
+	if len(state.Notices) != 1 || !strings.Contains(state.Notices[0], "not-in-library.zip") {
+		t.Fatalf("notices = %#v", state.Notices)
+	}
+	if strings.Contains(state.Notices[0], "modstudio-test") {
+		t.Fatalf("a BeamWorlds test install was reported to the user: %q", state.Notices[0])
 	}
 	selection, err := service.ResolvePlaySelection(state.CollectionIDs)
 	if err != nil {

@@ -33,19 +33,42 @@ func (handler *cacheAssetHandler) ServeHTTP(response http.ResponseWriter, reques
 		http.NotFound(response, request)
 		return
 	}
-	file, err := os.Open(asset.Path)
+	sourceFile, err := os.Open(asset.Path)
+	if err != nil {
+		http.NotFound(response, request)
+		return
+	}
+	sourceInfo, err := sourceFile.Stat()
+	_ = sourceFile.Close()
+	if err != nil || !sourceInfo.Mode().IsRegular() || sourceInfo.Size() != asset.SizeBytes || filepath.Ext(asset.Path) == "" {
+		http.NotFound(response, request)
+		return
+	}
+
+	servedPath := asset.Path
+	contentType := asset.MIME
+	etag := `"` + asset.SHA256 + `"`
+	if request.URL.Query().Get("size") == "thumb" {
+		if derivative, thumbnailErr := ensureAssetThumbnail(asset); thumbnailErr == nil &&
+			derivative != asset.Path && pathWithin(derivative, handler.cacheDir) {
+			servedPath = derivative
+			contentType = "image/jpeg"
+			etag = `"` + asset.SHA256 + `-thumb"`
+		}
+	}
+	file, err := os.Open(servedPath)
 	if err != nil {
 		http.NotFound(response, request)
 		return
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() != asset.SizeBytes || filepath.Ext(asset.Path) == "" {
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || filepath.Ext(servedPath) == "" {
 		http.NotFound(response, request)
 		return
 	}
-	response.Header().Set("Content-Type", asset.MIME)
+	response.Header().Set("Content-Type", contentType)
 	response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	response.Header().Set("ETag", `"`+asset.SHA256+`"`)
-	http.ServeContent(response, request, filepath.Base(asset.Path), info.ModTime(), file)
+	response.Header().Set("ETag", etag)
+	http.ServeContent(response, request, filepath.Base(servedPath), info.ModTime(), file)
 }

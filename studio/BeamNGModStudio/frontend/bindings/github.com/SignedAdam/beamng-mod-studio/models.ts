@@ -134,6 +134,22 @@ export interface AppSettings {
     "hasAnthropicApiKey": boolean;
 }
 
+export interface ArchiveFileRemovalImpact {
+    "files": ArchiveFileTarget[] | null;
+    "refusals": string[] | null;
+    "archiveCount": number;
+    "archiveBytes": number;
+}
+
+export interface ArchiveFileTarget {
+    "linkId": string;
+    "entityId": string;
+    "displayName": string;
+    "archivePath": string;
+    "sizeBytes": number;
+    "missing": boolean;
+}
+
 export interface ArchiveLink {
     "id": string;
     "artifactId": string;
@@ -697,6 +713,36 @@ export interface ModCollection {
     "parentIds": string[] | null;
     "cover": CollectionCover;
     "coverUrl": string;
+}
+
+export interface ModFamily {
+    "id": string;
+    "confidence": string;
+    "kind": string;
+    "title": string;
+    "author": string;
+    "resourceId": string;
+    "members": ModFamilyMember[] | null;
+    "reclaimableBytes": number;
+}
+
+export interface ModFamilyMember {
+    "entityId": string;
+    "linkId": string;
+    "displayName": string;
+    "title": string;
+    "author": string;
+    "version": string;
+    "archivePath": string;
+    "sizeBytes": number;
+    "modifiedAt": string;
+    "sha256": string;
+    "sourceLabel": string;
+    "collections": string[] | null;
+    "workspaceCount": number;
+    "thumbnailUrl": string;
+    "keeper": boolean;
+    "keeperReason": string;
 }
 
 export interface ModProfile {

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { LibraryItem, ModCollection, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { CollectionDialog, CollectionMenuPopup, type CollectionMenuAction } from './CollectionUI'
+import { DuplicatesDialog } from './DuplicatesDialog'
 import { CollectionMenu } from './CollectionMenu'
 import { Icon } from './icons'
 import { LibraryPreviewGrid, type LibraryPreviewSize } from './LibraryPreviewGrid'
 import { LibrarySearch } from './LibrarySearch'
-import { ModTable, sortLibraryItems, type ModTableSort } from './ModTable'
+import { ModTable, sortLibraryItems, type ModFamilyBadge, type ModTableSort } from './ModTable'
 import { Button, Page, formatBytes, type PageActionSpec } from './ui'
 
 type LibraryViewMode = 'table' | 'preview'
@@ -39,6 +40,7 @@ export interface LibraryViewProps {
   collections: ModCollection[]
   tags: ModTag[]
   scan: ScanProgress | null
+  families: ModFamily[]
   scanning: boolean
   loading: boolean
   query: string
@@ -54,6 +56,8 @@ export interface LibraryViewProps {
   onScan: () => void
   onCancelScan: () => void
   onRemoved: () => void
+  onRefreshFamilies: () => Promise<void>
+  onFamiliesChange: (families: ModFamily[]) => void
   onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void
 }
 
@@ -85,6 +89,8 @@ export function LibraryView(props: LibraryViewProps) {
   const [addBusy, setAddBusy] = useState(false)
   // Removal is two operations: forgetting drops the index entry, deleting also
   // sends the archive to the Recycle Bin. The dialog states which one it is.
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false)
+  const [duplicateFocusFamilyID, setDuplicateFocusFamilyID] = useState('')
   const [removal, setRemoval] = useState<{ mode: 'forget' | 'delete'; impact: ModRemovalImpact } | null>(null)
   const [removalBusy, setRemovalBusy] = useState(false)
   const [removalError, setRemovalError] = useState('')
@@ -290,6 +296,31 @@ export function LibraryView(props: LibraryViewProps) {
     return actions
   }
 
+  // A mod can be both an extra copy on disk and one of several versions. The
+  // on-disk case is the certain one, so it owns the row's single badge.
+  const familyByEntityID = useMemo<Record<string, ModFamilyBadge>>(() => {
+    const lookup: Record<string, ModFamilyBadge> = {}
+    for (const family of props.families) {
+      const members = family.members ?? []
+      const badge: ModFamilyBadge = {
+        count: members.length,
+        kind: family.confidence === 'identical' ? 'files' : family.kind,
+        familyId: family.id,
+      }
+      for (const member of members) {
+        const existing = lookup[member.entityId]
+        if (existing && existing.kind === 'files' && badge.kind !== 'files') continue
+        lookup[member.entityId] = badge
+      }
+    }
+    return lookup
+  }, [props.families])
+
+  const openDuplicates = (familyID = '') => {
+    setDuplicateFocusFamilyID(familyID)
+    setDuplicatesOpen(true)
+  }
+
   const pageActions: PageActionSpec[] = []
   pageActions.push(
     props.scanning
@@ -311,6 +342,16 @@ export function LibraryView(props: LibraryViewProps) {
           title: 'Scans configured locations for new or updated mods',
         },
   )
+  if (props.families.length > 0) {
+    pageActions.push({
+      key: 'review-duplicates',
+      label: `Review duplicates (${props.families.length.toLocaleString()})`,
+      icon: 'copy',
+      role: 'secondary',
+      onClick: () => openDuplicates(),
+      title: 'Review duplicate and alternative-version mod families',
+    })
+  }
   pageActions.push({
     key: 'open-mods-folder',
     label: 'Open BeamNG mods folder',
@@ -410,6 +451,8 @@ export function LibraryView(props: LibraryViewProps) {
           onSelect={props.onSelect}
           onToggle={toggleSelection}
           onContextMenu={openContextMenu}
+          familyByEntityID={familyByEntityID}
+          onReviewFamily={openDuplicates}
         />
       ) : (
         <ModTable
@@ -431,6 +474,8 @@ export function LibraryView(props: LibraryViewProps) {
           }}
           loading={props.loading}
           loadingLabel="Filtering mods"
+          familyByEntityID={familyByEntityID}
+          onReviewFamily={openDuplicates}
           emptyTitle={emptyFilterTitle}
           resetKey={`${props.query}\u0000${props.collectionID}`}
         />
@@ -526,6 +571,17 @@ export function LibraryView(props: LibraryViewProps) {
       </p>}
       {removalError && <p className="collection-add__error" role="alert">{removalError}</p>}
     </CollectionDialog>}
+    {duplicatesOpen && <DuplicatesDialog
+      families={props.families}
+      focusFamilyID={duplicateFocusFamilyID || undefined}
+      onClose={() => {
+        setDuplicatesOpen(false)
+        setDuplicateFocusFamilyID('')
+      }}
+      onRefresh={props.onRefreshFamilies}
+      onFamiliesChange={props.onFamiliesChange}
+      onNotify={props.onNotify}
+    />}
   </Page>
 }
 

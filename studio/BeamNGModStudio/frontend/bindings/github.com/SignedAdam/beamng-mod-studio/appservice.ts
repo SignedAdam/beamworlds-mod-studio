@@ -121,6 +121,15 @@ export function DeleteCollections(collectionIDs: string[] | null): $CancellableP
     return $Call.ByID(4193965494, collectionIDs);
 }
 
+/**
+ * DeleteModArchives recycles each archive and then forgets the mod. A mod whose
+ * archive could not be recycled stays in the library: the index must never
+ * claim a file is gone while it is still on disk.
+ */
+export function DeleteModArchives(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalResult> {
+    return $Call.ByID(3170877512, entityIDs);
+}
+
 export function DeleteModTag(tagID: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1455379505, tagID);
 }
@@ -163,6 +172,13 @@ export function FetchWorkspaceGit(workspaceID: string): $CancellablePromise<$mod
 
 export function FileManagerActionLabel(): $CancellablePromise<string> {
     return $Call.ByID(3849000745);
+}
+
+/**
+ * ForgetMods removes the mods from the index without touching a single file.
+ */
+export function ForgetMods(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalResult> {
+    return $Call.ByID(2057459022, entityIDs);
 }
 
 export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void> {
@@ -283,6 +299,10 @@ export function Organization(): $CancellablePromise<$models.OrganizationState> {
 
 export function PickDirectory(title: string, initialDirectory: string): $CancellablePromise<string> {
     return $Call.ByID(4292351642, title, initialDirectory);
+}
+
+export function PlanModRemoval(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalImpact> {
+    return $Call.ByID(627688409, entityIDs);
 }
 
 /**

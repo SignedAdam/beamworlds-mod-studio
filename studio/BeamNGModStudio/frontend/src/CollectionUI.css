@@ -303,6 +303,53 @@ html {
 .collection-add__field :is(select, input) { width: 100%; height: 32px; }
 .collection-add__error { margin-top: 9px; color: var(--danger); font-size: var(--font-caption); }
 
+/* ---------- Removal confirmation ---------- */
+.library-removal__copy { margin: 0 0 12px; color: var(--text-2); font-size: var(--font-control); line-height: 1.45; }
+
+.library-removal__mods {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  max-height: 216px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--field);
+}
+
+/* Name over path: a one-line row would truncate exactly the part that tells
+   the user which copy of a mod is about to go. */
+.library-removal__mods li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.library-removal__mods li:last-child { border-bottom: 0; }
+.library-removal__mods strong { color: var(--text); font-size: var(--font-control); }
+
+.library-removal__mods small {
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-caption);
+}
+
+.library-removal__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 10px;
+  color: var(--warning);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+.library-removal__warning > svg { flex: none; margin-top: 2px; }
+
 /* ---------- Context menu ---------- */
 .collection-context-menu {
   position: fixed;

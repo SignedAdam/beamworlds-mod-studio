@@ -6,9 +6,10 @@
 }
 
 .collection-control .collection-trigger {
-  width: clamp(112px, 18vw, 220px);
-  min-width: 112px;
-  max-width: 240px;
+  /* Wide enough for "All mods" plus its count; the menu carries the long names. */
+  width: clamp(104px, 11vw, 168px);
+  min-width: 96px;
+  max-width: 180px;
   height: var(--control-height);
   min-height: var(--control-height);
   display: inline-flex;

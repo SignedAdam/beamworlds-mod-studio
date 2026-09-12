@@ -764,13 +764,28 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 .page-shell__actions .button{flex:0 0 auto}
 
 /* One toolbar contract under every page title: search first, scope controls trailing. */
-.page-toolbar{flex:none;position:relative;z-index:80;height:var(--page-toolbar-height);min-height:var(--page-toolbar-height);min-width:0;display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-4);border-bottom:1px solid var(--line-strong);background:var(--surface)}
+.page-toolbar{container:page-toolbar/inline-size;flex:none;position:relative;z-index:80;height:var(--page-toolbar-height);min-height:var(--page-toolbar-height);min-width:0;display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-4);border-bottom:1px solid var(--line-strong);background:var(--surface)}
 .page-toolbar>*{flex:none;min-width:0}
 .page-toolbar>:is(.library-search,.search-box,.collections-search,.scanner-search){flex:1 1 180px;max-width:460px}
 .page-toolbar :is(.search-box,.collections-search,.scanner-search,.collection-trigger,.segmented,select,.button){height:var(--control-height);min-height:var(--control-height);border-radius:4px}
 .page-toolbar :is(.search-box,.collections-search,.scanner-search) input{font-size:var(--font-control)}
 .page-toolbar__meta{margin-left:auto;color:var(--text-3);font-size:var(--font-caption);font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:520px){.page-toolbar{padding:0 var(--space-3);gap:var(--space-1)}.page-toolbar__meta{display:none}}
+
+/* Selection actions ride in the Library toolbar: picking mods must never shift
+   the table down. Labels fold away from least to most important as the toolbar
+   narrows, so the row survives a tight window without wrapping. */
+.library-selection{margin-left:auto;flex:none;display:flex;align-items:center;gap:var(--space-1)}
+.library-selection__count{height:var(--control-height);display:inline-flex;align-items:center;padding:0 9px;border:1px solid color-mix(in srgb,var(--active-tab) 48%,var(--line-strong));border-radius:4px;background:color-mix(in srgb,var(--active-tab) 13%,transparent);color:var(--text);font-size:var(--font-control);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.library-selection .button{white-space:nowrap}
+.library-selection__clear{width:var(--control-height);height:var(--control-height);flex:none}
+@container page-toolbar (max-width:1080px){.page-toolbar .segmented:not(.segmented--compact) button>span{display:none}}
+@container page-toolbar (max-width:900px){.library-selection__add>span{display:none}.library-selection__add{padding:0 9px}}
+@container page-toolbar (max-width:780px){.library-selection__more>span{display:none}.library-selection__more{padding:0 9px}}
+@container page-toolbar (max-width:680px){.page-toolbar>.library-search{flex:1 1 120px}.library-selection__count{padding:0 6px}}
+/* In light mode --active-tab is near-white, so the chip borrows the Library's
+   own accent to stay readable as a count rather than another button. */
+html[data-theme="light"] .library-view .library-selection__count{border-color:color-mix(in srgb,var(--library-accent) 42%,var(--line-strong));background:color-mix(in srgb,var(--library-accent) 12%,transparent);color:var(--library-table-primary-text,var(--text))}
 @media(max-width:520px){.page-shell__header{gap:10px;padding:0 10px}.page-shell__actions{justify-content:flex-start}}
 
 /* Virgil sessions live in the source-editor body alongside file tabs. */

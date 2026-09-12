@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { LibraryItem, ModCollection, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
-import { CollectionDialog, CollectionMenuPopup } from './CollectionUI'
+import type { LibraryItem, ModCollection, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { CollectionDialog, CollectionMenuPopup, type CollectionMenuAction } from './CollectionUI'
 import { CollectionMenu } from './CollectionMenu'
 import { Icon } from './icons'
 import { LibraryPreviewGrid, type LibraryPreviewSize } from './LibraryPreviewGrid'
 import { LibrarySearch } from './LibrarySearch'
 import { ModTable, sortLibraryItems, type ModTableSort } from './ModTable'
-import { Button, Page, type PageActionSpec } from './ui'
+import { Button, Page, formatBytes, type PageActionSpec } from './ui'
 
 type LibraryViewMode = 'table' | 'preview'
 
@@ -53,6 +53,8 @@ export interface LibraryViewProps {
   onVirusScan: (item: LibraryItem) => void
   onScan: () => void
   onCancelScan: () => void
+  onRemoved: () => void
+  onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void
 }
 
 interface ContextMenuState {
@@ -72,12 +74,71 @@ export function LibraryView(props: LibraryViewProps) {
   const [librarySort, setLibrarySort] = useState<ModTableSort>({ key: 'name', direction: 1 })
   const [selectedEntityIDs, setSelectedEntityIDs] = useState<Set<string>>(() => new Set())
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  // Anchor for the selection toolbar's menu, so the same actions are reachable
+  // without pointing at a selected row.
+  const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number } | null>(null)
   const [addDialog, setAddDialog] = useState<AddDialogState | null>(null)
   const [addTargetID, setAddTargetID] = useState('')
   const [nameDraft, setNameDraft] = useState('')
   const [namePromptOpen, setNamePromptOpen] = useState(false)
   const [addError, setAddError] = useState('')
   const [addBusy, setAddBusy] = useState(false)
+  // Removal is two operations: forgetting drops the index entry, deleting also
+  // sends the archive to the Recycle Bin. The dialog states which one it is.
+  const [removal, setRemoval] = useState<{ mode: 'forget' | 'delete'; impact: ModRemovalImpact } | null>(null)
+  const [removalBusy, setRemovalBusy] = useState(false)
+  const [removalError, setRemovalError] = useState('')
+
+  const removalMods = removal?.impact.mods ?? []
+
+  const openRemoval = async (mode: 'forget' | 'delete', entityIDs: string[]) => {
+    setContextMenu(null)
+    setRemovalError('')
+    try {
+      const impact = await API.PlanModRemoval(entityIDs)
+      setRemoval({ mode, impact })
+    } catch (error) {
+      props.onError(error)
+    }
+  }
+
+  const confirmRemoval = async () => {
+    if (!removal) return
+    setRemovalBusy(true)
+    setRemovalError('')
+    try {
+      const entityIDs = removalMods.map(mod => mod.entityId)
+      const result = removal.mode === 'delete'
+        ? await API.DeleteModArchives(entityIDs)
+        : await API.ForgetMods(entityIDs)
+      const failures = result.failures ?? []
+      if (failures.length > 0) {
+        // Anything still on disk stays in the library, so the dialog remains
+        // open with the reason rather than reporting a clean success.
+        setRemovalError(failures.join(' · '))
+        setRemovalBusy(false)
+        props.onRemoved()
+        return
+      }
+      setSelectedEntityIDs(current => {
+        const next = new Set(current)
+        for (const entityID of entityIDs) next.delete(entityID)
+        return next
+      })
+      setRemoval(null)
+      props.onNotify(
+        removal.mode === 'delete'
+          ? `Deleted ${result.recycled.toLocaleString()} archive${result.recycled === 1 ? '' : 's'} to the Recycle Bin`
+          : `Forgot ${result.forgotten.toLocaleString()} mod${result.forgotten === 1 ? '' : 's'}`,
+        'success',
+      )
+      props.onRemoved()
+    } catch (error) {
+      setRemovalError(errorMessage(error))
+    } finally {
+      setRemovalBusy(false)
+    }
+  }
 
   const toggleSelection = (item: LibraryItem) => {
     setSelectedEntityIDs(current => {
@@ -195,6 +256,40 @@ export function LibraryView(props: LibraryViewProps) {
     })
   }
 
+  // One definition for both entry points: the right-click menu on a row and
+  // the selection toolbar. A selection can scroll far out of view, so its
+  // actions must not depend on pointing at a selected row.
+  const modActions = (entityIDs: string[], scanTarget: LibraryItem | null): CollectionMenuAction[] => {
+    const count = entityIDs.length
+    const actions: CollectionMenuAction[] = [{
+      label: count === 1 ? 'Add to collection' : `Add ${count.toLocaleString()} mods to collection`,
+      icon: 'folderPlus',
+      onClick: () => openAddDialog(entityIDs),
+    }]
+    if (scanTarget) {
+      actions.push({
+        label: 'Scan for threats',
+        icon: 'shield',
+        disabled: !scanTarget.linked,
+        detail: 'The archive is no longer on disk',
+        onClick: () => props.onVirusScan(scanTarget),
+      })
+    }
+    actions.push({
+      label: count === 1 ? 'Forget mod' : `Forget ${count.toLocaleString()} mods`,
+      icon: 'unlink',
+      detail: 'Removes it from the library and leaves the file alone',
+      onClick: () => void openRemoval('forget', entityIDs),
+    }, {
+      label: count === 1 ? 'Delete archive…' : `Delete ${count.toLocaleString()} archives…`,
+      icon: 'trash',
+      danger: true,
+      detail: 'Sends the file to the Recycle Bin',
+      onClick: () => void openRemoval('delete', entityIDs),
+    })
+    return actions
+  }
+
   const pageActions: PageActionSpec[] = []
   pageActions.push(
     props.scanning
@@ -238,6 +333,16 @@ export function LibraryView(props: LibraryViewProps) {
   )
   const allMatchingSelected = props.items.length > 0 && props.items.every(item => selectedEntityIDs.has(item.entityId))
   const selectedCountLabel = `${selectedEntityIDs.size.toLocaleString()} mod${selectedEntityIDs.size === 1 ? '' : 's'} selected`
+  // The toolbar chip has to stay narrow; the long form is for screen readers.
+  const selectedChipLabel = `${selectedEntityIDs.size.toLocaleString()} selected`
+  // Threat scanning takes one archive, so the toolbar menu only offers it when
+  // the selection is a single mod. That row may be filtered out of view, so
+  // resolve it against the whole catalog.
+  const soleSelectedItem = useMemo(() => {
+    if (selectedEntityIDs.size !== 1) return null
+    const [entityID] = [...selectedEntityIDs]
+    return props.catalogItems.find(item => item.entityId === entityID) ?? null
+  }, [props.catalogItems, selectedEntityIDs])
 
   return <Page title="Mod Library" className="library-view" ariaLabel="Mod library" actions={pageActions}>
     {props.scan && (props.scanning || Boolean(props.scan.error)) && <div className={`scan-strip ${props.scan.error && !props.scanning ? 'scan-strip--error' : ''}`}><div className="scan-strip__pulse"><Icon name={props.scan.error && !props.scanning ? 'error' : 'scan'} size={15}/></div><strong>{props.scan.error && !props.scanning ? 'Scan stopped' : props.scan.phase === 'discovering' ? 'Discovering' : 'Analyzing'}</strong><span title={props.scan.path}>{props.scan.error || props.scan.path || 'Finalizing index'}</span><div className="scan-strip__metrics"><span>{props.scan.discovered} found</span><span>{props.scan.analyzed} processed</span>{props.scan.cached > 0 && <span>{props.scan.cached} cached</span>}{props.scan.failed > 0 && <span>{props.scan.failed} failed</span>}</div></div>}
@@ -259,13 +364,38 @@ export function LibraryView(props: LibraryViewProps) {
           onClick={() => setPreviewSize(size)}
         >{size.charAt(0).toUpperCase()}</button>)}
       </div>}
+      {selectedEntityIDs.size > 0 && <div className="library-selection" role="group" aria-label="Selected mods">
+        <span className="library-selection__count" role="status" aria-live="polite" aria-label={selectedCountLabel}>{selectedChipLabel}</span>
+        <Button
+          type="button"
+          icon="folderPlus"
+          className="library-selection__add"
+          title="Add the selected mods to a collection"
+          aria-label={`Add ${selectedCountLabel} to collection`}
+          onClick={() => openAddDialog([...selectedEntityIDs])}
+        >Add to collection</Button>
+        <Button
+          type="button"
+          icon="more"
+          className="library-selection__more"
+          aria-haspopup="menu"
+          aria-expanded={Boolean(selectionMenu)}
+          aria-label={`Actions for ${selectedCountLabel}`}
+          title="More actions for the selected mods"
+          onClick={event => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setSelectionMenu({ x: rect.right, y: rect.bottom + 4 })
+          }}
+        >Actions</Button>
+        <button
+          type="button"
+          className="icon-button library-selection__clear"
+          aria-label="Clear selection"
+          title="Clear selection"
+          onClick={() => setSelectedEntityIDs(new Set())}
+        ><Icon name="close" size={15}/></button>
+      </div>}
     </div>
-    {selectedEntityIDs.size > 0 && <div className="library-bulk-toolbar" role="toolbar" aria-label="Bulk mod actions">
-      <span role="status" aria-live="polite">{selectedCountLabel}</span>
-      <Button type="button" icon="folderPlus" onClick={() => openAddDialog([...selectedEntityIDs])}>Add to collection</Button>
-      <Button type="button" tone="quiet" onClick={toggleAllMatching} disabled={props.items.length === 0}>{allMatchingSelected ? 'Clear matching selection' : 'Select all matching mods'}</Button>
-      <Button type="button" tone="quiet" onClick={() => setSelectedEntityIDs(new Set())}>Clear selection</Button>
-    </div>}
     <div className="library-workarea">
       {viewMode === 'preview' ? (
         <LibraryPreviewGrid
@@ -310,20 +440,23 @@ export function LibraryView(props: LibraryViewProps) {
       label={`Actions for ${contextMenu.item.displayName}`}
       x={contextMenu.x}
       y={contextMenu.y}
+      actions={modActions(contextMenu.entityIDs, contextMenu.item)}
+      onClose={() => setContextMenu(null)}
+    />}
+    {selectionMenu && selectedEntityIDs.size > 0 && <CollectionMenuPopup
+      label={`Actions for ${selectedCountLabel}`}
+      x={selectionMenu.x}
+      y={selectionMenu.y}
       actions={[
         {
-          label: contextMenu.entityIDs.length === 1 ? 'Add to collection' : `Add ${contextMenu.entityIDs.length.toLocaleString()} mods to collection`,
-          icon: 'folderPlus',
-          onClick: () => openAddDialog(contextMenu.entityIDs),
+          label: allMatchingSelected ? 'Clear matching selection' : 'Select all matching mods',
+          icon: 'check',
+          disabled: props.items.length === 0,
+          onClick: toggleAllMatching,
         },
-        {
-          label: 'Scan for threats',
-          icon: 'shield',
-          disabled: !contextMenu.item.linked,
-          onClick: () => props.onVirusScan(contextMenu.item),
-        },
+        ...modActions([...selectedEntityIDs], soleSelectedItem),
       ]}
-      onClose={() => setContextMenu(null)}
+      onClose={() => setSelectionMenu(null)}
     />}
     {addDialog && <CollectionDialog
       title={`Add ${addDialog.entityIDs.length === 1 ? 'mod' : `${addDialog.entityIDs.length.toLocaleString()} mods`} to collection?`}
@@ -356,6 +489,42 @@ export function LibraryView(props: LibraryViewProps) {
         <input autoFocus value={nameDraft} onChange={event => { setNameDraft(event.target.value); setAddError('') }} disabled={addBusy} aria-label="Collection name" />
       </form>
       {addError && <p className="collection-add__error" role="alert">{addError}</p>}
+    </CollectionDialog>}
+    {removal && <CollectionDialog
+      title={removal.mode === 'delete'
+        ? `Delete ${removalMods.length === 1 ? 'this archive' : `${removalMods.length.toLocaleString()} archives`}?`
+        : `Forget ${removalMods.length === 1 ? 'this mod' : `${removalMods.length.toLocaleString()} mods`}?`}
+      onClose={() => { if (!removalBusy) setRemoval(null) }}
+      footer={<>
+        <Button type="button" onClick={() => setRemoval(null)} disabled={removalBusy}>Cancel</Button>
+        <Button type="button" tone={removal.mode === 'delete' ? 'danger' : 'primary'} disabled={removalBusy} onClick={() => void confirmRemoval()}>
+          {removal.mode === 'delete' ? 'Delete to Recycle Bin' : 'Forget'}
+        </Button>
+      </>}
+    >
+      <p className="library-removal__copy">
+        {removal.mode === 'delete'
+          ? 'The archives go to the Recycle Bin, so you can restore them from Windows. The mods also leave the library.'
+          : 'The mods leave the library. Every file stays exactly where it is, and the next scan will find them again.'}
+      </p>
+      <ul className="library-removal__mods">
+        {removalMods.map(mod => <li key={mod.entityId}>
+          <strong>{mod.displayName || mod.entityId}</strong>
+          <small>{mod.missing ? 'Archive already gone' : `${mod.archivePath} · ${formatBytes(mod.sizeBytes)}`}</small>
+        </li>)}
+      </ul>
+      {(removal.impact.collections ?? []).length > 0 && <p className="library-removal__warning">
+        <Icon name="warning" size={14} />
+        <span>Also removed from {(removal.impact.collections ?? []).join(', ')}.</span>
+      </p>}
+      {(removal.impact.workspaces ?? []).length > 0 && <p className="library-removal__warning" role="alert">
+        <Icon name="warning" size={14} />
+        <span>Open in ModMaker: {(removal.impact.workspaces ?? []).join(', ')}. Delete the project first.</span>
+      </p>}
+      {removal.mode === 'delete' && removal.impact.archiveCount > 0 && <p className="library-removal__copy">
+        {formatBytes(removal.impact.archiveBytes)} across {removal.impact.archiveCount.toLocaleString()} file{removal.impact.archiveCount === 1 ? '' : 's'}.
+      </p>}
+      {removalError && <p className="collection-add__error" role="alert">{removalError}</p>}
     </CollectionDialog>}
   </Page>
 }

@@ -708,6 +708,32 @@ export interface ModProfile {
     "modCount": number;
 }
 
+/**
+ * ModRemovalImpact is what the confirmation needs to state plainly before the
+ * user agrees to anything.
+ */
+export interface ModRemovalImpact {
+    "mods": ModRemovalTarget[] | null;
+    "collections": string[] | null;
+    "workspaces": string[] | null;
+    "archiveCount": number;
+    "archiveBytes": number;
+}
+
+export interface ModRemovalResult {
+    "forgotten": number;
+    "recycled": number;
+    "failures": string[] | null;
+}
+
+export interface ModRemovalTarget {
+    "entityId": string;
+    "displayName": string;
+    "archivePath": string;
+    "sizeBytes": number;
+    "missing": boolean;
+}
+
 export interface ModSecurityMetadata {
     "schemaVersion": number;
     "entityId": string;

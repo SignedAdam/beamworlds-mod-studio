@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -55,7 +56,11 @@ func TestManagedProviderStatusAndChatGPTConnectionLifecycle(t *testing.T) {
 	if started.LoginID == "" || started.ProviderID != "chatgpt" {
 		t.Fatalf("connection start = %#v", started)
 	}
-	if !strings.HasPrefix(started.URL, "http://localhost:1455/") && !strings.HasPrefix(started.URL, "https://auth.openai.com/") {
+	// The provider CLI picks its own loopback callback port, so pinning one
+	// only tests which version happens to be installed. What matters is the
+	// contract validateAIConnectionURL enforces: the provider's own host, or
+	// a local callback.
+	if !isProviderAuthorizationURL(started.URL, "openai.com") {
 		t.Fatalf("unexpected ChatGPT authorization URL %q", started.URL)
 	}
 	if _, err := service.StartAIConnection("chatgpt"); err == nil || !strings.Contains(err.Error(), "already in progress") {
@@ -79,12 +84,26 @@ func TestManagedProviderStatusAndChatGPTConnectionLifecycle(t *testing.T) {
 	if claude.LoginID == "" || claude.ProviderID != "claude" {
 		t.Fatalf("Claude connection start = %#v", claude)
 	}
-	if !strings.Contains(claude.URL, "anthropic.com") && !strings.HasPrefix(claude.URL, "http://localhost:54545/") {
+	if !isProviderAuthorizationURL(claude.URL, "anthropic.com") {
 		t.Fatalf("unexpected Claude authorization URL %q", claude.URL)
 	}
 	if err := service.CancelAIConnection(claude.LoginID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// isProviderAuthorizationURL accepts either the provider's own HTTPS host or a
+// loopback callback on any port, which is exactly what the app allows.
+func isProviderAuthorizationURL(value, providerHost string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if parsed.Scheme == "https" {
+		return host == providerHost || strings.HasSuffix(host, "."+providerHost)
+	}
+	return parsed.Scheme == "http" && (host == "localhost" || host == "127.0.0.1" || host == "::1")
 }
 
 func TestValidateAIConnectionURL(t *testing.T) {

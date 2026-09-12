@@ -1487,6 +1487,8 @@ function App() {
                 onVirusScan={openVirusScanner}
                 onScan={() => void startScan()}
                 onCancelScan={() => void cancelScan()}
+                onRemoved={() => void loadLibrary()}
+                onNotify={notify}
               />
             )}
             {view === "workspaces" && (

@@ -13,6 +13,7 @@ import type {
   LibraryItem,
   LibraryItemDetailsUpdate,
   LibraryVariantUpdate,
+  ModFamily,
   ModTag,
   NewModRequest,
   OrganizationState,
@@ -125,6 +126,7 @@ function App() {
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
   const [allItems, setAllItems] = useState<LibraryItem[]>([]);
+  const [families, setFamilies] = useState<ModFamily[]>([]);
   const [organization, setOrganization] = useState<OrganizationState | null>(
     null,
   );
@@ -340,6 +342,11 @@ function App() {
     setOrganization(nextOrganization);
     setAllItems(nextItems ?? []);
   }, []);
+  const loadFamilies = useCallback(async () => {
+    const nextFamilies = (await API.ModFamilies()) ?? [];
+    setFamilies(nextFamilies);
+    return nextFamilies;
+  }, []);
   const handleOrganizationChange = useCallback((state: OrganizationState) => {
     setOrganization(state);
     void Promise.all([loadOrganization(), loadLibrary()]).catch(handleError);
@@ -463,11 +470,12 @@ function App() {
     }
 
     try {
-      const [libraryResult, shellResult, organizationResult] =
+      const [libraryResult, shellResult, organizationResult, familiesResult] =
         await Promise.allSettled([
           loadLibrary(),
           loadShell(successful),
           loadOrganization(),
+          loadFamilies(),
         ]);
       if (libraryResult.status === "rejected")
         handleError(libraryResult.reason);
@@ -475,6 +483,8 @@ function App() {
         handleError(shellResult.reason);
       if (organizationResult.status === "rejected")
         handleError(organizationResult.reason);
+      if (familiesResult.status === "rejected")
+        handleError(familiesResult.reason);
       // The first indexed library may have seeded a collection and profile on
       // the backend; pick that up instead of leaving the pre-scan empty state.
       if (successful) await playSessionRef.current?.reloadState().catch(handleError);
@@ -488,6 +498,7 @@ function App() {
     }
   }, [
     handleError,
+    loadFamilies,
     loadLibrary,
     loadOrganization,
     loadShell,
@@ -518,6 +529,7 @@ function App() {
           nextOrganization,
           nextSettings,
           nextUsage,
+          familyResult,
         ] = await Promise.all([
           API.Config(),
           API.ListWorkspaces(),
@@ -525,6 +537,7 @@ function App() {
           API.Organization(),
           API.Settings(),
           API.AIUsage(),
+          API.ModFamilies(),
         ]);
         if (!active) return;
         const nextWorkspaces = workspaceResult ?? [];
@@ -534,6 +547,7 @@ function App() {
         setAllItems(itemResult ?? []);
         setOrganization(nextOrganization);
         setSettings(nextSettings);
+        setFamilies(familyResult ?? []);
         setUsage(nextUsage);
         setLoading(false);
         if (nextDashboard.entities === 0 && !autoScanStarted.current) {
@@ -919,6 +933,10 @@ function App() {
   const refreshAfterVirusScan = async () => {
     await Promise.all([loadLibrary(), loadOrganization(), loadShell()]);
   };
+
+  const refreshAfterModRemoval = useCallback(async () => {
+    await Promise.all([loadLibrary(), loadOrganization(), loadFamilies()]);
+  }, [loadFamilies, loadLibrary, loadOrganization]);
 
   const createNewMod = async (
     request: NewModRequest,
@@ -1472,6 +1490,7 @@ function App() {
                 catalogItems={allItems}
                 collections={organization?.collections ?? []}
                 tags={organization?.tags ?? []}
+                families={families}
                 scan={scan}
                 scanning={scanning}
                 loading={libraryLoading}
@@ -1487,7 +1506,9 @@ function App() {
                 onVirusScan={openVirusScanner}
                 onScan={() => void startScan()}
                 onCancelScan={() => void cancelScan()}
-                onRemoved={() => void loadLibrary()}
+                onRemoved={() => void refreshAfterModRemoval()}
+                onRefreshFamilies={refreshAfterModRemoval}
+                onFamiliesChange={setFamilies}
                 onNotify={notify}
               />
             )}

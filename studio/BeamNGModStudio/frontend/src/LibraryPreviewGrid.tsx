@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { LibraryItem } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
 import { Icon } from "./icons";
+import type { ModFamilyBadge } from "./ModTable";
 import { EmptyState, kindIcon, Spinner, thumbUrl } from "./ui";
 import "./LibraryPreviewGrid.css";
 
@@ -28,6 +29,8 @@ export interface LibraryPreviewGridProps {
     item: LibraryItem,
     event: ReactMouseEvent<HTMLElement>,
   ) => void;
+  familyByEntityID?: Record<string, ModFamilyBadge>;
+  onReviewFamily?: (familyID: string) => void;
 }
 
 const healthIcons = {
@@ -101,6 +104,8 @@ export function LibraryPreviewGrid({
   onSelect,
   onToggle,
   onContextMenu,
+  familyByEntityID,
+  onReviewFamily,
 }: LibraryPreviewGridProps) {
   return (
     <div className="library-preview-panel" aria-busy={loading}>
@@ -129,6 +134,8 @@ export function LibraryPreviewGrid({
               onSelect={onSelect}
               onToggle={onToggle}
               onContextMenu={onContextMenu}
+              familyBadge={familyByEntityID?.[item.entityId]}
+              onReviewFamily={onReviewFamily}
             />
           ))}
         </div>
@@ -145,6 +152,8 @@ function LibraryPreviewCard({
   onSelect,
   onToggle,
   onContextMenu,
+  familyBadge,
+  onReviewFamily,
 }: {
   item: LibraryItem;
   thumbnailDimensions: { width: number; height: number };
@@ -156,6 +165,8 @@ function LibraryPreviewCard({
     item: LibraryItem,
     event: ReactMouseEvent<HTMLElement>,
   ) => void;
+  familyBadge?: ModFamilyBadge;
+  onReviewFamily?: (familyID: string) => void;
 }) {
   const thumbnailUrl = thumbUrl(item.thumbnailUrl);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -220,13 +231,30 @@ function LibraryPreviewCard({
             <span>{statusLabel}</span>
           </span>
         </span>
-        <span className="library-preview-card__body">
-          <span className="library-preview-card__name" title={name}>
-            {name}
+        <span className={`library-preview-card__body${familyBadge ? " has-family-badge" : ""}`}>
+          <span className="library-preview-card__name-row">
+            <span className="library-preview-card__name" title={name}>
+              {name}
+            </span>
           </span>
           <span className="library-preview-card__source">{source}</span>
         </span>
       </button>
+      {familyBadge && (
+        <button
+          type="button"
+          className="library-preview-card__family-badge"
+          aria-label={`Review duplicate family for ${name}: ${familyBadge.count} ${familyBadge.kind}`}
+          title={`Review ${familyBadge.count} ${familyBadge.kind}`}
+          onClick={() => onReviewFamily?.(familyBadge.familyId)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          {familyBadge.count} {familyBadge.kind}
+        </button>
+      )}
       <button
         type="button"
         className="library-preview-card__actions"

@@ -92,6 +92,13 @@ export type ModTableInteraction =
         event: ReactMouseEvent<HTMLTableRowElement>,
       ) => void;
     };
+export interface ModFamilyBadge {
+  count: number;
+  kind: string;
+  familyId: string;
+}
+
+type ModFamilyBadgeLookup = Record<string, ModFamilyBadge>;
 
 export interface ModTableProps {
   items: LibraryItem[];
@@ -108,7 +115,10 @@ export interface ModTableProps {
   onSortChange?: (sort: ModTableSort) => void;
   enabledByEntityID?: ReadonlyMap<string, boolean>;
   onToggleEnabled?: (entityID: string, enabled: boolean) => void;
+  familyByEntityID?: ModFamilyBadgeLookup;
+  onReviewFamily?: (familyID: string) => void;
 }
+
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   enabled: { label: "Enabled", defaultWidth: 104, minWidth: 86 },
@@ -285,6 +295,8 @@ export function ModTable({
   onSortChange,
   enabledByEntityID,
   onToggleEnabled,
+  familyByEntityID,
+  onReviewFamily,
 }: ModTableProps) {
   const preferenceKey =
     surface === "library"
@@ -700,6 +712,8 @@ export function ModTable({
                     onToggle={interaction.onToggle}
                     enabledByEntityID={enabledByEntityID}
                     onToggleEnabled={onToggleEnabled}
+                    familyByEntityID={familyByEntityID}
+                    onReviewFamily={onReviewFamily}
                     onContextMenu={
                       interaction.onContextMenu ? openContextMenu : undefined
                     }
@@ -870,7 +884,6 @@ const SortableHead = memo(function SortableHead({
     </th>
   );
 });
-
 const ModRow = memo(function ModRow({
   item,
   columns,
@@ -883,6 +896,8 @@ const ModRow = memo(function ModRow({
   onToggle,
   enabledByEntityID,
   onToggleEnabled,
+  familyByEntityID,
+  onReviewFamily,
   onContextMenu,
 }: {
   item: LibraryItem;
@@ -896,6 +911,8 @@ const ModRow = memo(function ModRow({
   onToggle?: (item: LibraryItem) => void;
   enabledByEntityID?: ReadonlyMap<string, boolean>;
   onToggleEnabled?: (entityID: string, enabled: boolean) => void;
+  familyByEntityID?: ModFamilyBadgeLookup;
+  onReviewFamily?: (familyID: string) => void;
   onContextMenu?: (
     item: LibraryItem,
     event: ReactMouseEvent<HTMLTableRowElement>,
@@ -948,6 +965,8 @@ const ModRow = memo(function ModRow({
           enabled={enabled}
           disabled={disabled}
           onToggleEnabled={onToggleEnabled}
+          familyBadge={familyByEntityID?.[item.entityId]}
+          onReviewFamily={onReviewFamily}
         />
       ))}
     </tr>
@@ -1030,7 +1049,6 @@ function virgilStatusDetail(record?: WorkspaceRecord): string {
     .map((value) => friendlyWorkspaceValue(value as string))
     .join(" · ");
 }
-
 function Cell({
   item,
   column,
@@ -1039,6 +1057,8 @@ function Cell({
   enabled,
   disabled,
   onToggleEnabled,
+  familyBadge,
+  onReviewFamily,
 }: {
   item: LibraryItem;
   column: ColumnKey;
@@ -1047,6 +1067,8 @@ function Cell({
   enabled: boolean;
   disabled: boolean;
   onToggleEnabled?: (entityID: string, enabled: boolean) => void;
+  familyBadge?: ModFamilyBadge;
+  onReviewFamily?: (familyID: string) => void;
 }) {
   const tags = item.tags ?? [];
   switch (column) {
@@ -1094,7 +1116,24 @@ function Cell({
     case "name":
       return (
         <td className="mod-table__name">
-          <strong>{item.displayName}</strong>
+          <span className="mod-table__name-content">
+            <strong>{item.displayName}</strong>
+            {familyBadge && (
+              <button
+                type="button"
+                className="mod-table__family-badge"
+                aria-label={`Review duplicate family for ${item.displayName}: ${familyBadge.count} ${familyBadge.kind}`}
+                title={`Review ${familyBadge.count} ${familyBadge.kind}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReviewFamily?.(familyBadge.familyId);
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                {familyBadge.count} {familyBadge.kind}
+              </button>
+            )}
+          </span>
         </td>
       );
     case "path":

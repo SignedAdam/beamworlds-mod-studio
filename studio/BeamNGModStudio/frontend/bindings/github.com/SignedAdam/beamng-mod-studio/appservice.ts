@@ -117,6 +117,10 @@ export function Dashboard(): $CancellablePromise<$models.Dashboard> {
     return $Call.ByID(2982594826);
 }
 
+export function DeleteArchiveFiles(linkIDs: string[] | null): $CancellablePromise<$models.ModRemovalResult> {
+    return $Call.ByID(354172320, linkIDs);
+}
+
 export function DeleteCollections(collectionIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(4193965494, collectionIDs);
 }
@@ -148,6 +152,15 @@ export function DeleteWorkspacePath(workspaceID: string, relativePath: string): 
 
 export function DiscardWorkspaceGitPaths(workspaceID: string, paths: string[] | null, expectedFingerprint: string): $CancellablePromise<$models.GitDiscardResult> {
     return $Call.ByID(1065278057, workspaceID, paths, expectedFingerprint);
+}
+
+/**
+ * DismissModFamily records the current membership signature for one family.
+ * The raw family set is used for lookup so dismissing an already dismissed
+ * family remains idempotent.
+ */
+export function DismissModFamily(familyID: string): $CancellablePromise<$models.ModFamily[] | null> {
+    return $Call.ByID(3185854118, familyID);
 }
 
 export function DuplicateCollection(collectionID: string): $CancellablePromise<$models.CollectionDetail> {
@@ -284,6 +297,15 @@ export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[] 
     return $Call.ByID(350918204);
 }
 
+/**
+ * ModFamilies returns every currently visible family. The computation is kept
+ * in the store so the service method remains the same thin Wails boundary as
+ * the other library APIs.
+ */
+export function ModFamilies(): $CancellablePromise<$models.ModFamily[] | null> {
+    return $Call.ByID(3872770186);
+}
+
 export function OpenGameDirectory(): $CancellablePromise<void> {
     return $Call.ByID(565250723);
 }
@@ -299,6 +321,10 @@ export function Organization(): $CancellablePromise<$models.OrganizationState> {
 
 export function PickDirectory(title: string, initialDirectory: string): $CancellablePromise<string> {
     return $Call.ByID(4292351642, title, initialDirectory);
+}
+
+export function PlanArchiveFileRemoval(linkIDs: string[] | null): $CancellablePromise<$models.ArchiveFileRemovalImpact> {
+    return $Call.ByID(1157346201, linkIDs);
 }
 
 export function PlanModRemoval(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalImpact> {

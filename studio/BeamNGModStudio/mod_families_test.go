@@ -436,3 +436,211 @@ func writeFamilyFixtureArchive(path string, sizeBytes int64) error {
 	}
 	return os.WriteFile(path, payload, 0o644)
 }
+func TestModFamiliesContentGroupingAuthorlessEqualNamespaces(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "content-one.zip", "  Content   Family ", "", "", "", "content-sha-one", "content-fingerprint-one", 100, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "content-two.zip", "content family", "", "", "", "content-sha-two", "content-fingerprint-two", 120, time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), 0),
+	}
+	archives[0].Manifest.Namespaces = map[string][]string{
+		"vehicles": {"a6", "common"},
+		"levels":   {"a6"},
+	}
+	archives[1].Manifest.Namespaces = map[string][]string{
+		"levels":   {"a6"},
+		"vehicles": {"common", "a6"},
+	}
+	applyLibraryArchives(t, service.store, root, archives)
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 1 || families[0].Confidence != "content" || !strings.HasPrefix(families[0].ID, "content:") {
+		t.Fatalf("families = %#v, want one content family", families)
+	}
+	if got := families[0].Members[0].Namespaces; len(got) != 2 || got[0] != "a6" || got[1] != "common" {
+		t.Fatalf("content namespaces = %#v, want sorted flattened set", got)
+	}
+}
+
+func TestModFamiliesContentGroupingDifferentNamespacesDoesNotMatch(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "content-different-one.zip", "Same Content Title", "", "", "", "content-different-sha-one", "content-different-one", 100, time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "content-different-two.zip", "Same Content Title", "", "", "", "content-different-sha-two", "content-different-two", 100, time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), 0),
+	}
+	archives[0].Manifest.Namespaces = map[string][]string{"vehicles": {"a6"}}
+	archives[1].Manifest.Namespaces = map[string][]string{"vehicles": {"a7"}}
+	applyLibraryArchives(t, service.store, root, archives)
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 0 {
+		t.Fatalf("families = %#v, want no family for different namespace sets", families)
+	}
+}
+
+func TestModFamiliesContentGroupingEmptyNamespacesDoesNotMatch(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "content-empty-one.zip", "Same Empty Title", "Author One", "", "", "content-empty-sha-one", "content-empty-one", 100, time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "content-empty-two.zip", "Same Empty Title", "Author Two", "", "", "content-empty-sha-two", "content-empty-two", 100, time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC), 0),
+	}
+	archives[0].Manifest.Namespaces = map[string][]string{}
+	archives[1].Manifest.Namespaces = map[string][]string{"vehicles": {}}
+	applyLibraryArchives(t, service.store, root, archives)
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 0 {
+		t.Fatalf("families = %#v, want no family when all namespaces are empty", families)
+	}
+}
+
+func TestModFamiliesInferenceTierExclusivity(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "tier-repo-one.zip", "Tier Repo", "Same Author", "", "tier-repo", "tier-repo-sha-one", "tier-repo-one", 100, time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "tier-repo-two.zip", "Tier Repo", "Same Author", "", "tier-repo", "tier-repo-sha-two", "tier-repo-two", 100, time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "tier-content-one.zip", "Tier Content", "Same Author", "", "", "tier-content-sha-one", "tier-content-one", 100, time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "tier-content-two.zip", "Tier Content", "Same Author", "", "", "tier-content-sha-two", "tier-content-two", 100, time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "tier-metadata-one.zip", "Tier Metadata", "Same Author", "", "", "tier-metadata-sha-one", "tier-metadata-one", 100, time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "tier-metadata-two.zip", "Tier Metadata", "Same Author", "", "", "tier-metadata-sha-two", "tier-metadata-two", 100, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), 0),
+	}
+	for index := range archives[:4] {
+		archives[index].Manifest.Namespaces = map[string][]string{"vehicles": {"tier-car"}}
+	}
+	archives[4].Manifest.Namespaces = map[string][]string{"vehicles": {"other-car"}}
+	archives[5].Manifest.Namespaces = map[string][]string{"vehicles": {"different-car"}}
+	applyLibraryArchives(t, service.store, root, archives)
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 3 {
+		t.Fatalf("families = %#v, want one family at each inferred tier", families)
+	}
+	byConfidence := make(map[string]ModFamily, len(families))
+	for _, family := range families {
+		byConfidence[family.Confidence] = family
+	}
+	if family := byConfidence["repo"]; family.ID != "repo:tier-repo" || len(family.Members) != 2 {
+		t.Fatalf("repo family = %#v, want repo tier to win over lower tiers", family)
+	}
+	if family := byConfidence["content"]; len(family.Members) != 2 || family.Title != "Tier Content" {
+		t.Fatalf("content family = %#v, want content tier to win over metadata", family)
+	}
+	if family := byConfidence["metadata"]; len(family.Members) != 2 || family.Title != "Tier Metadata" {
+		t.Fatalf("metadata family = %#v", family)
+	}
+}
+
+func TestModFamiliesComparisonFieldsPopulateManifestAndHealthData(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "comparison-one.zip", "Comparison Family", "", "", "", "comparison-sha-one", "comparison-one", 100, time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "comparison-two.zip", "Comparison Family", "", "", "", "comparison-sha-two", "comparison-two", 100, time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), 0),
+	}
+	archives[0].Manifest.Namespaces = map[string][]string{"vehicles": {"comparison-car"}, "levels": {"comparison-level"}}
+	archives[0].Manifest.Members = []modkit.ArchiveMember{{Path: "one"}, {Path: "two"}, {Path: "three"}}
+	archives[0].Manifest.Variants = []modkit.Variant{{Namespace: "comparison-car"}, {Namespace: "comparison-car"}}
+	archives[0].Manifest.Issues = []modkit.Issue{{Severity: modkit.SeverityInfo}, {Severity: modkit.SeverityWarning}}
+	archives[1].Manifest.Namespaces = map[string][]string{"levels": {"comparison-level"}, "vehicles": {"comparison-car"}}
+	archives[1].Manifest.Members = []modkit.ArchiveMember{{Path: "only"}}
+	archives[1].Manifest.Variants = []modkit.Variant{{Namespace: "comparison-car"}}
+	archives[1].Manifest.Issues = []modkit.Issue{{Severity: modkit.SeverityInfo}, {Severity: modkit.SeverityError}}
+	applyLibraryArchives(t, service.store, root, archives)
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 1 || families[0].Confidence != "content" {
+		t.Fatalf("families = %#v, want one content family", families)
+	}
+	byPath := make(map[string]ModFamilyMember, len(families[0].Members))
+	for _, member := range families[0].Members {
+		byPath[filepath.Base(member.ArchivePath)] = member
+	}
+	first := byPath["comparison-one.zip"]
+	if first.EntryCount != 3 || first.VariantCount != 2 || first.IssueCount != 2 || first.IssueSeverity != "warning" ||
+		first.HealthStatus != "unscanned" || len(first.Namespaces) != 2 || first.Namespaces[0] != "comparison-car" || first.Namespaces[1] != "comparison-level" {
+		t.Fatalf("first comparison member = %#v", first)
+	}
+	second := byPath["comparison-two.zip"]
+	if second.EntryCount != 1 || second.VariantCount != 1 || second.IssueCount != 2 || second.IssueSeverity != "error" || second.HealthStatus != "broken" {
+		t.Fatalf("second comparison member = %#v", second)
+	}
+}
+
+func TestModFamiliesInstalledInGameUsesActiveBeamNGDatabaseNames(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, "installed-family.zip", "Installed Family", "", "", "", "installed-sha", "installed-family", 100, time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, "not-installed-family.zip", "Installed Family", "", "", "", "not-installed-sha", "not-installed-family", 100, time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC), 0),
+	}
+	for index := range archives {
+		archives[index].Manifest.Namespaces = map[string][]string{"vehicles": {"installed-family-car"}}
+	}
+	applyLibraryArchives(t, service.store, root, archives)
+	database := []byte(`{"mods":{"active-entry":{"active":true,"filename":"installed-family.zip","fullpath":"mods"},"inactive-entry":{"active":false,"filename":"not-installed-family.zip","fullpath":"mods"}}}`)
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), database, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 1 || families[0].Confidence != "content" {
+		t.Fatalf("families = %#v, want one content family", families)
+	}
+	installed := 0
+	for _, member := range families[0].Members {
+		if member.InstalledInGame {
+			installed++
+			if filepath.Base(member.ArchivePath) != "installed-family.zip" {
+				t.Fatalf("unexpected installed member = %#v", member)
+			}
+		}
+	}
+	if installed != 1 {
+		t.Fatalf("installed member count = %d, want only active database name", installed)
+	}
+}
+
+func TestModFamiliesExcludesArchivedModsIncludingFileFamilies(t *testing.T) {
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	archives := []ScanArchive{
+		modFamilyScanArchive(t, root, filepath.Join("archived-one", "same-name.zip"), "Archived Copies", "Archive Author", "", "", "archived-sha", "archived-fingerprint", 100, time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC), 0),
+		modFamilyScanArchive(t, root, filepath.Join("archived-two", "same-name.zip"), "Archived Copies", "Archive Author", "", "", "archived-sha", "archived-fingerprint", 120, time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC), 0),
+	}
+	items := applyLibraryArchives(t, service.store, root, archives)
+	if len(items) != 1 {
+		t.Fatalf("items = %#v, want one entity with two links", items)
+	}
+	if _, err := service.store.db.Exec(`UPDATE entities SET archived_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), items[0].EntityID); err != nil {
+		t.Fatal(err)
+	}
+
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(families) != 0 {
+		t.Fatalf("families = %#v, want archived files family excluded", families)
+	}
+}

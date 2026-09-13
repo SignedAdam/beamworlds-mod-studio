@@ -242,7 +242,7 @@ func (service *AppService) runModAuditLocalLocked(ctx context.Context, entityID 
 }
 
 func (service *AppService) learnModAuditBaseline(ctx context.Context) (auditBaseline, error) {
-	items, err := service.store.ListLibrary(ctx, "all", "all", "", "all")
+	items, err := service.store.ListLibrary(ctx, "all", "all", "", "all", "active")
 	if err != nil {
 		return auditBaseline{}, err
 	}

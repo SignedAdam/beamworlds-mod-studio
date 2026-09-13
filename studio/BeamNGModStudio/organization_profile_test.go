@@ -309,12 +309,12 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 		`car`:                        first.Entity.EntityID,
 		`in:name "Interface Pack"`:   second.Entity.EntityID,
 	} {
-		items, err := service.ListLibrary("all", "all", query, "all")
+		items, err := service.ListLibrary("all", "all", query, "all", "active")
 		if err != nil || len(items) != 1 || items[0].EntityID != entityID {
 			t.Fatalf("query %q = %#v, err %v", query, items, err)
 		}
 	}
-	missing, err := service.ListLibrary("all", "all", "in:source missing", "all")
+	missing, err := service.ListLibrary("all", "all", "in:source missing", "all", "active")
 	if err != nil || len(missing) != 0 {
 		t.Fatalf("missing-source scope query = %#v, err %v", missing, err)
 	}
@@ -326,7 +326,7 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 	if _, err := service.SetCollectionMods(roadTests.Collection.ID, []string{first.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	items, err := service.ListLibrary("all", "all", `in:collection "Road Tests"`, "all")
+	items, err := service.ListLibrary("all", "all", `in:collection "Road Tests"`, "all", "active")
 	if err != nil || len(items) != 1 || items[0].EntityID != first.Entity.EntityID {
 		t.Fatalf("collection query = %#v, err %v", items, err)
 	}
@@ -336,7 +336,7 @@ func TestCustomTagsAndStructuredLibrarySearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	renamed := findModTag(t, state, "Must Play")
-	items, err = service.ListLibrary("all", "all", `in:tag "Must Play"`, "all")
+	items, err = service.ListLibrary("all", "all", `in:tag "Must Play"`, "all", "active")
 	if err != nil || len(items) != 1 || items[0].EntityID != first.Entity.EntityID {
 		t.Fatalf("renamed tag query = %#v, err %v", items, err)
 	}

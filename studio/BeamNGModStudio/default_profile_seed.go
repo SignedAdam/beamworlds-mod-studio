@@ -122,7 +122,7 @@ func (service *AppService) seedDefaultPlayProfile(ctx context.Context) {
 		_ = store.writeSetting(ctx, defaultProfileSeedKey, "1")
 		return
 	}
-	items, err := store.ListLibrary(ctx, "", "", "", "")
+	items, err := store.ListLibrary(ctx, "", "", "", "", "active")
 	if err != nil || len(items) == 0 {
 		return
 	}

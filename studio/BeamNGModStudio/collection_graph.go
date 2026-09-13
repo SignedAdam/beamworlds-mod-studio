@@ -48,6 +48,7 @@ type collectionModMetadata struct {
 	sha256       string
 	sizeBytes    int64
 	active       int
+	archivedAt   string
 	thumbnailSHA string
 }
 
@@ -129,11 +130,12 @@ func (s *Store) listCollections(ctx context.Context) ([]ModCollection, error) {
 	})
 	result := make([]ModCollection, 0, len(nodes))
 	for _, node := range nodes {
-		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{node.collection.ID})
+		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{node.collection.ID}, false)
 		if err != nil {
 			return nil, err
 		}
 		node.collection.ModCount = len(selection.Mods)
+		node.collection.ArchivedModCount = selection.ArchivedCount
 		node.collection.CoverURL = collectionCoverURL(node, selection.Mods)
 		result = append(result, node.collection)
 	}
@@ -171,7 +173,7 @@ func (s *Store) listPlayProfiles(ctx context.Context) ([]ModProfile, error) {
 		}
 		profile.CollectionIDs = ids
 		profile.CollectionCount = len(ids)
-		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids)
+		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
 		if err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("resolve profile %q: %w", profile.Name, err)
@@ -356,6 +358,9 @@ func collectionCoverURL(node *collectionNode, mods []CollectionMod) string {
 		return ""
 	}
 	for _, mod := range mods {
+		if mod.ArchivedAt != "" {
+			continue
+		}
 		if mod.Available && mod.ThumbnailURL != "" {
 			return mod.ThumbnailURL
 		}
@@ -392,11 +397,12 @@ func collectionDetailGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGr
 	if !ok {
 		return CollectionDetail{}, sql.ErrNoRows
 	}
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{collectionID})
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{collectionID}, false)
 	if err != nil {
 		return CollectionDetail{}, err
 	}
 	node.collection.ModCount = len(selection.Mods)
+	node.collection.ArchivedModCount = selection.ArchivedCount
 	node.collection.CoverURL = collectionCoverURL(node, selection.Mods)
 	usage, err := collectionUsageGraphTx(ctx, tx, graph, []string{collectionID})
 	if err != nil {
@@ -1321,7 +1327,7 @@ func (s *Store) playProfile(ctx context.Context, profileID string) (ModProfile, 
 	}
 	profile.CollectionIDs = ids
 	profile.CollectionCount = len(ids)
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids)
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
 	if err != nil {
 		return ModProfile{}, err
 	}
@@ -1346,7 +1352,7 @@ func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs []string
 	if err != nil {
 		return PlaySelection{}, err
 	}
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids)
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
 	if err != nil {
 		return PlaySelection{}, err
 	}
@@ -1356,7 +1362,7 @@ func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs []string
 	return selection, nil
 }
 
-func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGraph, roots []string) (PlaySelection, error) {
+func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGraph, roots []string, excludeArchived bool) (PlaySelection, error) {
 	rootIDs, err := normalizeProfileCollectionIDs(roots)
 	if err != nil {
 		return PlaySelection{}, err
@@ -1445,10 +1451,17 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 		return PlaySelection{}, err
 	}
 	mods := make([]CollectionMod, 0, len(provenance))
+	archivedCount := 0
 	for entityID, entry := range provenance {
 		meta, ok := metadata[entityID]
 		if !ok {
 			return PlaySelection{}, fmt.Errorf("collection membership references missing entity %q", entityID)
+		}
+		if strings.TrimSpace(meta.archivedAt) != "" {
+			archivedCount++
+			if excludeArchived {
+				continue
+			}
 		}
 		sort.SliceStable(entry.collectionIDs, func(i, j int) bool {
 			return includedOrder[entry.collectionIDs[i]] < includedOrder[entry.collectionIDs[j]]
@@ -1463,6 +1476,7 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			DisplayName:   meta.displayName,
 			Kind:          meta.kind,
 			ArchivePath:   meta.archivePath,
+			ArchivedAt:    meta.archivedAt,
 			SHA256:        meta.sha256,
 			SizeBytes:     meta.sizeBytes,
 			Available:     meta.active != 0 && strings.TrimSpace(meta.archivePath) != "",
@@ -1482,8 +1496,17 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 		return mods[i].EntityID < mods[j].EntityID
 	})
 	warnings := make([]string, 0)
+	if archivedCount > 0 {
+		label := "mods were"
+		if archivedCount == 1 {
+			label = "mod was"
+		}
+		warnings = append(warnings, fmt.Sprintf("%d archived %s left out of this selection", archivedCount, label))
+	}
+	missingCount := 0
 	for _, mod := range mods {
 		if !mod.Available {
+			missingCount++
 			name := mod.DisplayName
 			if strings.TrimSpace(name) == "" {
 				name = mod.EntityID
@@ -1496,7 +1519,8 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 		IncludedCollectionIDs: included,
 		Mods:                  mods,
 		ModCount:              len(mods),
-		MissingCount:          len(warnings),
+		MissingCount:          missingCount,
+		ArchivedCount:         archivedCount,
 		Warnings:              warnings,
 	}
 	selection.Fingerprint = collectionSelectionFingerprint(selection)
@@ -1530,8 +1554,9 @@ func collectionSelectionFingerprint(selection PlaySelection) string {
 	}
 	payload, _ := json.Marshal(struct {
 		CollectionIDs []string         `json:"collectionIds"`
+		ArchivedCount int              `json:"archivedCount"`
 		Mods          []fingerprintMod `json:"mods"`
-	}{selection.CollectionIDs, mods})
+	}{selection.CollectionIDs, selection.ArchivedCount, mods})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
@@ -1553,7 +1578,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for index, id := range chunk {
 			args[index] = id
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.active,0),COALESCE(ast.sha256,'')
+		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.active,0),COALESCE(e.archived_at,''),COALESCE(ast.sha256,'')
 			FROM entities e
 			LEFT JOIN archive_links l ON l.id=(SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1)
 			LEFT JOIN artifacts a ON a.id=l.artifact_id
@@ -1566,7 +1591,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for rows.Next() {
 			var meta collectionModMetadata
 			var kind string
-			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.active, &meta.thumbnailSHA); err != nil {
+			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.active, &meta.archivedAt, &meta.thumbnailSHA); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}

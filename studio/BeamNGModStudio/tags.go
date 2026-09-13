@@ -12,17 +12,22 @@ import (
 )
 
 const (
-	exampleTagSeedKey  = "library_example_tags_seeded_v1"
-	terrainTagSeedKey  = "library_default_terrain_tag_seeded_v1"
-	defaultModTagColor = "#7a8791"
-	defaultModTagIcon  = "tag"
+	exampleTagSeedKey          = "library_example_tags_seeded_v1"
+	terrainTagSeedKey          = "library_default_terrain_tag_seeded_v1"
+	gameplayGraphicsTagSeedKey = "library_default_gameplay_graphics_tags_seeded_v1"
+	trailerTagSeedKey          = "library_default_trailer_tag_seeded_v1"
+	defaultModTagColor         = "#7a8791"
+	defaultModTagIcon          = "tag"
 )
 
 var exampleModTagNames = []string{
 	"Car",
 	"Motorbike",
+	"Trailer",
 	"UI",
 	"Gameplay Overhaul",
+	"Gameplay",
+	"Graphics",
 	"Vehicle Effects",
 	"Boat",
 	"Props",
@@ -37,6 +42,8 @@ type ModTag struct {
 	Name     string `json:"name"`
 	Color    string `json:"color"`
 	Icon     string `json:"icon"`
+	Origin   string `json:"origin"`
+	Grouped  bool   `json:"grouped"`
 	ModCount int    `json:"modCount"`
 }
 
@@ -91,9 +98,12 @@ func (service *AppService) RenameModTag(tagID, name string) (OrganizationState, 
 }
 
 func (service *AppService) DeleteModTag(tagID string) (OrganizationState, error) {
-	if err := service.store.DeleteModTag(context.Background(), tagID); err != nil {
+	ctx := context.Background()
+	if err := service.store.DeleteModTag(ctx, tagID); err != nil {
 		return OrganizationState{}, err
 	}
+	// R4: deleting a group drops its fold state.
+	_ = service.store.deleteGroupCollapsed(ctx, tagID)
 	return service.Organization()
 }
 
@@ -172,26 +182,39 @@ func (s *Store) ensureExampleModTags(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
+	if err := ensureAdditionalDefaultModTagsTx(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func ensureTerrainDefaultModTagTx(ctx context.Context, tx *sql.Tx) error {
-	var seeded string
-	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, terrainTagSeedKey).Scan(&seeded)
-	if err == nil {
-		return nil
+func ensureAdditionalDefaultModTagsTx(ctx context.Context, tx *sql.Tx) error {
+	for _, seed := range []struct {
+		key   string
+		names []string
+	}{
+		{terrainTagSeedKey, []string{"Terrain"}},
+		{gameplayGraphicsTagSeedKey, []string{"Gameplay", "Graphics"}},
+		{trailerTagSeedKey, []string{"Trailer"}},
+	} {
+		var seeded string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, seed.key).Scan(&seeded)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		for _, name := range seed.names {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart(name), name, defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, seed.key, "1"); err != nil {
+			return err
+		}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO mod_tags(id,name,color,icon,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`, "example-"+tagIDPart("Terrain"), "Terrain", defaultModTagColor, defaultModTagIcon, nowUTC(), nowUTC()); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, terrainTagSeedKey, "1")
-	return err
+	return nil
 }
 
 func tagIDPart(value string) string {
@@ -211,7 +234,7 @@ func tagIDPart(value string) string {
 }
 
 func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon,t.origin,t.grouped,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +242,7 @@ func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
 	result := []ModTag{}
 	for rows.Next() {
 		var tag ModTag
-		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.ModCount); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped, &tag.ModCount); err != nil {
 			return nil, err
 		}
 		result = append(result, tag)
@@ -479,7 +502,7 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 		items[index].Tags = []ModTag{}
 		byEntity[items[index].EntityID] = &items[index]
 	}
-	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin,t.grouped FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
 	args := []any{}
 	if len(items) == 1 {
 		query += ` WHERE te.entity_id=?`
@@ -493,7 +516,7 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 	for rows.Next() {
 		var entityID string
 		var tag ModTag
-		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon); err != nil {
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped); err != nil {
 			return err
 		}
 		if item := byEntity[entityID]; item != nil {

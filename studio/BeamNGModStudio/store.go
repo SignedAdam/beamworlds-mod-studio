@@ -32,6 +32,7 @@ type libraryQueryer interface {
 type LibraryItem struct {
 	EntityID                string          `json:"entityId"`
 	Revision                string          `json:"revision"`
+	ArchivedAt              string          `json:"archivedAt"`
 	ArtifactID              string          `json:"artifactId"`
 	LinkID                  string          `json:"linkId"`
 	CollectionIDs           []string        `json:"collectionIds"`
@@ -1347,14 +1348,18 @@ func (s *Store) GetLibraryItem(ctx context.Context, entityID string) (LibraryIte
 	return items[0], nil
 }
 
-func (s *Store) ListLibrary(ctx context.Context, health, kind, query, collectionID string) ([]LibraryItem, error) {
+func (s *Store) ListLibrary(ctx context.Context, health, kind, query, collectionID, scope string) ([]LibraryItem, error) {
+	archiveScope, err := normalizeLibraryArchiveScope(scope)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	entityIDs, err := s.listLibraryQueryTx(ctx, tx, health, kind, query, collectionID)
+	entityIDs, err := s.listLibraryQueryTx(ctx, tx, health, kind, query, collectionID, archiveScope)
 	if err != nil {
 		return nil, err
 	}
@@ -1455,7 +1460,7 @@ func (s *Store) listItemsByIDsQuery(ctx context.Context, queryer libraryQueryer,
 	return items, nil
 }
 func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
-	query := `SELECT e.id, e.updated_at, e.display_name, e.kind,
+	query := `SELECT e.id, e.updated_at, COALESCE(e.archived_at,''), e.display_name, e.kind,
 		COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'),
 		CASE lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))
 			WHEN 'beamng-repository' THEN 'BeamNG Repository'
@@ -1494,7 +1499,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	for rows.Next() {
 		var item LibraryItem
 		var kind, manifestJSON, assetSHA string
-		if err := rows.Scan(&item.EntityID, &item.Revision, &item.DisplayName, &kind, &item.SourceID, &item.Source,
+		if err := rows.Scan(&item.EntityID, &item.Revision, &item.ArchivedAt, &item.DisplayName, &kind, &item.SourceID, &item.Source,
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
 			&item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
@@ -1653,7 +1658,7 @@ func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, ite
 		items[index].Tags = []ModTag{}
 		byEntity[items[index].EntityID] = &items[index]
 	}
-	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin,t.grouped
 		FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
 	args := []any{}
 	if len(items) == 1 {
@@ -1668,7 +1673,7 @@ func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, ite
 	for rows.Next() {
 		var entityID string
 		var tag ModTag
-		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon); err != nil {
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped); err != nil {
 			return err
 		}
 		if item := byEntity[entityID]; item != nil {

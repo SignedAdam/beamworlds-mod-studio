@@ -1036,8 +1036,10 @@ func mergeArtifactRecordsTx(ctx context.Context, tx *sql.Tx, fromID, toID string
 // idempotent, but none can commit independently or leave schema_meta at v4
 // while its schema/data backfill is incomplete.
 func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error {
+	if err := ensureColumnTx(ctx, tx, "entities", "archived_at", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("entity archived_at column: %w", err)
+	}
 	if err := ensureColumnTx(ctx, tx, "workspaces", "virgil_configured", `INTEGER NOT NULL DEFAULT 0`); err != nil {
-		return fmt.Errorf("workspace virgil_configured column: %w", err)
 	}
 	if err := ensureColumnTx(ctx, tx, "workspaces", "virgil_enabled", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("workspace virgil_enabled column: %w", err)
@@ -1111,11 +1113,17 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if _, err := tx.ExecContext(ctx, `UPDATE mod_tags SET icon=? WHERE icon IS NULL OR TRIM(icon)=''`, defaultModTagIcon); err != nil {
 		return fmt.Errorf("mod tag icon backfill: %w", err)
 	}
+	if err := ensureColumnTx(ctx, tx, "mod_tags", "origin", `TEXT NOT NULL DEFAULT 'user'`); err != nil {
+		return fmt.Errorf("mod tag origin column: %w", err)
+	}
+	if err := ensureColumnTx(ctx, tx, "mod_tags", "grouped", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("mod tag grouped column: %w", err)
+	}
 	var seeded string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
 	if err == nil {
-		if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
-			return fmt.Errorf("seed Terrain default tag: %w", err)
+		if err := ensureAdditionalDefaultModTagsTx(ctx, tx); err != nil {
+			return fmt.Errorf("seed additional default tags: %w", err)
 		}
 		return nil
 	}
@@ -1130,8 +1138,8 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, exampleTagSeedKey, "1"); err != nil {
 		return fmt.Errorf("record example tag seed marker: %w", err)
 	}
-	if err := ensureTerrainDefaultModTagTx(ctx, tx); err != nil {
-		return fmt.Errorf("seed Terrain default tag: %w", err)
+	if err := ensureAdditionalDefaultModTagsTx(ctx, tx); err != nil {
+		return fmt.Errorf("seed additional default tags: %w", err)
 	}
 	return nil
 }
@@ -1708,6 +1716,8 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			name TEXT NOT NULL COLLATE NOCASE UNIQUE,
 			color TEXT NOT NULL DEFAULT '#7a8791',
 			icon TEXT NOT NULL DEFAULT 'tag',
+			origin TEXT NOT NULL DEFAULT 'user',
+			grouped INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT ''
 		)`,
@@ -1875,6 +1885,8 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"scans", "error", `TEXT NOT NULL DEFAULT ''`},
 		{"mod_tags", "color", `TEXT NOT NULL DEFAULT '#7a8791'`},
 		{"mod_tags", "icon", `TEXT NOT NULL DEFAULT 'tag'`},
+		{"mod_tags", "origin", `TEXT NOT NULL DEFAULT 'user'`},
+		{"mod_tags", "grouped", `INTEGER NOT NULL DEFAULT 0`},
 		{"workspace_drafts", "base_sha256", `TEXT NOT NULL DEFAULT ''`},
 		{"virus_scans", "file_sha256", `TEXT NOT NULL DEFAULT ''`},
 		{"virus_scan_stages", "file_sha256", `TEXT NOT NULL DEFAULT ''`},

@@ -262,7 +262,7 @@ func TestLibraryInlineScopedQuerySemantics(t *testing.T) {
 
 	assertQueryIDs := func(query string, want ...string) {
 		t.Helper()
-		got, err := store.ListLibrary(ctx, "all", "all", query, "all")
+		got, err := store.ListLibrary(ctx, "all", "all", query, "all", "active")
 		if err != nil {
 			t.Fatalf("query %q: %v", query, err)
 		}
@@ -362,7 +362,7 @@ func TestLibrarySQLFTSSemanticsMatchReference(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			actual, err := store.ListLibrary(ctx, tc.health, tc.kind, tc.query, tc.collectionID)
+			actual, err := store.ListLibrary(ctx, tc.health, tc.kind, tc.query, tc.collectionID, "active")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -383,7 +383,7 @@ func TestListLibraryExceedsLegacyCandidateCap(t *testing.T) {
 	store, root := openLibraryStorage(t)
 	archives := libraryFixtureArchives(root, 5_005, 0)
 	applyLibraryArchives(t, store, root, archives)
-	items, err := store.ListLibrary(context.Background(), "all", "all", "", "all")
+	items, err := store.ListLibrary(context.Background(), "all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestListLibraryExceedsLegacyCandidateCap(t *testing.T) {
 		t.Fatalf("large library returned %d items, want %d", len(items), len(archives))
 	}
 	query := `in:name "Library Mod 05004"`
-	matches, err := store.ListLibrary(context.Background(), "all", "all", query, "all")
+	matches, err := store.ListLibrary(context.Background(), "all", "all", query, "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func TestLibraryCollectionsHydrateDirectMembershipAndResolveDescendants(t *testi
 	if len(hydrated.CollectionIDs) != 2 {
 		t.Fatalf("direct collection IDs = %#v, want both shared memberships", hydrated.CollectionIDs)
 	}
-	parentItems, err := store.ListLibrary(ctx, "all", "all", "", parent.Collection.ID)
+	parentItems, err := store.ListLibrary(ctx, "all", "all", "", parent.Collection.ID, "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,14 +450,14 @@ func TestLibraryCollectionsHydrateDirectMembershipAndResolveDescendants(t *testi
 		}
 		seen[item.EntityID] = struct{}{}
 	}
-	searchItems, err := store.ListLibrary(ctx, "all", "all", `in:collection "Nested Parent"`, "all")
+	searchItems, err := store.ListLibrary(ctx, "all", "all", `in:collection "Nested Parent"`, "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(searchItems) != 2 {
 		t.Fatalf("ancestor collection search returned %d items, want 2", len(searchItems))
 	}
-	unfiled, err := store.ListLibrary(ctx, "all", "all", "", "unfiled")
+	unfiled, err := store.ListLibrary(ctx, "all", "all", "", "unfiled", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestLibraryScanConcurrentReadSeesPreOrPostSnapshot(t *testing.T) {
 	var during []LibraryItem
 	var readErr error
 	go func() {
-		during, readErr = store.ListLibrary(ctx, "all", "all", "", "all")
+		during, readErr = store.ListLibrary(ctx, "all", "all", "", "all", "active")
 		close(readDone)
 	}()
 	applyLibraryArchives(t, store, root, afterArchives)
@@ -486,7 +486,7 @@ func TestLibraryScanConcurrentReadSeesPreOrPostSnapshot(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	after, err := store.ListLibrary(ctx, "all", "all", "", "all")
+	after, err := store.ListLibrary(ctx, "all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestLibraryScanBatchRollbackPreservesPriorSnapshot(t *testing.T) {
 	} else if finishErr := store.FinishScan(ctx, scanID, []string{root}, 1, 0, 1, err); finishErr != nil {
 		t.Fatalf("record failed scan: %v", finishErr)
 	}
-	after, err := store.ListLibrary(ctx, "all", "all", "", "all")
+	after, err := store.ListLibrary(ctx, "all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestLibrarySourceHydrationSearchAndReusedRetention(t *testing.T) {
 		{name: "user label", query: `in:source "User added"`, want: userAdded.EntityID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := store.ListLibrary(ctx, "all", "all", tc.query, "all")
+			got, err := store.ListLibrary(ctx, "all", "all", tc.query, "all", "active")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -768,7 +768,7 @@ func TestLibraryEngineClassifiesRepositoryAndUserSources(t *testing.T) {
 	if summary.Failed != 0 || summary.Analyzed != 2 {
 		t.Fatalf("library engine scan summary = %#v", summary)
 	}
-	items, err := store.ListLibrary(context.Background(), "all", "all", "", "all")
+	items, err := store.ListLibrary(context.Background(), "all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -812,7 +812,7 @@ func TestLibraryListUsesOneSnapshotAcrossCoordinatedScanCommit(t *testing.T) {
 	var readErr error
 	go func() {
 		close(readerStarted)
-		during, readErr = store.ListLibrary(ctx, "all", "all", "", "all")
+		during, readErr = store.ListLibrary(ctx, "all", "all", "", "all", "active")
 		close(readDone)
 	}()
 	<-readerStarted
@@ -836,7 +836,7 @@ func TestLibraryListUsesOneSnapshotAcrossCoordinatedScanCommit(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	after, err := store.ListLibrary(ctx, "all", "all", "", "all")
+	after, err := store.ListLibrary(ctx, "all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1387,7 +1387,7 @@ func BenchmarkSQLiteLibraryQueries(b *testing.B) {
 				observed := 0
 				b.ResetTimer()
 				for range b.N {
-					items, err := store.ListLibrary(ctx, "all", "all", "", "all")
+					items, err := store.ListLibrary(ctx, "all", "all", "", "all", "active")
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -1408,7 +1408,7 @@ func BenchmarkSQLiteLibraryQueries(b *testing.B) {
 				observed := 0
 				b.ResetTimer()
 				for range b.N {
-					items, err := store.ListLibrary(ctx, "all", "vehicle", "", "all")
+					items, err := store.ListLibrary(ctx, "all", "vehicle", "", "all", "active")
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -1426,7 +1426,7 @@ func BenchmarkSQLiteLibraryQueries(b *testing.B) {
 				observed := 0
 				b.ResetTimer()
 				for range b.N {
-					items, err := store.ListLibrary(ctx, "all", "all", fixture.query, "all")
+					items, err := store.ListLibrary(ctx, "all", "all", fixture.query, "all", "active")
 					if err != nil {
 						b.Fatal(err)
 					}

@@ -85,7 +85,7 @@ func TestForgetModLeavesTheArchiveOnDisk(t *testing.T) {
 	if _, err := os.Stat(item.ArchivePath); err != nil {
 		t.Fatalf("forgetting removed the archive from disk: %v", err)
 	}
-	items, err := service.ListLibrary("", "", "", "")
+	items, err := service.ListLibrary("", "", "", "", "active")
 	if err != nil {
 		t.Fatal(err)
 	}

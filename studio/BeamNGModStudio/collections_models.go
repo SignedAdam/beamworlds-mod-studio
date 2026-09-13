@@ -27,6 +27,7 @@ type ModCollection struct {
 	UpdatedAt          string          `json:"updatedAt"`
 	Position           int             `json:"position"`
 	ModCount           int             `json:"modCount"`
+	ArchivedModCount   int             `json:"archivedModCount"`
 	DirectModCount     int             `json:"directModCount"`
 	DirectEnabledCount int             `json:"directEnabledCount"`
 	ChildCount         int             `json:"childCount"`
@@ -51,6 +52,7 @@ type CollectionMod struct {
 	DisplayName   string      `json:"displayName"`
 	Kind          modkit.Kind `json:"kind"`
 	ArchivePath   string      `json:"archivePath"`
+	ArchivedAt    string      `json:"archivedAt"`
 	SHA256        string      `json:"sha256"`
 	SizeBytes     int64       `json:"sizeBytes"`
 	ThumbnailURL  string      `json:"thumbnailUrl"`
@@ -102,6 +104,7 @@ type PlaySelection struct {
 	Mods                  []CollectionMod `json:"mods"`
 	ModCount              int             `json:"modCount"`
 	MissingCount          int             `json:"missingCount"`
+	ArchivedCount         int             `json:"archivedCount"`
 	Fingerprint           string          `json:"fingerprint"`
 	Warnings              []string        `json:"warnings"`
 }

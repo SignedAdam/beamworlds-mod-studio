@@ -238,6 +238,79 @@ html[data-theme="light"] .collections-browse-scroll::before {
 .page-shell__header h1 { position: relative; text-shadow: 0 1px 6px rgb(0 0 0 / 62%); }
 .page-shell__header .page-shell__actions { position: relative; }
 
+/* Header actions sit on photography, where the standard 4.5%-white button is
+   effectively invisible. They keep their transparency and pick up the same
+   frosted treatment as the header scrim: one blur of the scene behind, a
+   brushed hairline texture, and a lit top edge so the plate has an edge to
+   read against a bright scene. The primary action keeps its orange fill. */
+.page-shell__header .page-shell__actions .button:not(.button--primary) {
+  border-color: rgb(255 255 255 / 24%);
+  background:
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 5%) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgb(255 255 255 / 15%), rgb(255 255 255 / 4%) 48%, rgb(0 0 0 / 14%)),
+    rgb(9 14 19 / 44%);
+  backdrop-filter: blur(8px) saturate(1.15);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 24%),
+    inset 0 -1px rgb(0 0 0 / 34%),
+    0 6px 16px rgb(0 0 0 / 32%);
+  color: #f3f7fa;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 55%);
+}
+
+.page-shell__header .page-shell__actions .button:not(.button--primary) > svg {
+  color: inherit;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 45%));
+}
+
+.page-shell__header .page-shell__actions .button:not(.button--primary):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--orange) 62%, rgb(255 255 255 / 30%));
+  background:
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 7%) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 7%) 48%, rgb(0 0 0 / 12%)),
+    rgb(14 20 26 / 52%);
+  color: #fff;
+}
+
+.page-shell__header .page-shell__actions .button:not(.button--primary):active:not(:disabled) {
+  box-shadow:
+    inset 0 2px 5px rgb(0 0 0 / 42%),
+    inset 0 1px rgb(255 255 255 / 10%);
+}
+
+.page-shell__header .page-shell__actions .button:not(.button--primary):disabled {
+  color: rgb(243 247 250 / 52%);
+  text-shadow: none;
+}
+
+/* On the light header the scene is lifted, not darkened, so the plate is white
+   and the ink stays the page's own text colour. */
+html[data-theme="light"] .page-shell__header .page-shell__actions .button:not(.button--primary) {
+  border-color: rgb(7 47 68 / 26%);
+  background:
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 30%) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgb(255 255 255 / 82%), rgb(255 255 255 / 58%) 52%, rgb(255 255 255 / 42%)),
+    rgb(246 244 239 / 34%);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 85%),
+    inset 0 -1px rgb(7 47 68 / 12%),
+    0 4px 12px rgb(40 35 26 / 18%);
+  color: var(--text);
+  text-shadow: 0 1px 2px rgb(255 255 255 / 75%);
+}
+
+html[data-theme="light"] .page-shell__header .page-shell__actions .button:not(.button--primary) > svg {
+  filter: none;
+}
+
+html[data-theme="light"] .page-shell__header .page-shell__actions .button:not(.button--primary):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--orange) 52%, rgb(7 47 68 / 30%));
+  background:
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 34%) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgb(255 255 255 / 92%), rgb(255 255 255 / 72%) 52%, rgb(255 255 255 / 55%)),
+    rgb(246 244 239 / 46%);
+}
+
 /* Each page gets its own scene, and its own vertical framing: these images all
    put the vehicle low, so the crop sits below centre. */
 .play-view .page-shell__header { --header-art: url(/art/night-highway.jpg); --header-art-y: 64%; }

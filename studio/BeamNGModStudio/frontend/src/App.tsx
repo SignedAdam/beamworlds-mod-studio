@@ -132,6 +132,12 @@ function App() {
   );
   const [collectionID, setCollectionID] = useState("all");
   const [openedCollectionID, setOpenedCollectionID] = useState("");
+  const [libraryScope, setLibraryScope] = useState<"active" | "archived">(
+    () => {
+      const saved = window.localStorage.getItem("beamworlds.library-scope");
+      return saved === "archived" ? "archived" : "active";
+    },
+  );
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [selectedItem, setSelectedItem] = useState<LibraryItem | null>(null);
@@ -318,6 +324,7 @@ function App() {
     async (
       requestedQuery = query,
       requestedCollectionID = collectionID,
+      requestedScope: "active" | "archived" = libraryScope,
       requestVersion = libraryLoadVersion.current,
     ) => {
       const nextItems =
@@ -326,12 +333,12 @@ function App() {
           "all",
           requestedQuery,
           requestedCollectionID,
-          "active",
+          requestedScope,
         )) ?? [];
       if (requestVersion !== libraryLoadVersion.current) return;
       setItems(nextItems);
     },
-    [collectionID, query],
+    [collectionID, libraryScope, query],
   );
   const loadOrganization = useCallback(async () => {
     const version = ++organizationLoadVersion.current;
@@ -575,7 +582,7 @@ function App() {
     setLibraryLoading(true);
     if (!trimmedInput) {
       setQuery("");
-      void loadLibrary("", collectionID, requestVersion)
+      void loadLibrary("", collectionID, libraryScope, requestVersion)
         .catch((error) => {
           if (requestVersion === libraryLoadVersion.current) handleError(error);
         })
@@ -587,7 +594,7 @@ function App() {
     }
     const timer = window.setTimeout(() => {
       setQuery(searchInput);
-      void loadLibrary(searchInput, collectionID, requestVersion)
+      void loadLibrary(searchInput, collectionID, libraryScope, requestVersion)
         .catch((error) => {
           if (requestVersion === libraryLoadVersion.current) handleError(error);
         })
@@ -597,7 +604,7 @@ function App() {
         });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [collectionID, searchInput, setupState?.required]);
+  }, [collectionID, libraryScope, searchInput, setupState?.required]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1498,8 +1505,13 @@ function App() {
                 query={searchInput}
                 collectionID={collectionID}
                 selectedID={selectedItem?.entityId ?? ""}
+                scope={libraryScope}
                 onQueryChange={setSearchInput}
                 onCollectionChange={setCollectionID}
+                onScopeChange={(next) => {
+                  setLibraryScope(next);
+                  try { window.localStorage.setItem("beamworlds.library-scope", next); } catch {}
+                }}
                 onManageCollections={() => openCollection("")}
                 onOrganization={handleOrganizationChange}
                 onError={handleError}
@@ -1512,7 +1524,7 @@ function App() {
                   setSearchInput("");
                   setCollectionID("all");
                   await Promise.all([
-                    loadLibrary("", "all"),
+                    loadLibrary("", "all", libraryScope),
                     loadOrganization(),
                     loadFamilies(),
                     loadShell(false),
@@ -1667,6 +1679,14 @@ function App() {
             </>
           ) : view === "settings" ? (
             <span>Application settings</span>
+          ) : view === "library" ? (
+            <span>
+              {allItems.length.toLocaleString()} mods
+              {(() => {
+                const archived = Math.max(0, (dashboard?.entities ?? 0) - allItems.length);
+                return archived > 0 ? ` · ${archived.toLocaleString()} archived` : "";
+              })()}
+            </span>
           ) : (
             <span>
               {(dashboard?.entities ?? items.length).toLocaleString()} mods

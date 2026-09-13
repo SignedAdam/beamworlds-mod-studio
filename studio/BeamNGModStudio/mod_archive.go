@@ -8,11 +8,15 @@ import (
 
 // ArchiveResult reports state transitions completed by an archive operation.
 // Archiving and restoring are intentionally metadata-only: archive links,
-// files, memberships, tags, workspaces, and scan rows are left untouched.
+// files, memberships (as rows), tags, workspaces, and scan rows are left
+// untouched. Archiving does, however, disable enabled memberships and record
+// the flag so restoring can reverse exactly those disablements.
 type ArchiveResult struct {
-	Archived int      `json:"archived"`
-	Restored int      `json:"restored"`
-	Failures []string `json:"failures"`
+	Archived             int      `json:"archived"`
+	Restored             int      `json:"restored"`
+	DisabledMemberships  int      `json:"disabledMemberships"`
+	ReenabledMemberships int      `json:"reenabledMemberships"`
+	Failures             []string `json:"failures"`
 }
 
 func (service *AppService) ArchiveMods(entityIDs []string) (ArchiveResult, error) {
@@ -82,8 +86,25 @@ func (s *Store) setArchiveState(ctx context.Context, entityIDs []string, archive
 			return ArchiveResult{}, err
 		}
 		if archived {
+			// Disable all enabled memberships and mark them as archive-driven
+			// so restoring can reverse exactly these disablements.
+			res, err := tx.ExecContext(ctx, `UPDATE collection_mods SET enabled=0, disabled_by_archive=1 WHERE entity_id=? AND enabled=1`, entityID)
+			if err != nil {
+				return ArchiveResult{}, err
+			}
+			n, _ := res.RowsAffected()
+			result.DisabledMemberships += int(n)
 			result.Archived++
 		} else {
+			// Re-enable only memberships that were disabled by archiving.
+			// Memberships the user disabled by hand (disabled_by_archive=0)
+			// remain disabled — that is the whole reason the flag exists.
+			res, err := tx.ExecContext(ctx, `UPDATE collection_mods SET enabled=1, disabled_by_archive=0 WHERE entity_id=? AND disabled_by_archive=1`, entityID)
+			if err != nil {
+				return ArchiveResult{}, err
+			}
+			n, _ := res.RowsAffected()
+			result.ReenabledMemberships += int(n)
 			result.Restored++
 		}
 	}

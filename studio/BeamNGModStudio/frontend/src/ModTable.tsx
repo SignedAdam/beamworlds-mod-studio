@@ -1193,7 +1193,7 @@ const ModRow = memo(function ModRow({
     );
   return (
     <tr
-      className={`${selected ? "is-selected" : ""}${disabled ? " is-disabled" : ""}${!enabled ? " mod-row--disabled" : ""}`}
+      className={`${selected ? "is-selected" : ""}${disabled ? " is-disabled" : ""}${!enabled ? " mod-row--disabled" : ""}${item.archivedAt ? " mod-row--archived" : ""}`}
       data-entity-id={item.entityId}
       aria-selected={selected}
       onClick={(event) => {

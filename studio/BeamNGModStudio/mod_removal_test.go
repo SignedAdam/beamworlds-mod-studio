@@ -52,10 +52,10 @@ func scanFixtureMod(t *testing.T, service *AppService, title string) LibraryItem
 	return item
 }
 
-func TestForgetModLeavesTheArchiveOnDisk(t *testing.T) {
+func TestRemovalImpactNamesTheCollectionHoldingTheMod(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
-	item := scanFixtureMod(t, service, "Forget Me")
+	item := scanFixtureMod(t, service, "Delete Me")
 	collection, err := service.CreateCollection("Holds The Mod", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -75,15 +75,10 @@ func TestForgetModLeavesTheArchiveOnDisk(t *testing.T) {
 		t.Fatalf("the confirmation would not have mentioned the collection: %#v", impact.Collections)
 	}
 
-	result, err := service.ForgetMods([]string{item.EntityID})
-	if err != nil {
+	// Deleting is now the only removal: the archive goes to the Recycle Bin and
+	// the index entry goes with it, taking the membership along.
+	if _, err := service.DeleteModArchives([]string{item.EntityID}); err != nil {
 		t.Fatal(err)
-	}
-	if result.Forgotten != 1 || result.Recycled != 0 {
-		t.Fatalf("forget result = %#v", result)
-	}
-	if _, err := os.Stat(item.ArchivePath); err != nil {
-		t.Fatalf("forgetting removed the archive from disk: %v", err)
 	}
 	items, err := service.ListLibrary("", "", "", "", "active")
 	if err != nil {
@@ -91,7 +86,7 @@ func TestForgetModLeavesTheArchiveOnDisk(t *testing.T) {
 	}
 	for _, listed := range items {
 		if listed.EntityID == item.EntityID {
-			t.Fatal("the forgotten mod is still indexed")
+			t.Fatal("the deleted mod is still indexed")
 		}
 	}
 	detail, err := service.GetCollection(collection.Collection.ID)
@@ -139,9 +134,6 @@ func TestRemovalRefusesWhileAModMakerProjectExists(t *testing.T) {
 	}
 	if len(impact.Workspaces) == 0 {
 		t.Fatal("a ModMaker project was not reported in the removal impact")
-	}
-	if _, err := service.ForgetMods([]string{mod.Entity.EntityID}); err == nil {
-		t.Fatal("a mod with an open project was forgotten")
 	}
 	if _, err := service.DeleteModArchives([]string{mod.Entity.EntityID}); err == nil {
 		t.Fatal("a mod with an open project had its archive deleted")

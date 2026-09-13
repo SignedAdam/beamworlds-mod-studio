@@ -971,3 +971,20 @@ html[data-theme="light"]
     var(--library-table-surface)
   );
 }
+
+/* Archived mods are greyed wherever they appear — unmistakably dormant, still legible. */
+/* Measured on the archived view: 0.5 gives 4.77:1 against the dark table but
+   only 3.19:1 against the light one, which fails body-text contrast, so the
+   light theme dims less. */
+.mod-row--archived {
+  opacity: 0.55;
+}
+
+html[data-theme="light"] .mod-row--archived {
+  opacity: 0.74;
+}
+
+/* Preview cards inherit the archived treatment from the library scope class. */
+.library-view--archived .library-preview-card {
+  opacity: 0.5;
+}

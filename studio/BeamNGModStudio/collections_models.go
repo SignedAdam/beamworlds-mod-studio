@@ -62,10 +62,13 @@ type CollectionMod struct {
 }
 
 // A membership row: the mod stays in the collection when disabled, it just
-// stops contributing to a resolved selection.
+// stops contributing to a resolved selection. DisabledByArchive marks
+// memberships that were auto-disabled when the mod was archived; restoring
+// the mod re-enables only these, leaving user-disabled memberships untouched.
 type CollectionMember struct {
-	EntityID string `json:"entityId"`
-	Enabled  bool   `json:"enabled"`
+	EntityID          string `json:"entityId"`
+	Enabled           bool   `json:"enabled"`
+	DisabledByArchive bool   `json:"disabledByArchive"`
 }
 
 // A parent -> child edge. Disabling it stops traversal through this edge only;

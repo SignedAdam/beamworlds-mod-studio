@@ -259,14 +259,14 @@ func loadCollectionGraphTx(ctx context.Context, tx *sql.Tx) (collectionGraph, er
 		return nil, err
 	}
 
-	modRows, err := tx.QueryContext(ctx, `SELECT collection_id,entity_id,enabled FROM collection_mods ORDER BY collection_id,position,entity_id`)
+	modRows, err := tx.QueryContext(ctx, `SELECT collection_id,entity_id,enabled,disabled_by_archive FROM collection_mods ORDER BY collection_id,position,entity_id`)
 	if err != nil {
 		return nil, err
 	}
 	for modRows.Next() {
 		var collectionID, entityID string
-		var enabled int
-		if err := modRows.Scan(&collectionID, &entityID, &enabled); err != nil {
+		var enabled, disabledByArchive int
+		if err := modRows.Scan(&collectionID, &entityID, &enabled, &disabledByArchive); err != nil {
 			_ = modRows.Close()
 			return nil, err
 		}
@@ -276,7 +276,7 @@ func loadCollectionGraphTx(ctx context.Context, tx *sql.Tx) (collectionGraph, er
 			return nil, fmt.Errorf("collection membership references missing collection %q", collectionID)
 		}
 		node.directEntityIDs = append(node.directEntityIDs, entityID)
-		node.members = append(node.members, CollectionMember{EntityID: entityID, Enabled: enabled != 0})
+		node.members = append(node.members, CollectionMember{EntityID: entityID, Enabled: enabled != 0, DisabledByArchive: disabledByArchive != 0})
 		node.collection.DirectModCount++
 		if enabled != 0 {
 			node.collection.DirectEnabledCount++
@@ -1402,10 +1402,14 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			includedOrder[collectionID] = len(included)
 			included = append(included, collectionID)
 		}
-		// Enabled wins: a disabled membership contributes nothing but never
-		// vetoes the same mod enabled elsewhere in the selection.
+		// A user-disabled membership contributes nothing. An archive-disabled
+		// membership is always collected so the metadata phase can count it
+		// and, when the caller wants the full view, include it in the result
+		// with ArchivedAt set. The existing excludeArchived logic in the
+		// metadata phase handles whether the mod appears in the final list
+		// or is only counted.
 		for _, member := range node.members {
-			if !member.Enabled {
+			if !member.Enabled && !member.DisabledByArchive {
 				continue
 			}
 			entry := provenance[member.EntityID]

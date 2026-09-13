@@ -75,6 +75,7 @@ var (
 	entity_id TEXT NOT NULL,
 	position INTEGER NOT NULL DEFAULT 0,
 	enabled INTEGER NOT NULL DEFAULT 1,
+	disabled_by_archive INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY(collection_id,entity_id),
 	FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE,
 	FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE
@@ -1057,6 +1058,12 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	// which is what they effectively were before the column existed.
 	if err := ensureColumnTx(ctx, tx, "collection_mods", "enabled", `INTEGER NOT NULL DEFAULT 1`); err != nil {
 		return fmt.Errorf("collection mod enabled column: %w", err)
+	}
+	// Archive-driven disablement is tracked separately so restoring a mod
+	// re-enables only the memberships that archiving disabled, leaving
+	// user-disabled memberships untouched.
+	if err := ensureColumnTx(ctx, tx, "collection_mods", "disabled_by_archive", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("collection mod disabled_by_archive column: %w", err)
 	}
 	if err := ensureColumnTx(ctx, tx, "collection_children", "enabled", `INTEGER NOT NULL DEFAULT 1`); err != nil {
 		return fmt.Errorf("collection child enabled column: %w", err)

@@ -43,14 +43,9 @@ func (service *AppService) PlanModRemoval(entityIDs []string) (ModRemovalImpact,
 	return service.store.ModRemovalImpact(context.Background(), entityIDs)
 }
 
-// ForgetMods removes the mods from the index without touching a single file.
-func (service *AppService) ForgetMods(entityIDs []string) (ModRemovalResult, error) {
-	forgotten, err := service.store.ForgetEntities(context.Background(), entityIDs)
-	if err != nil {
-		return ModRemovalResult{}, err
-	}
-	return ModRemovalResult{Forgotten: forgotten}, nil
-}
+// ForgetEntities stays as the index-drop half of deletion; there is no
+// user-facing forget, because it left the archive on disk and the next scan
+// re-indexed the mod, undoing the action.
 
 // DeleteModArchives recycles each archive and then forgets the mod. A mod whose
 // archive could not be recycled stays in the library: the index must never

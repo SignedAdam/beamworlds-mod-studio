@@ -208,13 +208,6 @@ export function FileManagerActionLabel(): $CancellablePromise<string> {
     return $Call.ByID(3849000745);
 }
 
-/**
- * ForgetMods removes the mods from the index without touching a single file.
- */
-export function ForgetMods(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalResult> {
-    return $Call.ByID(2057459022, entityIDs);
-}
-
 export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void> {
     return $Call.ByID(2373891276, sessionID);
 }

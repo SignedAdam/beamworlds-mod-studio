@@ -175,11 +175,15 @@ export interface ArchiveMemberPreview {
 /**
  * ArchiveResult reports state transitions completed by an archive operation.
  * Archiving and restoring are intentionally metadata-only: archive links,
- * files, memberships, tags, workspaces, and scan rows are left untouched.
+ * files, memberships (as rows), tags, workspaces, and scan rows are left
+ * untouched. Archiving does, however, disable enabled memberships and record
+ * the flag so restoring can reverse exactly those disablements.
  */
 export interface ArchiveResult {
     "archived": number;
     "restored": number;
+    "disabledMemberships": number;
+    "reenabledMemberships": number;
     "failures": string[] | null;
 }
 
@@ -220,11 +224,14 @@ export interface CollectionDetail {
 
 /**
  * A membership row: the mod stays in the collection when disabled, it just
- * stops contributing to a resolved selection.
+ * stops contributing to a resolved selection. DisabledByArchive marks
+ * memberships that were auto-disabled when the mod was archived; restoring
+ * the mod re-enables only these, leaving user-disabled memberships untouched.
  */
 export interface CollectionMember {
     "entityId": string;
     "enabled": boolean;
+    "disabledByArchive": boolean;
 }
 
 export interface CollectionMod {

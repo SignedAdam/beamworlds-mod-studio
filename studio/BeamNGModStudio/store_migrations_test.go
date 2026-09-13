@@ -266,7 +266,7 @@ func TestSQLiteVersion3MigrationPreservesRecordsTagsAndAssignments(t *testing.T)
 	if len(migrated.Tags) != 1 || migrated.Tags[0].Name != "Migration Preserved" {
 		t.Fatalf("version-3 migration changed tag assignment: %#v", migrated.Tags)
 	}
-	ids, err := reopened.listLibraryQuery(ctx, "all", "all", `in:name "Migration Fixture 0002"`, "all")
+	ids, err := reopened.listLibraryQuery(ctx, "all", "all", `in:name "Migration Fixture 0002"`, "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}

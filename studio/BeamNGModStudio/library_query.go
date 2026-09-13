@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -148,6 +149,17 @@ func normalizeLibraryStatus(value string) string {
 		return "scanning"
 	default:
 		return ""
+	}
+}
+
+func normalizeLibraryArchiveScope(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "active":
+		return "active", nil
+	case "archived":
+		return "archived", nil
+	default:
+		return "", fmt.Errorf("unsupported library archive scope %q", value)
 	}
 }
 
@@ -342,22 +354,31 @@ func (s *Store) libraryCollectionNamesQuery(ctx context.Context, queryer library
 // retained labels are matched independently of archive paths. A residual
 // match is still required by callers for scoped terms because the aggregate
 // index intentionally does not encode the query language's scope state.
-func (s *Store) listLibraryQuery(ctx context.Context, health, kind, query, collectionID string) ([]string, error) {
-	return s.listLibraryQueryQuery(ctx, s.db, health, kind, query, collectionID)
+func (s *Store) listLibraryQuery(ctx context.Context, health, kind, query, collectionID, scope string) ([]string, error) {
+	return s.listLibraryQueryQuery(ctx, s.db, health, kind, query, collectionID, scope)
 }
 
-func (s *Store) listLibraryQueryTx(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID string) ([]string, error) {
-	return s.listLibraryQueryQuery(ctx, queryer, health, kind, query, collectionID)
+func (s *Store) listLibraryQueryTx(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID, scope string) ([]string, error) {
+	return s.listLibraryQueryQuery(ctx, queryer, health, kind, query, collectionID, scope)
 }
 
-func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID string) ([]string, error) {
+func (s *Store) listLibraryQueryQuery(ctx context.Context, queryer libraryQueryer, health, kind, query, collectionID, scope string) ([]string, error) {
 	// Health values are derived after canonical hydration. Normalize here so
 	// callers get the same treatment for invalid values as the old in-memory
 	// path, while keeping this candidate query independent of scan history.
 	_ = normalizeLibraryStatus(health)
+	archiveScope, err := normalizeLibraryArchiveScope(scope)
+	if err != nil {
+		return nil, err
+	}
 
 	search := parseLibrarySearchQuery(query)
 	conditions := []string{"1=1"}
+	if archiveScope == "active" {
+		conditions = append(conditions, `COALESCE(e.archived_at,'')=''`)
+	} else {
+		conditions = append(conditions, `COALESCE(e.archived_at,'')<>''`)
+	}
 	args := make([]any, 0, len(search.terms)*3+4)
 
 	if kind != "" && kind != "all" {

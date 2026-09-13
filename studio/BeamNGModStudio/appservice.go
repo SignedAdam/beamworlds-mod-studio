@@ -42,6 +42,7 @@ type AppService struct {
 	gameRunning   func() (bool, error)
 	gitRemoteMu   sync.Mutex
 	gitRemoteOps  map[string][]*appGitRemoteOperation
+	modImportMu   sync.Mutex
 }
 
 type WorkspaceDetail struct {
@@ -121,8 +122,8 @@ func (service *AppService) Dashboard() (Dashboard, error) {
 	return service.store.Dashboard(context.Background(), service.config.DatabasePath)
 }
 
-func (service *AppService) ListLibrary(health, kind, query, collectionID string) ([]LibraryItem, error) {
-	return service.store.ListLibrary(context.Background(), health, kind, query, collectionID)
+func (service *AppService) ListLibrary(health, kind, query, collectionID, scope string) ([]LibraryItem, error) {
+	return service.store.ListLibrary(context.Background(), health, kind, query, collectionID, scope)
 }
 
 func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {
@@ -130,6 +131,8 @@ func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {
 }
 
 func (service *AppService) ScanLibrary() (ScanSummary, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
 	summary, err := service.library.Scan(context.Background())
 	if err == nil {
 		// The first indexed library is what makes seeding possible: only then

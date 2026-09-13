@@ -172,6 +172,7 @@ export function ProjectBrowser({
 }) {
   const [query, setQuery] = useState("");
   const [display, setDisplay] = useState<DisplayMode>(readDisplayMode);
+  const [selectedIDs, setSelectedIDs] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     try {
@@ -282,7 +283,8 @@ export function ProjectBrowser({
             workspaceRecords={visible}
             interaction={{
               kind: "browse",
-              selectedID: "",
+              selectedIDs,
+              onSelectionChange: setSelectedIDs,
               onActivate: (item) => {
                 const record = visible.find(
                   (candidate) => candidate.entityId === item.entityId,

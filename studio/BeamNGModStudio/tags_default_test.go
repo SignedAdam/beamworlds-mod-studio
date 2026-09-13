@@ -207,3 +207,88 @@ func TestTerrainDefaultMigrationPreservesCustomizedExistingTag(t *testing.T) {
 		t.Fatalf("customized Terrain = %q/%q/%q, want %q/%q/%q", id, color, icon, terrainID, "#123456", "map")
 	}
 }
+
+func TestGameplayGraphicsDefaultUpgradePreservesCustomTagsAndDeletions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gameplay-graphics.sqlite")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if store != nil {
+			_ = store.Close()
+		}
+	})
+	state, err := store.Organization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both defaults exist on a clean install. Recreate the pre-upgrade state
+	// with a user-owned, differently cased Gameplay tag and no Graphics tag.
+	for _, name := range []string{"Gameplay", "Graphics"} {
+		tag := findModTag(t, state, name)
+		if err := store.DeleteModTag(ctx, tag.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.CreateModTag(ctx, "gAmEpLaY", "#123456", "star"); err != nil {
+		t.Fatal(err)
+	}
+	state, err = store.Organization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := findModTag(t, state, "Gameplay")
+	root := filepath.Join(filepath.Dir(path), "mods")
+	items := migrationApplyBatch(t, store, root, []ScanArchive{migrationFixtureArchive(root, 902)}, 1, 1, 0)
+	if err := store.SetLibraryItemTags(ctx, items[0].EntityID, []string{custom.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, gameplayGraphicsTagSeedKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenStore(path)
+	if err != nil {
+		t.Fatalf("upgrade existing default tags: %v", err)
+	}
+	state, err = store.Organization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gameplay := findModTag(t, state, "Gameplay")
+	graphics := findModTag(t, state, "Graphics")
+	if gameplay.ID != custom.ID || gameplay.Name != custom.Name || gameplay.Color != custom.Color || gameplay.Icon != custom.Icon || gameplay.ModCount != 1 {
+		t.Fatalf("upgrade changed customized or assigned Gameplay tag: got %#v, original %#v", gameplay, custom)
+	}
+	if ids := migrationFTSEntityMatches(t, store, "gameplay"); len(ids) != 1 || ids[0] != items[0].EntityID {
+		t.Fatalf("upgrade lost Gameplay search assignment: %#v", ids)
+	}
+	if err := store.DeleteModTag(ctx, graphics.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenStore(path)
+	if err != nil {
+		t.Fatalf("reopen after deleting a default: %v", err)
+	}
+	state, err = store.Organization(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tag := range state.Tags {
+		if tag.Name == "Graphics" {
+			t.Fatal("reopening restored a deliberately deleted Graphics tag")
+		}
+	}
+	if gameplay := findModTag(t, state, "Gameplay"); gameplay.ID != custom.ID || gameplay.ModCount != 1 {
+		t.Fatalf("reopening lost the existing Gameplay assignment: %#v", gameplay)
+	}
+}

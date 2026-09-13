@@ -1,6 +1,16 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
@@ -63,35 +73,20 @@ interface ColumnDefinition {
   align?: "right";
 }
 
-export type ModTableInteraction =
-  | {
-      kind: "browse";
-      selectedID: string;
-      selectedIDs?: ReadonlySet<string>;
-      disabled?: boolean;
-      isSelectable?: (item: LibraryItem) => boolean;
-      onToggle?: (item: LibraryItem) => void;
-      onToggleAll?: () => void;
-      selectAllLabel?: string;
-      onActivate: (item: LibraryItem) => void;
-      onContextMenu?: (
-        item: LibraryItem,
-        event: ReactMouseEvent<HTMLTableRowElement>,
-      ) => void;
-    }
-  | {
-      kind: "select";
-      selectedIDs: ReadonlySet<string>;
-      disabled?: boolean;
-      isSelectable: (item: LibraryItem) => boolean;
-      onToggle: (item: LibraryItem) => void;
-      onToggleAll: () => void;
-      selectAllLabel?: string;
-      onContextMenu?: (
-        item: LibraryItem,
-        event: ReactMouseEvent<HTMLTableRowElement>,
-      ) => void;
-    };
+export type ModTableInteraction = {
+  selectedIDs: ReadonlySet<string>;
+  onSelectionChange: (ids: Set<string>) => void;
+  disabled?: boolean;
+  isSelectable?: (item: LibraryItem) => boolean;
+  selectAllLabel?: string;
+  onContextMenu?: (
+    item: LibraryItem,
+    event: ReactMouseEvent<HTMLTableRowElement>,
+  ) => void;
+} & (
+  | { kind: "browse"; onActivate: (item: LibraryItem) => void }
+  | { kind: "select" }
+);
 export interface ModFamilyBadge {
   count: number;
   kind: string;
@@ -118,7 +113,6 @@ export interface ModTableProps {
   familyByEntityID?: ModFamilyBadgeLookup;
   onReviewFamily?: (familyID: string) => void;
 }
-
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
   enabled: { label: "Enabled", defaultWidth: 104, minWidth: 86 },
@@ -186,11 +180,14 @@ const SOURCE_LABELS = {
   userAdded: "User added",
 } as const;
 
-
 function sourceID(item: Pick<LibraryItem, "sourceId" | "source">): string {
-  const id = String(item.sourceId ?? "").trim().toLowerCase();
+  const id = String(item.sourceId ?? "")
+    .trim()
+    .toLowerCase();
   if (id === "beamng-repository" || id === "user-added") return id;
-  const label = String(item.source ?? "").trim().toLowerCase();
+  const label = String(item.source ?? "")
+    .trim()
+    .toLowerCase();
   if (label === SOURCE_LABELS.repository.toLowerCase()) {
     return "beamng-repository";
   }
@@ -257,8 +254,7 @@ function compareTableItems(
       enabledByEntityID,
     ),
   );
-  if (primary !== 0 || sortKey !== "source")
-    return primary * sortDirection;
+  if (primary !== 0 || sortKey !== "source") return primary * sortDirection;
 
   const nameTieBreak = compareValues(
     sortValue(
@@ -327,9 +323,8 @@ export function ModTable({
         ? "modified"
         : "name",
   );
-  const [internalSortDirection, setInternalSortDirection] = useState<
-    ModTableSortDirection
-  >(() => (surface === "mod-maker" ? -1 : 1));
+  const [internalSortDirection, setInternalSortDirection] =
+    useState<ModTableSortDirection>(() => (surface === "mod-maker" ? -1 : 1));
   const controlledSort = surface === "library" ? sort : undefined;
   const sortKey = controlledSort?.key ?? internalSortKey;
   const sortDirection = controlledSort?.direction ?? internalSortDirection;
@@ -337,10 +332,46 @@ export function ModTable({
     readColumns(columnStorageKey, columnOrder),
   );
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnMenuRef = useRef<HTMLDialogElement>(null);
+  const columnTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const columnMenuID = useId();
   const [draggedColumn, setDraggedColumn] = useState<ColumnKey | null>(null);
   const lastResizePointer = useRef<{ key: ColumnKey; at: number } | null>(null);
-  const interactionRef = useRef(interaction);
-  interactionRef.current = interaction;
+  const tableRef = useRef<HTMLTableElement>(null);
+  const anchorID = useRef<string | null>(null);
+  const pendingFocusID = useRef<string | null>(null);
+  const [focusedID, setFocusedID] = useState<string | null>(null);
+  const selectionHelpID = useId();
+
+  useLayoutEffect(() => {
+    const menu = columnMenuRef.current;
+    const trigger = columnTriggerRef.current;
+    if (!columnsOpen || !menu || !trigger) return;
+
+    // The native dialog top layer escapes table containment and scroll clipping,
+    // while retaining this table's inherited theme and column settings.
+    menu.showModal();
+    const anchor = trigger.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    const above = Math.max(0, anchor.top - 14);
+    const below = Math.max(0, window.innerHeight - anchor.bottom - 14);
+    const openAbove = above >= bounds.height || above >= below;
+    menu.style.maxHeight = `${openAbove ? above : below}px`;
+    const height = menu.getBoundingClientRect().height;
+    menu.style.left = `${Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, openAbove ? anchor.top - height - 6 : anchor.bottom + 6)}px`;
+    menu
+      .querySelector<HTMLButtonElement>("button")
+      ?.focus({ preventScroll: true });
+
+    const dismiss = () => setColumnsOpen(false);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("resize", dismiss);
+      menu.close();
+      if (trigger.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, [columnsOpen]);
   const workspaceByEntityID = useMemo(
     () =>
       new Map(
@@ -380,37 +411,226 @@ export function ModTable({
     () => columns.filter((column) => column.visible),
     [columns],
   );
-  const selectionMode =
-    interaction.kind === "select" || interaction.selectedIDs !== undefined;
   const selectionIDs = interaction.selectedIDs;
-  const canSelect = interaction.kind === "select"
-    ? interaction.isSelectable
-    : interaction.isSelectable ?? (() => true);
-  const selectionWidth = selectionMode ? selectionColumnWidth : 0;
+  const canSelect = (item: LibraryItem) =>
+    interaction.isSelectable?.(item) ?? true;
   const tableWidth = useMemo(
     () =>
       visibleColumns.reduce(
         (total, column) => total + column.width,
-        selectionWidth,
+        selectionColumnWidth,
       ),
-    [selectionWidth, visibleColumns],
+    [visibleColumns],
   );
   const rangeStart = sorted.length === 0 ? 0 : page * pageSize + 1;
   const rangeEnd = Math.min(sorted.length, (page + 1) * pageSize);
 
   let selectableCount = 0;
   let selectedSelectableCount = 0;
-  if (selectionMode && selectionIDs) {
-    for (const item of items) {
-      if (!canSelect(item)) continue;
-      selectableCount++;
-      if (selectionIDs.has(item.entityId)) selectedSelectableCount++;
-    }
+  for (const item of items) {
+    if (!canSelect(item)) continue;
+    selectableCount++;
+    if (selectionIDs.has(item.entityId)) selectedSelectableCount++;
   }
   const allSelectableSelected =
     selectableCount > 0 && selectedSelectableCount === selectableCount;
   const someSelectableSelected =
     selectedSelectableCount > 0 && !allSelectableSelected;
+  const tabStopID =
+    visible.find((item) => item.entityId === focusedID && canSelect(item))
+      ?.entityId ??
+    visible.find((item) => selectionIDs.has(item.entityId) && canSelect(item))
+      ?.entityId ??
+    visible.find(canSelect)?.entityId;
+
+  useEffect(() => {
+    if (
+      selectionIDs.size === 0 ||
+      !sorted.some((item) => item.entityId === anchorID.current)
+    ) {
+      anchorID.current = null;
+    }
+  }, [sorted, selectionIDs.size]);
+
+  useLayoutEffect(() => {
+    if (!pendingFocusID.current) return;
+    const row = Array.from(
+      tableRef.current?.querySelectorAll<HTMLTableRowElement>("tbody tr") ?? [],
+    ).find(
+      (candidate) => candidate.dataset.entityId === pendingFocusID.current,
+    );
+    if (!row) return;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView({ block: "nearest", inline: "nearest" });
+    pendingFocusID.current = null;
+  });
+
+  const selectItem = (
+    item: LibraryItem,
+    modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    toggle = false,
+    fallbackAnchorID = item.entityId,
+  ) => {
+    if (interaction.disabled || !canSelect(item)) return;
+    const additive = modifiers.ctrlKey || modifiers.metaKey || toggle;
+    const next = additive ? new Set(selectionIDs) : new Set<string>();
+    if (modifiers.shiftKey) {
+      const targetIndex = sorted.findIndex(
+        (candidate) => candidate.entityId === item.entityId,
+      );
+      let anchorIndex = sorted.findIndex(
+        (candidate) => candidate.entityId === anchorID.current,
+      );
+      if (anchorIndex < 0) {
+        anchorIndex = sorted.findIndex(
+          (candidate) => candidate.entityId === fallbackAnchorID,
+        );
+        if (anchorIndex < 0) anchorIndex = targetIndex;
+        anchorID.current = sorted[anchorIndex].entityId;
+      }
+      for (
+        let index = Math.min(anchorIndex, targetIndex);
+        index <= Math.max(anchorIndex, targetIndex);
+        index++
+      ) {
+        if (canSelect(sorted[index])) next.add(sorted[index].entityId);
+      }
+    } else {
+      anchorID.current = item.entityId;
+      if (additive && next.has(item.entityId)) next.delete(item.entityId);
+      else next.add(item.entityId);
+    }
+    interaction.onSelectionChange(next);
+  };
+
+  const selectMatching = (selected: boolean) => {
+    if (interaction.disabled) return;
+    const next = new Set(selectionIDs);
+    for (const item of sorted) {
+      if (!canSelect(item)) continue;
+      if (selected) next.add(item.entityId);
+      else next.delete(item.entityId);
+    }
+    anchorID.current = null;
+    interaction.onSelectionChange(next);
+  };
+
+  const clickItem = (
+    item: LibraryItem,
+    event: ReactMouseEvent<HTMLElement>,
+    toggle = false,
+  ) => {
+    if (interaction.disabled || !canSelect(item)) return;
+    // Handle a double-click only once; never toggle or open a row twice.
+    if (event.detail > 1) return;
+    event.currentTarget.closest("tr")?.focus({ preventScroll: true });
+    setFocusedID(item.entityId);
+    selectItem(item, event, toggle);
+    if (
+      interaction.kind === "browse" &&
+      !toggle &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      interaction.onActivate(item);
+    }
+  };
+
+  const keyDownItem = (
+    item: LibraryItem,
+    event: ReactKeyboardEvent<HTMLTableRowElement>,
+  ) => {
+    if (
+      event.target !== event.currentTarget ||
+      interaction.disabled ||
+      !canSelect(item)
+    )
+      return;
+    const additive = event.ctrlKey || event.metaKey;
+    if (additive && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      event.stopPropagation();
+      selectMatching(true);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      anchorID.current = null;
+      interaction.onSelectionChange(new Set());
+      return;
+    }
+    if (
+      event.key === "ContextMenu" ||
+      (event.shiftKey && event.key === "F10")
+    ) {
+      if (!interaction.onContextMenu) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      event.currentTarget.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          clientX: rect.left + 24,
+          clientY: rect.top + rect.height / 2,
+        }),
+      );
+      return;
+    }
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (event.key === "Enter" && interaction.kind === "browse")
+        interaction.onActivate(item);
+      else selectItem(item, event, !event.shiftKey);
+      return;
+    }
+    if (
+      !["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
+        event.key,
+      ) ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    const eligible = sorted.filter(canSelect);
+    const index = eligible.findIndex(
+      (candidate) => candidate.entityId === item.entityId,
+    );
+    const viewportHeight =
+      (tableRef.current?.parentElement?.clientHeight ?? 0) -
+      (tableRef.current?.tHead?.offsetHeight ?? 0);
+    const pageStep = Math.max(
+      1,
+      Math.floor(
+        viewportHeight / event.currentTarget.getBoundingClientRect().height,
+      ) - 1,
+    );
+    const targetIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? eligible.length - 1
+          : index +
+            (event.key === "ArrowUp"
+              ? -1
+              : event.key === "ArrowDown"
+                ? 1
+                : event.key === "PageUp"
+                  ? -pageStep
+                  : pageStep);
+    const target =
+      eligible[Math.max(0, Math.min(eligible.length - 1, targetIndex))];
+    if (!target) return;
+    if (event.shiftKey || !additive)
+      selectItem(target, event, false, item.entityId);
+    setFocusedID(target.entityId);
+    pendingFocusID.current = target.entityId;
+    setPage(Math.floor(sorted.indexOf(target) / pageSize));
+  };
 
   useEffect(
     () => setPage(0),
@@ -613,26 +833,35 @@ export function ModTable({
       );
     });
 
-  const activateItem = useCallback((item: LibraryItem) => {
-    const current = interactionRef.current;
-    if (current.kind === "browse") current.onActivate(item);
-    else if (!current.disabled && current.isSelectable(item))
-      current.onToggle(item);
-  }, []);
-
-  const openContextMenu = useCallback(
-    (item: LibraryItem, event: ReactMouseEvent<HTMLTableRowElement>) => {
-      const current = interactionRef.current;
-      if (!current.onContextMenu) return;
-      current.onContextMenu(item, event);
-    },
-    [],
-  );
+  const openContextMenu = (
+    item: LibraryItem,
+    event: ReactMouseEvent<HTMLTableRowElement>,
+  ) => {
+    if (!interaction.onContextMenu || interaction.disabled || !canSelect(item))
+      return;
+    event.preventDefault();
+    event.currentTarget.focus({ preventScroll: true });
+    setFocusedID(item.entityId);
+    if (!selectionIDs.has(item.entityId)) {
+      anchorID.current = item.entityId;
+      interaction.onSelectionChange(new Set([item.entityId]));
+    }
+    interaction.onContextMenu(item, event);
+  };
 
   const rootClassName = `mod-table-panel${surface === "library" ? " mod-table-panel--library" : ""}${className ? ` ${className}` : ""}`;
 
   return (
     <div className={rootClassName} aria-busy={loading}>
+      <span id={selectionHelpID} className="sr-only">
+        Click to select a row. Ctrl or Command-click toggles a row. Shift-click
+        selects a range. Use Up and Down, Home and End, or Page Up and Page Down
+        to move; hold Shift to extend the selection, or Ctrl or Command to move
+        focus only. Space toggles the focused row. Ctrl or Command+A selects all
+        matching rows. Escape clears the selection.
+        {interaction.kind === "browse" &&
+          " Click a row without modifiers or press Enter to open it."}
+      </span>
       {visible.length === 0 ? (
         loading ? (
           <div className="center-loader" role="status">
@@ -645,35 +874,38 @@ export function ModTable({
       ) : (
         <div className="mod-table-wrap">
           <table
+            ref={tableRef}
             className="mod-table"
             style={{ width: tableWidth }}
             aria-label={ariaLabel}
+            aria-describedby={selectionHelpID}
+            role="grid"
+            aria-multiselectable="true"
           >
             <colgroup>
-              {selectionMode && (
-                <col style={{ width: selectionColumnWidth }} />
-              )}
+              <col style={{ width: selectionColumnWidth }} />
               {visibleColumns.map((column) => (
                 <col key={column.key} style={{ width: column.width }} />
               ))}
             </colgroup>
             <thead>
               <tr>
-                {selectionMode && interaction.onToggleAll && (
-                  <th className="mod-table__selection" scope="col">
-                    <SelectAllCheckbox
-                      checked={allSelectableSelected}
-                      indeterminate={someSelectableSelected}
-                      disabled={
-                        Boolean(interaction.disabled) || selectableCount === 0
-                      }
-                      label={interaction.selectAllLabel ?? "Select all matching mods"}
-                      onChange={interaction.onToggleAll}
-                    />
-                  </th>
-                )}
+                <th className="mod-table__selection" scope="col">
+                  <SelectAllCheckbox
+                    checked={allSelectableSelected}
+                    indeterminate={someSelectableSelected}
+                    disabled={
+                      Boolean(interaction.disabled) || selectableCount === 0
+                    }
+                    label={
+                      interaction.selectAllLabel ?? "Select all matching mods"
+                    }
+                    onChange={() => selectMatching(!allSelectableSelected)}
+                  />
+                </th>
                 {visibleColumns.map((column) => (
                   <SortableHead
+                    key={column.key}
                     column={column}
                     surface={surface}
                     active={sortKey}
@@ -691,13 +923,9 @@ export function ModTable({
             </thead>
             <tbody>
               {visible.map((item) => {
-                const rowSelectable = selectionMode && canSelect(item);
-                const selected = selectionMode
-                  ? Boolean(selectionIDs?.has(item.entityId))
-                  : item.entityId === interaction.selectedID;
+                const selected = selectionIDs.has(item.entityId);
                 const disabled =
-                  selectionMode &&
-                  (Boolean(interaction.disabled) || !rowSelectable);
+                  Boolean(interaction.disabled) || !canSelect(item);
                 return (
                   <ModRow
                     key={item.entityId}
@@ -705,11 +933,14 @@ export function ModTable({
                     columns={visibleColumns}
                     surface={surface}
                     workspace={workspaceByEntityID.get(item.entityId)}
-                    selectMode={selectionMode}
+                    tabIndex={
+                      disabled ? -1 : item.entityId === tabStopID ? 0 : -1
+                    }
                     selected={selected}
                     disabled={disabled}
-                    onActivate={activateItem}
-                    onToggle={interaction.onToggle}
+                    onClick={clickItem}
+                    onKeyDown={keyDownItem}
+                    onFocus={() => setFocusedID(item.entityId)}
                     enabledByEntityID={enabledByEntityID}
                     onToggleEnabled={onToggleEnabled}
                     familyByEntityID={familyByEntityID}
@@ -768,15 +999,39 @@ export function ModTable({
             <Button
               icon="columns"
               tone="quiet"
-              onClick={() => setColumnsOpen((open) => !open)}
+              aria-expanded={columnsOpen}
+              aria-haspopup="dialog"
+              aria-controls={columnMenuID}
+              onClick={(event) => {
+                columnTriggerRef.current = event.currentTarget;
+                setColumnsOpen((open) => !open);
+              }}
             >
               Columns
             </Button>
             {columnsOpen && (
-              <div
+              <dialog
+                ref={columnMenuRef}
+                id={columnMenuID}
                 className="column-menu"
-                role="dialog"
                 aria-label="Visible and ordered columns"
+                aria-modal="true"
+                onCancel={(event) => {
+                  event.preventDefault();
+                  setColumnsOpen(false);
+                }}
+                onClick={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  if (
+                    event.clientX < rect.left ||
+                    event.clientX > rect.right ||
+                    event.clientY < rect.top ||
+                    event.clientY > rect.bottom
+                  ) {
+                    setColumnsOpen(false);
+                  }
+                }}
               >
                 <header>
                   <strong>Table columns</strong>
@@ -809,7 +1064,7 @@ export function ModTable({
                     <span>{columnLabel(column.key, surface)}</span>
                   </label>
                 ))}
-              </div>
+              </dialog>
             )}
           </div>
         </div>
@@ -889,11 +1144,12 @@ const ModRow = memo(function ModRow({
   columns,
   surface,
   workspace,
-  selectMode,
+  tabIndex,
   selected,
   disabled,
-  onActivate,
-  onToggle,
+  onClick,
+  onKeyDown,
+  onFocus,
   enabledByEntityID,
   onToggleEnabled,
   familyByEntityID,
@@ -904,11 +1160,19 @@ const ModRow = memo(function ModRow({
   columns: ColumnState[];
   surface: ModTableProps["surface"];
   workspace?: WorkspaceRecord;
-  selectMode: boolean;
+  tabIndex: number;
   selected: boolean;
   disabled: boolean;
-  onActivate: (item: LibraryItem) => void;
-  onToggle?: (item: LibraryItem) => void;
+  onClick: (
+    item: LibraryItem,
+    event: ReactMouseEvent<HTMLElement>,
+    toggle?: boolean,
+  ) => void;
+  onKeyDown: (
+    item: LibraryItem,
+    event: ReactKeyboardEvent<HTMLTableRowElement>,
+  ) => void;
+  onFocus: () => void;
   enabledByEntityID?: ReadonlyMap<string, boolean>;
   onToggleEnabled?: (entityID: string, enabled: boolean) => void;
   familyByEntityID?: ModFamilyBadgeLookup;
@@ -919,42 +1183,45 @@ const ModRow = memo(function ModRow({
   ) => void;
 }) {
   const enabled =
-    surface !== "collection" ||
-    enabledByEntityID?.get(item.entityId) !== false;
-  const activate = () => {
-    if (!disabled) onActivate(item);
-  };
+    surface !== "collection" || enabledByEntityID?.get(item.entityId) !== false;
+  const isRowControl = (target: EventTarget) =>
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        "button, input, select, textarea, a, label, [contenteditable=true]",
+      ),
+    );
   return (
     <tr
       className={`${selected ? "is-selected" : ""}${disabled ? " is-disabled" : ""}${!enabled ? " mod-row--disabled" : ""}`}
-      onClick={activate}
-      onDoubleClick={selectMode ? undefined : activate}
+      data-entity-id={item.entityId}
+      aria-selected={selected}
+      onClick={(event) => {
+        if (!disabled && !isRowControl(event.target)) onClick(item, event);
+      }}
       onContextMenu={(event) => {
-        if (!onContextMenu) return;
-        event.preventDefault();
-        onContextMenu(item, event);
+        if (!disabled && !isRowControl(event.target))
+          onContextMenu?.(item, event);
       }}
-      tabIndex={disabled ? undefined : 0}
+      tabIndex={tabIndex}
+      onFocus={onFocus}
       aria-disabled={disabled || undefined}
-      onKeyDown={(event) => {
-        if (!disabled && (event.key === "Enter" || event.key === " ")) {
-          event.preventDefault();
-          onActivate(item);
-        }
-      }}
+      onKeyDown={(event) => onKeyDown(item, event)}
     >
-      {selectMode && (
-        <td className="mod-table__selection">
-          <input
-            type="checkbox"
-            checked={selected}
-            disabled={disabled || !onToggle}
-            aria-label={`Select ${item.displayName}`}
-            onClick={(event) => event.stopPropagation()}
-            onChange={() => onToggle?.(item)}
-          />
-        </td>
-      )}
+      <td className="mod-table__selection">
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={disabled}
+          tabIndex={-1}
+          aria-label={`Select ${item.displayName}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClick(item, event, true);
+          }}
+          readOnly
+        />
+      </td>
       {columns.map((column) => (
         <Cell
           key={column.key}
@@ -1404,7 +1671,7 @@ function cellText(
       return item.issueCount.toLocaleString();
   }
 }
- 
+
 function sortValue(
   item: LibraryItem,
   key: SortKey,
@@ -1459,7 +1726,6 @@ function sortValue(
       return item.issueCount;
   }
 }
-
 
 function healthRank(status: string) {
   switch (status) {

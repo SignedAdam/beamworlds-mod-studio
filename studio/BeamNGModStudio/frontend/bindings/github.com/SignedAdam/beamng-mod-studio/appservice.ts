@@ -21,8 +21,25 @@ export function AIUsage(): $CancellablePromise<$models.AIUsage> {
     return $Call.ByID(1900328351);
 }
 
+export function AddModsToGroup(tagID: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(2884195316, tagID, entityIDs);
+}
+
 export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models.RuntimeReport> {
     return $Call.ByID(2967954498, workspaceID);
+}
+
+export function ArchiveMods(entityIDs: string[] | null): $CancellablePromise<$models.ArchiveResult> {
+    return $Call.ByID(2244110597, entityIDs);
+}
+
+/**
+ * BrowseModImportDirectory lists one directory without opening archive content.
+ * An empty path intentionally resolves Downloads on every call; the caller does
+ * not get an implicit "last visited" directory.
+ */
+export function BrowseModImportDirectory(path: string): $CancellablePromise<$models.ModImportDirectory> {
+    return $Call.ByID(1181766828, path);
 }
 
 /**
@@ -87,6 +104,10 @@ export function ConfigureWorkspaceVirgil(workspaceID: string, enabled: boolean):
 
 export function CreateCollection(name: string, description: string, parentID: string): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(2008347414, name, description, parentID);
+}
+
+export function CreateGroupFromSelection(name: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(696874609, name, entityIDs);
 }
 
 export function CreateModTag(name: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
@@ -261,6 +282,15 @@ export function GitHubPublishConfiguration(): $CancellablePromise<$models.GitHub
     return $Call.ByID(2877149206);
 }
 
+/**
+ * ImportMods copies and indexes selected archives one at a time. The service
+ * mutex is also held by ScanLibrary, preventing a full scan's reconciliation
+ * from observing a destination halfway through publication.
+ */
+export function ImportMods(paths: string[] | null): $CancellablePromise<$models.ModImportResult> {
+    return $Call.ByID(2536282418, paths);
+}
+
 export function InstallExportForTest(workspaceID: string, exportID: string): $CancellablePromise<$models.TestInstallRecord> {
     return $Call.ByID(2477417930, workspaceID, exportID);
 }
@@ -273,6 +303,10 @@ export function LaunchPlaySelection(request: $models.PlayRequest): $CancellableP
     return $Call.ByID(3098743839, request);
 }
 
+export function LibraryGroupPage(health: string, kind: string, query: string, collectionID: string, scope: string, page: number, pageSize: number): $CancellablePromise<$models.LibraryGroupPage> {
+    return $Call.ByID(1282785871, health, kind, query, collectionID, scope, page, pageSize);
+}
+
 export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[] | null> {
     return $Call.ByID(2949754262, runID);
 }
@@ -281,8 +315,8 @@ export function ListAgentModels(): $CancellablePromise<$models.AgentModelOption[
     return $Call.ByID(1394913177);
 }
 
-export function ListLibrary(health: string, kind: string, query: string, collectionID: string): $CancellablePromise<$models.LibraryItem[] | null> {
-    return $Call.ByID(621180473, health, kind, query, collectionID);
+export function ListLibrary(health: string, kind: string, query: string, collectionID: string, scope: string): $CancellablePromise<$models.LibraryItem[] | null> {
+    return $Call.ByID(621180473, health, kind, query, collectionID, scope);
 }
 
 export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[] | null> {
@@ -362,6 +396,10 @@ export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $C
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
 
+export function RemoveModsFromGroup(tagID: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(2668843830, tagID, entityIDs);
+}
+
 export function RenameModTag(tagID: string, name: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(3546457432, tagID, name);
 }
@@ -392,6 +430,10 @@ export function ResolvePlaySelection(collectionIDs: string[] | null): $Cancellab
 
 export function RestartApplication(): $CancellablePromise<void> {
     return $Call.ByID(2071406909);
+}
+
+export function RestoreMods(entityIDs: string[] | null): $CancellablePromise<$models.ArchiveResult> {
+    return $Call.ByID(2270718725, entityIDs);
 }
 
 export function ResumeVirgilSession(sessionID: string): $CancellablePromise<$models.VirgilSessionRecord> {
@@ -438,6 +480,10 @@ export function SendVirgilMessage(sessionID: string, prompt: string, modelOverri
     return $Call.ByID(311073238, sessionID, prompt, modelOverride);
 }
 
+export function SetAllGroupsCollapsed(collapsed: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2167354842, collapsed);
+}
+
 export function SetCollectionChildren(collectionID: string, childIDs: string[] | null, included: boolean): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(256002693, collectionID, childIDs, included);
 }
@@ -471,8 +517,16 @@ export function SetEntityPreviewFromFile(entityID: string, sourcePath: string): 
     return $Call.ByID(602868577, entityID, sourcePath);
 }
 
+export function SetGroupCollapsed(tagID: string, collapsed: boolean): $CancellablePromise<void> {
+    return $Call.ByID(698166214, tagID, collapsed);
+}
+
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
     return $Call.ByID(91975591, entityID, tagIDs);
+}
+
+export function SetTagGrouped(tagID: string, grouped: boolean): $CancellablePromise<$models.OrganizationState> {
+    return $Call.ByID(3415555852, tagID, grouped);
 }
 
 export function SetWorkspaceJSONValue(workspaceID: string, relativePath: string, dottedPath: string, value: any): $CancellablePromise<void> {

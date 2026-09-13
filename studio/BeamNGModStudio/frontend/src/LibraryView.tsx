@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { AddModDialog } from './AddModDialog'
 import { CollectionDialog, CollectionMenuPopup, type CollectionMenuAction } from './CollectionUI'
 import { DuplicatesDialog } from './DuplicatesDialog'
 import { CollectionMenu } from './CollectionMenu'
@@ -56,6 +57,7 @@ export interface LibraryViewProps {
   onScan: () => void
   onCancelScan: () => void
   onRemoved: () => void
+  onImported: () => Promise<void>
   onRefreshFamilies: () => Promise<void>
   onFamiliesChange: (families: ModFamily[]) => void
   onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void
@@ -87,6 +89,7 @@ export function LibraryView(props: LibraryViewProps) {
   const [namePromptOpen, setNamePromptOpen] = useState(false)
   const [addError, setAddError] = useState('')
   const [addBusy, setAddBusy] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   // Removal is two operations: forgetting drops the index entry, deleting also
   // sends the archive to the Recycle Bin. The dialog states which one it is.
   const [duplicatesOpen, setDuplicatesOpen] = useState(false)
@@ -321,7 +324,15 @@ export function LibraryView(props: LibraryViewProps) {
     setDuplicatesOpen(true)
   }
 
-  const pageActions: PageActionSpec[] = []
+  const pageActions: PageActionSpec[] = [{
+    key: 'add-mod',
+    label: 'Add mod…',
+    icon: 'plus',
+    role: 'primary',
+    disabled: props.scanning,
+    onClick: () => setImportOpen(true),
+    title: 'Browse ZIP mods and copy them into your library',
+  }]
   pageActions.push(
     props.scanning
       ? {
@@ -336,7 +347,7 @@ export function LibraryView(props: LibraryViewProps) {
           key: 'rescan-mods',
           label: 'Rescan mods',
           icon: 'scan',
-          role: 'primary',
+          role: 'secondary',
           className: 'library-scan-action',
           onClick: props.onScan,
           title: 'Scans configured locations for new or updated mods',
@@ -464,10 +475,8 @@ export function LibraryView(props: LibraryViewProps) {
           onSortChange={setLibrarySort}
           interaction={{
             kind: 'browse',
-            selectedID: props.selectedID,
             selectedIDs: selectedEntityIDs,
-            onToggle: toggleSelection,
-            onToggleAll: toggleAllMatching,
+            onSelectionChange: setSelectedEntityIDs,
             selectAllLabel: 'Select all matching mods',
             onActivate: props.onSelect,
             onContextMenu: openContextMenu,
@@ -481,6 +490,17 @@ export function LibraryView(props: LibraryViewProps) {
         />
       )}
     </div>
+    {importOpen && <AddModDialog
+      onClose={() => setImportOpen(false)}
+      onImported={async (result) => {
+        setSelectedEntityIDs(new Set((result.items ?? []).map(item => item.entityId)))
+        await props.onImported()
+        const messages: string[] = []
+        if (result.importedCount > 0) messages.push(`Added ${result.importedCount.toLocaleString()} mod${result.importedCount === 1 ? '' : 's'} to your library`)
+        if (result.existingCount > 0) messages.push(`${result.existingCount.toLocaleString()} already in your library`)
+        props.onNotify(messages.join(' · '), 'success')
+      }}
+    />}
     {contextMenu && <CollectionMenuPopup
       label={`Actions for ${contextMenu.item.displayName}`}
       x={contextMenu.x}

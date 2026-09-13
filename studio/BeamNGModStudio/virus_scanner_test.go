@@ -65,14 +65,14 @@ func TestSignatureVirusScansKeepEveryHistoricalArtifact(t *testing.T) {
 		}
 	}
 
-	filtered, err := service.ListLibrary("all", "all", "is:"+second.Verdict, "all")
+	filtered, err := service.ListLibrary("all", "all", "is:"+second.Verdict, "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(filtered) != 1 || filtered[0].EntityID != item.EntityID || filtered[0].HealthStatus != second.Verdict || filtered[0].LastSecurityScanAt == "" || filtered[0].LastSecurityScanVerdict != second.Verdict || filtered[0].LastSecurityScanSHA256 != expectedSHA256 || filtered[0].SecurityScanChanged {
 		t.Fatalf("health status did not derive from latest signature scan: %#v", filtered)
 	}
-	directHealthFilter, err := service.ListLibrary(second.Verdict, "all", "", "all")
+	directHealthFilter, err := service.ListLibrary(second.Verdict, "all", "", "all", "active")
 	if err != nil || len(directHealthFilter) != 1 || directHealthFilter[0].EntityID != item.EntityID {
 		t.Fatalf("Library health parameter did not filter latest scan status: %#v, err %v", directHealthFilter, err)
 	}
@@ -96,7 +96,7 @@ func TestSignatureVirusScansKeepEveryHistoricalArtifact(t *testing.T) {
 			t.Fatalf("historical scan hash changed with mutable artifact state: %#v", run)
 		}
 	}
-	stale, err := service.ListLibrary("all", "all", "", "all")
+	stale, err := service.ListLibrary("all", "all", "", "all", "active")
 	if err != nil {
 		t.Fatal(err)
 	}

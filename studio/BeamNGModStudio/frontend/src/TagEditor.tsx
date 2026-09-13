@@ -155,6 +155,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     scheduleAssignment(runtime)
   }, [locked, runtime, stableSelectionKey])
 
+  // Draft changes must preserve the caret and the focused color/icon control.
   useEffect(() => {
     const nextKind = edit?.kind ?? null
     const wasNew = previousEditKindRef.current === 'new'
@@ -167,7 +168,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
       return
     }
     if (wasNew) createButtonRef.current?.focus()
-  }, [edit])
+  }, [edit?.kind])
 
   useLayoutEffect(() => {
     if (!contextMenu || !menuRef.current) return
@@ -284,7 +285,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     const current = runtime.optimistic
     const next = current.some(tag => tag.id === tagID)
       ? current.filter(tag => tag.id !== tagID)
-      : [...current, findTag(tagID, tags, current) ?? { id: tagID, name: tagID, color: FALLBACK_TAG_COLOR, icon: 'tag', modCount: 0 }]
+      : [...current, findTag(tagID, tags, current) ?? { id: tagID, name: tagID, color: FALLBACK_TAG_COLOR, icon: 'tag', modCount: 0, origin: 'user', grouped: false }]
     runtime.statuses.delete(tagID)
     setDesiredAssignment(next)
   }

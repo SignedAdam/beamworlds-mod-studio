@@ -971,28 +971,6 @@ export function CollectionsView({
       </div>
     );
   };
-  const toggleModSelection = (item: LibraryItem) => {
-    setSelectedModIDs((previous) => {
-      const next = new Set(previous);
-      if (next.has(item.entityId)) next.delete(item.entityId);
-      else next.add(item.entityId);
-      return next;
-    });
-  };
-
-  const toggleAllVisibleMods = () => {
-    const ids = visibleDirectMods.map((item) => item.entityId);
-    if (ids.length === 0) return;
-    setSelectedModIDs((previous) => {
-      const next = new Set(previous);
-      const allSelected = ids.every((id) => next.has(id));
-      for (const id of ids) {
-        if (allSelected) next.delete(id);
-        else next.add(id);
-      }
-      return next;
-    });
-  };
 
   const openModContextMenu = (
     item: LibraryItem,
@@ -1001,7 +979,6 @@ export function CollectionsView({
     const ids = selectedModIDs.has(item.entityId)
       ? [...selectedModIDs]
       : [item.entityId];
-    if (!selectedModIDs.has(item.entityId)) setSelectedModIDs(new Set(ids));
     setContextMenu({
       kind: "mod",
       collectionID: currentCollectionID,
@@ -1199,12 +1176,9 @@ export function CollectionsView({
             items={visibleDirectMods}
             interaction={{
               kind: "browse",
-              selectedID: "",
               selectedIDs: selectedModIDs,
               disabled: Boolean(busy),
-              isSelectable: () => true,
-              onToggle: toggleModSelection,
-              onToggleAll: toggleAllVisibleMods,
+              onSelectionChange: setSelectedModIDs,
               selectAllLabel: "Select all matching direct mods",
               onActivate: (item) => onInspectMod(item.entityId),
               onContextMenu: openModContextMenu,

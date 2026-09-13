@@ -348,7 +348,8 @@ html[data-theme="light"] .app-sidebar,html[data-theme="light"] .app-statusbar{ba
 .library-folders>footer button{font-size:var(--font-caption)}
 .column-control{position:relative}
 .column-control>.button{height:31px}
-.column-menu{position:absolute;z-index:120;right:0;top:36px;width:220px;padding:4px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface-solid);box-shadow:var(--shadow)}
+.column-menu{position:fixed;inset:auto;margin:0;width:220px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:4px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface-solid);color:var(--text);box-shadow:var(--shadow)}
+.column-menu::backdrop{background:transparent}
 .column-menu>header{height:34px;display:flex;align-items:center;padding:0 4px 0 8px;border-bottom:1px solid var(--line)}
 .column-menu>header strong{flex:1}
 .column-menu>label{height:32px;display:grid;grid-template-columns:18px 20px minmax(0,1fr);align-items:center;gap:4px;padding:0 6px;border-radius:3px;color:var(--text-2);cursor:grab}

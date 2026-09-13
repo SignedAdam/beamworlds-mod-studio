@@ -246,27 +246,6 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
     return stop
   }, [])
 
-  const toggleItem = (entityID: string) => {
-    setSelected(current => {
-      const next = new Set(current)
-      if (next.has(entityID)) next.delete(entityID)
-      else next.add(entityID)
-      return next
-    })
-  }
-
-  const toggleVisible = () => {
-    const selectable = visibleItems.filter(item => item.linked)
-    const everySelected = selectable.length > 0 && selectable.every(item => selected.has(item.entityId))
-    setSelected(current => {
-      const next = new Set(current)
-      for (const item of selectable) {
-        if (everySelected) next.delete(item.entityId)
-        else next.add(item.entityId)
-      }
-      return next
-    })
-  }
 
   const runSelected = async (mode: ScanMode) => {
     const targets = items.filter(item => selected.has(item.entityId) && item.linked)
@@ -357,8 +336,7 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
             selectedIDs: selected,
             disabled: running,
             isSelectable: item => item.linked,
-            onToggle: item => toggleItem(item.entityId),
-            onToggleAll: toggleVisible,
+            onSelectionChange: setSelected,
           }}
         />
       </section>

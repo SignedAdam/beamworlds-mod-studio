@@ -1,0 +1,893 @@
+/* The importer is deliberately scoped to its own dialog surface. CollectionUI
+   supplies the native modal/focus restoration; this file only gives that modal
+   the room and visual hierarchy needed for a filesystem task. */
+.collection-dialog:has(.add-mod-dialog) {
+  width: min(960px, calc(100vw - 36px));
+  max-width: calc(100vw - 36px);
+  height: min(720px, calc(100dvh - 52px));
+  max-height: calc(100dvh - 52px);
+}
+
+.collection-dialog:has(.add-mod-dialog) .collection-dialog__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.add-mod-dialog {
+  display: grid;
+  grid-template-columns: 198px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  color: var(--text);
+  background: var(--surface-solid);
+}
+
+.add-mod-dialog__sidebar {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 13px 9px 12px;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-raised) 75%, var(--surface-solid)),
+    var(--surface-solid)
+  );
+}
+
+.add-mod-dialog__sidebar-heading {
+  padding: 0 8px 7px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.add-mod-dialog__sidebar-heading--recent {
+  margin-top: 19px;
+}
+
+.add-mod-dialog__locations {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-mod-dialog__location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-control);
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-mod-dialog__location > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.add-mod-dialog__location > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-mod-dialog__location:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.add-mod-dialog__location:hover:not(:disabled) > svg,
+.add-mod-dialog__location.is-active > svg {
+  color: var(--orange);
+}
+
+.add-mod-dialog__location.is-active {
+  border-color: color-mix(in srgb, var(--orange) 48%, var(--line));
+  background: color-mix(in srgb, var(--orange) 12%, var(--surface));
+  color: var(--text);
+  font-weight: 650;
+}
+
+.add-mod-dialog__location:disabled {
+  color: var(--disabled);
+  cursor: default;
+}
+
+.add-mod-dialog__sidebar-empty {
+  display: block;
+  padding: 5px 8px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.add-mod-dialog__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-solid));
+}
+
+.add-mod-dialog__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-raised) 76%, var(--surface)),
+    var(--surface)
+  );
+}
+
+.add-mod-dialog__history {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.add-mod-dialog__nav-button {
+  display: grid;
+  width: 27px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.add-mod-dialog__nav-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.add-mod-dialog__nav-button:disabled {
+  color: var(--disabled);
+  cursor: default;
+}
+
+.add-mod-dialog__nav-button .is-back {
+  transform: rotate(180deg);
+}
+.add-mod-dialog__nav-button .is-up {
+  transform: rotate(-90deg);
+}
+
+.add-mod-dialog__path-form,
+.add-mod-dialog__filter {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text-3);
+}
+
+.add-mod-dialog__path-form {
+  flex: 1 1 auto;
+  gap: 7px;
+  padding-left: 8px;
+}
+
+.add-mod-dialog__path-form:focus-within,
+.add-mod-dialog__filter:focus-within {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 22%, transparent);
+}
+
+.add-mod-dialog__path-form > svg,
+.add-mod-dialog__filter > svg {
+  flex: none;
+}
+
+.add-mod-dialog__path-form input,
+.add-mod-dialog__filter input {
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-control);
+}
+
+.add-mod-dialog__path-form input {
+  flex: 1 1 auto;
+}
+.add-mod-dialog__filter {
+  flex: 0 1 184px;
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.add-mod-dialog__filter input {
+  flex: 1 1 auto;
+}
+.add-mod-dialog__path-form kbd {
+  flex: none;
+  margin-right: 7px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text-3);
+  font:
+    10px/1.4 "Cascadia Mono",
+    "Consolas",
+    monospace;
+  white-space: nowrap;
+}
+
+.add-mod-dialog__breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  min-width: 0;
+  min-height: 31px;
+  padding: 0 11px;
+  overflow: auto hidden;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  white-space: nowrap;
+}
+
+.add-mod-dialog__breadcrumbs > span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 3px;
+}
+
+.add-mod-dialog__breadcrumbs b {
+  color: var(--text-3);
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.add-mod-dialog__breadcrumbs button,
+.add-mod-dialog__breadcrumbs strong {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-mod-dialog__breadcrumbs button {
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.add-mod-dialog__breadcrumbs button:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.add-mod-dialog__breadcrumbs strong {
+  padding: 3px 4px;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.add-mod-dialog__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: none;
+  margin: 8px 10px 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-left-width: 2px;
+  border-radius: 3px;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+  line-height: 1.4;
+}
+
+.add-mod-dialog__message > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.add-mod-dialog__message > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.add-mod-dialog__message--error {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--line));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.add-mod-dialog__message--error > svg {
+  color: var(--danger);
+}
+.add-mod-dialog__message--warning {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--line));
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+}
+.add-mod-dialog__message--warning > svg {
+  color: var(--warning);
+}
+.add-mod-dialog__message .button {
+  flex: none;
+  height: 25px;
+  margin: -3px -3px -3px auto;
+}
+
+.add-mod-dialog__list-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  min-width: 0;
+  min-height: 32px;
+  padding: 9px 11px 5px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.add-mod-dialog__list-heading > span:first-child {
+  color: var(--text-2);
+  font-weight: 650;
+}
+
+.add-mod-dialog__list-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-mod-dialog__list-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100px;
+  margin: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface-solid) 76%, var(--surface));
+}
+
+.add-mod-dialog__list-columns,
+.add-mod-dialog__entry {
+  display: grid;
+  grid-template-columns: 26px 22px minmax(0, 1fr) 98px 164px;
+  min-width: 0;
+}
+
+.add-mod-dialog__list-columns {
+  flex: none;
+  min-height: 31px;
+  align-items: center;
+  border-bottom: 1px solid var(--line-strong);
+  background: color-mix(
+    in srgb,
+    var(--surface-raised) 74%,
+    var(--surface-solid)
+  );
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.add-mod-dialog__list-columns button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+  padding: 0 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.add-mod-dialog__list-columns button:first-child {
+  grid-column: 1 / 4;
+}
+.add-mod-dialog__list-columns button:first-child {
+  padding-left: 55px;
+}
+.add-mod-dialog__list-columns button:nth-child(2) {
+  grid-column: 4;
+}
+.add-mod-dialog__list-columns button:nth-child(3) {
+  grid-column: 5;
+}
+.add-mod-dialog__list-columns button:hover {
+  color: var(--text);
+}
+.add-mod-dialog__list-columns button.is-active {
+  color: var(--orange);
+}
+.add-mod-dialog__list-columns button > svg {
+  flex: none;
+  opacity: 0.46;
+  transform: rotate(0deg);
+  transition:
+    transform 120ms ease,
+    opacity 120ms ease;
+}
+.add-mod-dialog__list-columns button.is-active > svg {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.add-mod-dialog__list-columns button.is-active > svg.is-desc {
+  transform: rotate(0deg);
+}
+
+.add-mod-dialog__list {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: 0;
+}
+
+.add-mod-dialog__entry {
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  color: var(--text-2);
+  font-size: var(--font-control);
+  cursor: default;
+  user-select: none;
+}
+
+.add-mod-dialog__entry:last-child {
+  border-bottom: 0;
+}
+.add-mod-dialog__entry:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.add-mod-dialog__entry.is-selected {
+  background: color-mix(in srgb, var(--orange) 13%, var(--surface));
+  color: var(--text);
+}
+.add-mod-dialog__entry.is-focused {
+  outline: 2px solid color-mix(in srgb, var(--orange) 78%, transparent);
+  outline-offset: -2px;
+}
+.add-mod-dialog__entry.is-failed {
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+.add-mod-dialog__entry.is-failed.is-selected {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface));
+}
+.add-mod-dialog__entry.is-completed .add-mod-dialog__entry-icon {
+  color: var(--success);
+}
+.add-mod-dialog__entry.is-failed .add-mod-dialog__entry-icon {
+  color: var(--danger);
+}
+.add-mod-dialog__entry.is-directory .add-mod-dialog__entry-icon {
+  color: var(--orange);
+}
+
+.add-mod-dialog__entry-check {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.add-mod-dialog__entry-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--orange);
+  cursor: pointer;
+}
+
+.add-mod-dialog__entry-icon {
+  grid-column: 2;
+  color: var(--text-3);
+}
+.add-mod-dialog__entry-name {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 8px 5px 6px;
+}
+.add-mod-dialog__entry-name strong {
+  min-width: 0;
+  color: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-mod-dialog__entry-status {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-caption);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-mod-dialog__entry-status.is-error {
+  color: var(--danger);
+}
+.add-mod-dialog__entry-status.is-success {
+  color: var(--success);
+}
+.add-mod-dialog__entry-size,
+.add-mod-dialog__entry-date {
+  min-width: 0;
+  padding: 0 7px;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-mod-dialog__entry-size {
+  grid-column: 4;
+  text-align: right;
+}
+.add-mod-dialog__entry-date {
+  grid-column: 5;
+}
+
+.add-mod-dialog__loading,
+.add-mod-dialog__loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.add-mod-dialog__loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  min-height: 0;
+  background: color-mix(in srgb, var(--surface-solid) 76%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+.add-mod-dialog__results {
+  flex: none;
+  max-height: 172px;
+  margin: 8px 10px 0;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface-raised) 62%, var(--surface));
+}
+
+.add-mod-dialog__results-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 0 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: var(--font-control);
+}
+.add-mod-dialog__results-heading > svg {
+  color: var(--success);
+}
+.add-mod-dialog__results-heading > svg.is-error {
+  color: var(--danger);
+}
+.add-mod-dialog__results-heading > strong {
+  font-weight: 650;
+}
+.add-mod-dialog__results-heading > span {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+.add-mod-dialog__result-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 9px 5px;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+  font-variant-numeric: tabular-nums;
+}
+.add-mod-dialog__result-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.add-mod-dialog__result-summary strong {
+  font-size: var(--font-control);
+}
+.add-mod-dialog__result-summary .is-success {
+  color: var(--success);
+}
+.add-mod-dialog__result-summary .is-neutral {
+  color: var(--text-2);
+}
+.add-mod-dialog__result-summary .is-error {
+  color: var(--danger);
+}
+
+.add-mod-dialog__failure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0 9px 7px;
+  list-style: none;
+}
+.add-mod-dialog__failure-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  color: var(--danger);
+  font-size: var(--font-caption);
+}
+.add-mod-dialog__failure-list li > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.add-mod-dialog__failure-list li > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.add-mod-dialog__failure-list strong {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.add-mod-dialog__failure-list small {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.add-mod-dialog__refresh-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 0 9px 8px;
+  color: var(--warning);
+  font-size: var(--font-caption);
+  line-height: 1.35;
+}
+.add-mod-dialog__refresh-error > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.collection-dialog:has(.add-mod-dialog)
+  > .collection-dialog__body
+  > .add-mod-dialog__footer-status,
+.collection-dialog:has(.add-mod-dialog)
+  > .collection-dialog__body
+  > .add-mod-dialog__footer-actions {
+  flex: none;
+}
+
+.add-mod-dialog__footer-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 17px;
+  min-height: 40px;
+  padding: 7px 14px 6px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 55%, var(--surface));
+  color: var(--text-2);
+  font-size: var(--font-caption);
+}
+
+.add-mod-dialog__selection-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.add-mod-dialog__selection-summary strong {
+  color: var(--text);
+  font-weight: 650;
+}
+.add-mod-dialog__selection-summary span {
+  color: var(--text-3);
+}
+.add-mod-dialog__destination {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+}
+.add-mod-dialog__destination > svg {
+  flex: none;
+  color: var(--orange);
+}
+.add-mod-dialog__destination > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-mod-dialog__destination strong {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.add-mod-dialog__preservation-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 0 auto;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.add-mod-dialog__preservation-note > svg {
+  color: var(--success);
+}
+
+.add-mod-dialog__footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.add-mod-dialog__footer-actions .button {
+  min-width: 88px;
+}
+.add-mod-dialog__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+}
+
+.add-mod-dialog button:focus-visible,
+.add-mod-dialog input:focus-visible,
+.add-mod-dialog__footer-actions button:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+@media (max-width: 780px) {
+  .collection-dialog:has(.add-mod-dialog) {
+    width: min(calc(100vw - 24px), 960px);
+    max-width: calc(100vw - 24px);
+  }
+  .add-mod-dialog {
+    grid-template-columns: 166px minmax(0, 1fr);
+  }
+  .add-mod-dialog__toolbar {
+    flex-wrap: wrap;
+  }
+  .add-mod-dialog__path-form {
+    min-width: 190px;
+  }
+  .add-mod-dialog__filter {
+    flex: 1 1 160px;
+  }
+  .add-mod-dialog__list-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 590px) {
+  .collection-dialog:has(.add-mod-dialog) {
+    width: calc(100vw - 12px);
+    max-width: calc(100vw - 12px);
+    height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+  .add-mod-dialog {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .add-mod-dialog__sidebar {
+    max-height: 116px;
+    padding: 8px 9px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .add-mod-dialog__locations {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .add-mod-dialog__location {
+    width: auto;
+    min-width: 108px;
+  }
+  .add-mod-dialog__sidebar-heading--recent {
+    margin-top: 8px;
+  }
+  .add-mod-dialog__list-columns,
+  .add-mod-dialog__entry {
+    grid-template-columns: 26px 22px minmax(0, 1fr) 88px;
+  }
+  .add-mod-dialog__list-columns button:nth-child(3) {
+    display: none;
+  }
+  .add-mod-dialog__entry-date {
+    display: none;
+  }
+  .add-mod-dialog__footer-status {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .add-mod-dialog__preservation-note {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-mod-dialog__list-columns button > svg {
+    transition: none;
+  }
+}

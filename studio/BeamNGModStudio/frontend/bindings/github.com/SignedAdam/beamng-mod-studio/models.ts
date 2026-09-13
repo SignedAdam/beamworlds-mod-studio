@@ -172,6 +172,17 @@ export interface ArchiveMemberPreview {
     "truncated": boolean;
 }
 
+/**
+ * ArchiveResult reports state transitions completed by an archive operation.
+ * Archiving and restoring are intentionally metadata-only: archive links,
+ * files, memberships, tags, workspaces, and scan rows are left untouched.
+ */
+export interface ArchiveResult {
+    "archived": number;
+    "restored": number;
+    "failures": string[] | null;
+}
+
 export interface CollectionArtworkCandidate {
     "path": string;
     "name": string;
@@ -221,6 +232,7 @@ export interface CollectionMod {
     "displayName": string;
     "kind": modkit$0.Kind;
     "archivePath": string;
+    "archivedAt": string;
     "sha256": string;
     "sizeBytes": number;
     "thumbnailUrl": string;
@@ -643,9 +655,66 @@ export interface KnowledgeDocument {
     "content": string;
 }
 
+/**
+ * LibraryGroupPage is the paged result returned by LibraryGroupPage.
+ */
+export interface LibraryGroupPage {
+    "rows": LibraryGroupRow[] | null;
+    "totalRows": number;
+    "distinctMods": number;
+    "page": number;
+    "pageSize": number;
+}
+
+/**
+ * LibraryGroupRow is one row in the paged group stream.
+ */
+export interface LibraryGroupRow {
+    /**
+     * "group" | "mod"
+     */
+    "rowType": string;
+
+    /**
+     * tag ID, or ungroupedGroupID
+     */
+    "groupId": string;
+
+    /**
+     * group name; empty for mod rows
+     */
+    "label": string;
+
+    /**
+     * group rows only
+     */
+    "modCount": number;
+
+    /**
+     * group rows only
+     */
+    "sizeBytes": number;
+
+    /**
+     * group rows only
+     */
+    "collapsed": boolean;
+
+    /**
+     * group rows only, while a search is active
+     */
+    "matchCount": number;
+
+    /**
+     * mod rows only
+     */
+    "item": LibraryItem | null;
+}
+
 export interface LibraryItem {
     "entityId": string;
     "revision": string;
+    "archivedAt": string;
     "artifactId": string;
     "linkId": string;
     "collectionIds": string[] | null;
@@ -706,6 +775,7 @@ export interface ModCollection {
     "updatedAt": string;
     "position": number;
     "modCount": number;
+    "archivedModCount": number;
     "directModCount": number;
     "directEnabledCount": number;
     "childCount": number;
@@ -741,8 +811,52 @@ export interface ModFamilyMember {
     "collections": string[] | null;
     "workspaceCount": number;
     "thumbnailUrl": string;
+    "entryCount": number;
+    "variantCount": number;
+    "namespaces": string[] | null;
+    "issueCount": number;
+    "issueSeverity": string;
+    "healthStatus": string;
+    "installedInGame": boolean;
     "keeper": boolean;
     "keeperReason": string;
+}
+
+export interface ModImportDirectory {
+    "path": string;
+    "parentPath": string;
+    "breadcrumbs": ModImportLocation[] | null;
+    "locations": ModImportLocation[] | null;
+    "recentLocations": ModImportLocation[] | null;
+    "entries": ModImportEntry[] | null;
+    "destinationPath": string;
+    "warning": string;
+}
+
+export interface ModImportEntry {
+    "name": string;
+    "path": string;
+    "isDirectory": boolean;
+    "sizeBytes": number;
+    "modifiedAt": string;
+}
+
+export interface ModImportFailure {
+    "path": string;
+    "message": string;
+}
+
+export interface ModImportLocation {
+    "name": string;
+    "path": string;
+    "kind": string;
+}
+
+export interface ModImportResult {
+    "items": LibraryItem[] | null;
+    "failures": ModImportFailure[] | null;
+    "importedCount": number;
+    "existingCount": number;
 }
 
 export interface ModProfile {
@@ -792,6 +906,8 @@ export interface ModTag {
     "name": string;
     "color": string;
     "icon": string;
+    "origin": string;
+    "grouped": boolean;
     "modCount": number;
 }
 
@@ -859,6 +975,7 @@ export interface PlaySelection {
     "mods": CollectionMod[] | null;
     "modCount": number;
     "missingCount": number;
+    "archivedCount": number;
     "fingerprint": string;
     "warnings": string[] | null;
 }

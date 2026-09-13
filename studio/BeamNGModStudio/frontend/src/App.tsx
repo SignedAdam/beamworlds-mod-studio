@@ -326,6 +326,7 @@ function App() {
           "all",
           requestedQuery,
           requestedCollectionID,
+          "active",
         )) ?? [];
       if (requestVersion !== libraryLoadVersion.current) return;
       setItems(nextItems);
@@ -336,7 +337,7 @@ function App() {
     const version = ++organizationLoadVersion.current;
     const [nextOrganization, nextItems] = await Promise.all([
       API.Organization(),
-      API.ListLibrary("all", "all", "", "all"),
+      API.ListLibrary("all", "all", "", "all", "active"),
     ]);
     if (version !== organizationLoadVersion.current) return;
     setOrganization(nextOrganization);
@@ -446,7 +447,7 @@ function App() {
         setWriteBlocked(true);
         try {
           const committedItems =
-            (await API.ListLibrary("all", "all", "", "all")) ?? [];
+            (await API.ListLibrary("all", "all", "", "all", "active")) ?? [];
           markOpenEntitiesStale(committedItems);
         } catch (error) {
           handleError(error);
@@ -533,7 +534,7 @@ function App() {
         ] = await Promise.all([
           API.Config(),
           API.ListWorkspaces(),
-          API.ListLibrary("all", "all", "", "all"),
+          API.ListLibrary("all", "all", "", "all", "active"),
           API.Organization(),
           API.Settings(),
           API.AIUsage(),
@@ -1131,7 +1132,7 @@ function App() {
       updatedTag ??
         (currentTag
           ? { ...currentTag, color, icon }
-          : { id: tagID, name: "", modCount: 0, color, icon }),
+          : { id: tagID, name: "", modCount: 0, color, icon, origin: "user", grouped: false }),
     );
   };
   const deleteTag = async (tagID: string): Promise<void> => {
@@ -1507,6 +1508,16 @@ function App() {
                 onScan={() => void startScan()}
                 onCancelScan={() => void cancelScan()}
                 onRemoved={() => void refreshAfterModRemoval()}
+                onImported={async () => {
+                  setSearchInput("");
+                  setCollectionID("all");
+                  await Promise.all([
+                    loadLibrary("", "all"),
+                    loadOrganization(),
+                    loadFamilies(),
+                    loadShell(false),
+                  ]);
+                }}
                 onRefreshFamilies={refreshAfterModRemoval}
                 onFamiliesChange={setFamilies}
                 onNotify={notify}

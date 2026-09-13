@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,22 +16,29 @@ import (
 )
 
 type ModFamilyMember struct {
-	EntityID       string   `json:"entityId"`
-	LinkID         string   `json:"linkId"`
-	DisplayName    string   `json:"displayName"`
-	Title          string   `json:"title"`
-	Author         string   `json:"author"`
-	Version        string   `json:"version"`
-	ArchivePath    string   `json:"archivePath"`
-	SizeBytes      int64    `json:"sizeBytes"`
-	ModifiedAt     string   `json:"modifiedAt"`
-	SHA256         string   `json:"sha256"`
-	SourceLabel    string   `json:"sourceLabel"`
-	Collections    []string `json:"collections"`
-	WorkspaceCount int      `json:"workspaceCount"`
-	ThumbnailURL   string   `json:"thumbnailUrl"`
-	Keeper         bool     `json:"keeper"`
-	KeeperReason   string   `json:"keeperReason"`
+	EntityID        string   `json:"entityId"`
+	LinkID          string   `json:"linkId"`
+	DisplayName     string   `json:"displayName"`
+	Title           string   `json:"title"`
+	Author          string   `json:"author"`
+	Version         string   `json:"version"`
+	ArchivePath     string   `json:"archivePath"`
+	SizeBytes       int64    `json:"sizeBytes"`
+	ModifiedAt      string   `json:"modifiedAt"`
+	SHA256          string   `json:"sha256"`
+	SourceLabel     string   `json:"sourceLabel"`
+	Collections     []string `json:"collections"`
+	WorkspaceCount  int      `json:"workspaceCount"`
+	ThumbnailURL    string   `json:"thumbnailUrl"`
+	EntryCount      int      `json:"entryCount"`
+	VariantCount    int      `json:"variantCount"`
+	Namespaces      []string `json:"namespaces"`
+	IssueCount      int      `json:"issueCount"`
+	IssueSeverity   string   `json:"issueSeverity"`
+	HealthStatus    string   `json:"healthStatus"`
+	InstalledInGame bool     `json:"installedInGame"`
+	Keeper          bool     `json:"keeper"`
+	KeeperReason    string   `json:"keeperReason"`
 }
 
 type ModFamily struct {
@@ -49,7 +57,15 @@ type modFamilyManifest struct {
 	Author            string                      `json:"author"`
 	Version           string                      `json:"version"`
 	Filename          string                      `json:"filename"`
+	Namespaces        map[string][]string         `json:"namespaces"`
+	Members           []json.RawMessage           `json:"members"`
+	Variants          []json.RawMessage           `json:"variants"`
+	Issues            []modFamilyIssue            `json:"issues"`
 	MetadataDocuments []modFamilyMetadataDocument `json:"metadataDocuments"`
+}
+
+type modFamilyIssue struct {
+	Severity string `json:"severity"`
 }
 
 type modFamilyMetadataDocument struct {
@@ -57,34 +73,42 @@ type modFamilyMetadataDocument struct {
 }
 
 type modFamilyArchiveLink struct {
-	LinkID      string
-	ArchivePath string
-	SizeBytes   int64
-	ModifiedAt  string
-	SHA256      string
-	Fingerprint string
-	SourceLabel string
+	LinkID          string
+	ArtifactID      string
+	ArchivePath     string
+	SizeBytes       int64
+	ModifiedAt      string
+	SHA256          string
+	Fingerprint     string
+	SourceLabel     string
+	Manifest        modFamilyManifest
+	InstalledInGame bool
 }
 
 type modFamilyCandidate struct {
-	EntityID     string
-	LinkID       string
-	DisplayName  string
-	Title        string
-	Author       string
-	Version      string
-	ArchivePath  string
-	SizeBytes    int64
-	ModifiedAt   string
-	SHA256       string
-	Fingerprint  string
-	SourceLabel  string
-	ThumbnailURL string
-	resourceIDs  []string
-	archiveLinks []modFamilyArchiveLink
+	EntityID        string
+	LinkID          string
+	ArtifactID      string
+	DisplayName     string
+	Title           string
+	Author          string
+	Version         string
+	ArchivePath     string
+	SizeBytes       int64
+	ModifiedAt      string
+	SHA256          string
+	Fingerprint     string
+	SourceLabel     string
+	ThumbnailURL    string
+	Manifest        modFamilyManifest
+	HealthStatus    string
+	InstalledInGame bool
+	resourceIDs     []string
+	archiveLinks    []modFamilyArchiveLink
 }
 
-const modFamilyRowsQuery = `SELECT l.entity_id, l.id, e.display_name,
+const modFamilyRowsQuery = `SELECT l.entity_id, l.id, COALESCE(l.artifact_id,''),
+	e.display_name,
 	CASE lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))
 		WHEN 'beamng-repository' THEN 'BeamNG Repository'
 		WHEN 'user-added' THEN 'User added'
@@ -98,14 +122,14 @@ LEFT JOIN source_classifications sc ON sc.id=COALESCE(NULLIF(l.source_id,''),NUL
 LEFT JOIN artifacts a ON a.id=l.artifact_id
 LEFT JOIN entity_assets ea ON ea.entity_id=e.id AND ea.role='thumbnail' AND ea.ordinal=0
 LEFT JOIN assets ast ON ast.sha256=ea.asset_sha256
-WHERE l.active=1
+WHERE l.active=1 AND COALESCE(e.archived_at,'') = ''
 ORDER BY l.entity_id, l.active DESC, l.last_seen_at DESC, l.id DESC`
 
 // ModFamilies returns every currently visible family. The computation is kept
 // in the store so the service method remains the same thin Wails boundary as
 // the other library APIs.
 func (service *AppService) ModFamilies() ([]ModFamily, error) {
-	return service.store.modFamilies(context.Background())
+	return service.store.modFamilies(context.Background(), service.config.ActiveModsDir)
 }
 
 // DismissModFamily records the current membership signature for one family.
@@ -117,7 +141,7 @@ func (service *AppService) DismissModFamily(familyID string) ([]ModFamily, error
 		return nil, errors.New("family ID is required")
 	}
 	ctx := context.Background()
-	families, err := service.store.buildModFamilies(ctx)
+	families, err := service.store.buildModFamilies(ctx, service.config.ActiveModsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +158,7 @@ func (service *AppService) DismissModFamily(familyID string) ([]ModFamily, error
 	if err := service.store.writeSetting(ctx, modFamilyDismissalKey(familyID), modFamilyMembershipSignature(*family)); err != nil {
 		return nil, err
 	}
-	return service.store.modFamilies(ctx)
+	return service.store.modFamilies(ctx, service.config.ActiveModsDir)
 }
 
 const modFamilyDismissedPrefix = "mod_family_dismissed:"
@@ -157,8 +181,8 @@ func modFamilyMembershipSignature(family ModFamily) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (s *Store) modFamilies(ctx context.Context) ([]ModFamily, error) {
-	families, err := s.buildModFamilies(ctx)
+func (s *Store) modFamilies(ctx context.Context, activeModsDir string) ([]ModFamily, error) {
+	families, err := s.buildModFamilies(ctx, activeModsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -179,8 +203,8 @@ func (s *Store) modFamilies(ctx context.Context) ([]ModFamily, error) {
 	return visible, nil
 }
 
-func (s *Store) buildModFamilies(ctx context.Context) ([]ModFamily, error) {
-	candidates, err := s.modFamilyCandidates(ctx)
+func (s *Store) buildModFamilies(ctx context.Context, activeModsDir string) ([]ModFamily, error) {
+	candidates, err := s.modFamilyCandidates(ctx, activeModsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +244,14 @@ func (s *Store) buildModFamilies(ctx context.Context) ([]ModFamily, error) {
 
 	placedInRepo := make(map[string]struct{})
 	for _, resourceID := range repoIDs {
-		members := uniqueModFamilyCandidates(repoGroups[resourceID])
+		available := make([]*modFamilyCandidate, 0, len(repoGroups[resourceID]))
+		for _, candidate := range repoGroups[resourceID] {
+			if _, placed := placedInRepo[candidate.EntityID]; placed {
+				continue
+			}
+			available = append(available, candidate)
+		}
+		members := uniqueModFamilyCandidates(available)
 		if len(members) < 2 {
 			continue
 		}
@@ -234,9 +265,49 @@ func (s *Store) buildModFamilies(ctx context.Context) ([]ModFamily, error) {
 		}
 	}
 
+	contentGroups := make(map[string][]*modFamilyCandidate)
+	for _, candidate := range candidates {
+		if _, placed := placedInRepo[candidate.EntityID]; placed {
+			continue
+		}
+		title := normalizeModFamilyText(candidate.Title)
+		namespaces := modFamilyNamespaces(candidate.Manifest)
+		if title == "" || len(namespaces) == 0 {
+			continue
+		}
+		key := modFamilyContentKey(title, namespaces)
+		contentGroups[key] = append(contentGroups[key], candidate)
+	}
+	contentKeys := make([]string, 0, len(contentGroups))
+	for key := range contentGroups {
+		contentKeys = append(contentKeys, key)
+	}
+	sort.Strings(contentKeys)
+
+	placedInContent := make(map[string]struct{})
+	for _, key := range contentKeys {
+		members := uniqueModFamilyCandidates(contentGroups[key])
+		if len(members) < 2 {
+			continue
+		}
+		digest := sha256.Sum256([]byte(key))
+		familyID := "content:" + hex.EncodeToString(digest[:])[:16]
+		family, err := s.makeModFamily(ctx, familyID, "content", "", members, memberCache)
+		if err != nil {
+			return nil, err
+		}
+		families = append(families, family)
+		for _, member := range members {
+			placedInContent[member.EntityID] = struct{}{}
+		}
+	}
+
 	metadataGroups := make(map[string][]*modFamilyCandidate)
 	for _, candidate := range candidates {
 		if _, placed := placedInRepo[candidate.EntityID]; placed {
+			continue
+		}
+		if _, placed := placedInContent[candidate.EntityID]; placed {
 			continue
 		}
 		title := normalizeModFamilyText(candidate.Title)
@@ -272,10 +343,12 @@ func (s *Store) buildModFamilies(ctx context.Context) ([]ModFamily, error) {
 			return 0
 		case "repo":
 			return 1
-		case "metadata":
+		case "content":
 			return 2
-		default:
+		case "metadata":
 			return 3
+		default:
+			return 4
 		}
 	}
 	sort.SliceStable(families, func(left, right int) bool {
@@ -298,7 +371,7 @@ func (s *Store) buildModFamilies(ctx context.Context) ([]ModFamily, error) {
 	return families, nil
 }
 
-func (s *Store) modFamilyCandidates(ctx context.Context) ([]*modFamilyCandidate, error) {
+func (s *Store) modFamilyCandidates(ctx context.Context, activeModsDir string) ([]*modFamilyCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, modFamilyRowsQuery)
 	if err != nil {
 		return nil, err
@@ -308,9 +381,9 @@ func (s *Store) modFamilyCandidates(ctx context.Context) ([]*modFamilyCandidate,
 	candidates := make([]*modFamilyCandidate, 0)
 	byEntity := make(map[string]*modFamilyCandidate)
 	for rows.Next() {
-		var entityID, linkID, displayName, sourceLabel, archivePath, modifiedAt, sha256Value, fingerprint, manifestJSON, assetSHA string
+		var entityID, linkID, artifactID, displayName, sourceLabel, archivePath, modifiedAt, sha256Value, fingerprint, manifestJSON, assetSHA string
 		var sizeBytes int64
-		if err := rows.Scan(&entityID, &linkID, &displayName, &sourceLabel, &archivePath, &sizeBytes, &modifiedAt, &sha256Value, &fingerprint, &manifestJSON, &assetSHA); err != nil {
+		if err := rows.Scan(&entityID, &linkID, &artifactID, &displayName, &sourceLabel, &archivePath, &sizeBytes, &modifiedAt, &sha256Value, &fingerprint, &manifestJSON, &assetSHA); err != nil {
 			return nil, err
 		}
 		var manifest modFamilyManifest
@@ -319,18 +392,21 @@ func (s *Store) modFamilyCandidates(ctx context.Context) ([]*modFamilyCandidate,
 		}
 		link := modFamilyArchiveLink{
 			LinkID:      linkID,
+			ArtifactID:  artifactID,
 			ArchivePath: archivePath,
 			SizeBytes:   sizeBytes,
 			ModifiedAt:  modifiedAt,
 			SHA256:      sha256Value,
 			Fingerprint: fingerprint,
 			SourceLabel: sourceLabel,
+			Manifest:    manifest,
 		}
 		candidate, exists := byEntity[entityID]
 		if !exists {
 			candidate = &modFamilyCandidate{
 				EntityID:     entityID,
 				LinkID:       linkID,
+				ArtifactID:   artifactID,
 				DisplayName:  displayName,
 				Title:        manifest.Title,
 				Author:       manifest.Author,
@@ -342,6 +418,7 @@ func (s *Store) modFamilyCandidates(ctx context.Context) ([]*modFamilyCandidate,
 				Fingerprint:  fingerprint,
 				SourceLabel:  sourceLabel,
 				ThumbnailURL: modFamilyThumbnailURL(assetSHA),
+				Manifest:     manifest,
 				resourceIDs:  []string{},
 				archiveLinks: []modFamilyArchiveLink{},
 			}
@@ -361,7 +438,170 @@ func (s *Store) modFamilyCandidates(ctx context.Context) ([]*modFamilyCandidate,
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+
+	healthStatuses, err := s.modFamilyHealthStatuses(ctx, candidates)
+	if err != nil {
+		return nil, err
+	}
+	enabledPaths, enabledFilenames := modFamilyInstalledKeys(activeModsDir)
+	for _, candidate := range candidates {
+		candidate.HealthStatus = healthStatuses[candidate.EntityID]
+		candidate.InstalledInGame = modFamilyArchiveInstalled(candidate.ArchivePath, enabledPaths, enabledFilenames)
+		for index := range candidate.archiveLinks {
+			candidate.archiveLinks[index].InstalledInGame = modFamilyArchiveInstalled(candidate.archiveLinks[index].ArchivePath, enabledPaths, enabledFilenames)
+		}
+	}
 	return candidates, nil
+}
+
+// modFamilyHealthStatuses mirrors attachLibraryItemHealthQuery's current-scan
+// selection and status precedence. Keep both implementations in sync.
+func (s *Store) modFamilyHealthStatuses(ctx context.Context, candidates []*modFamilyCandidate) (map[string]string, error) {
+	statuses := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		status := "unscanned"
+		if modFamilyManifestBroken(candidate.Manifest) {
+			status = "broken"
+		}
+		statuses[candidate.EntityID] = status
+	}
+	if len(candidates) == 0 {
+		return statuses, nil
+	}
+
+	type healthRecord struct {
+		status, verdict string
+	}
+	currentHealth := map[string]healthRecord{}
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_id,artifact_id,status,verdict,current_ordinal FROM (
+		SELECT v.entity_id,v.artifact_id,v.status,v.verdict,
+			ROW_NUMBER() OVER(PARTITION BY v.entity_id,v.artifact_id ORDER BY v.updated_at DESC,v.id DESC) AS current_ordinal
+		FROM virus_scans v
+	) WHERE current_ordinal=1`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var entityID, artifactID string
+		var record healthRecord
+		var currentOrdinal int
+		if err := rows.Scan(&entityID, &artifactID, &record.status, &record.verdict, &currentOrdinal); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if currentOrdinal == 1 {
+			currentHealth[entityID+"\x00"+artifactID] = record
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, candidate := range candidates {
+		record, ok := currentHealth[candidate.EntityID+"\x00"+candidate.ArtifactID]
+		if !ok {
+			continue
+		}
+		status := record.verdict
+		if record.status == "running" {
+			status = "scanning"
+		} else if record.status == "failed" {
+			status = "scan_failed"
+		}
+		if status == "" {
+			status = "unscanned"
+		}
+		if status != "threat" && modFamilyManifestBroken(candidate.Manifest) {
+			status = "broken"
+		}
+		statuses[candidate.EntityID] = status
+	}
+	return statuses, nil
+}
+
+func modFamilyInstalledKeys(activeModsDir string) (map[string]struct{}, map[string]string) {
+	paths := map[string]struct{}{}
+	filenames := map[string]string{}
+	activeModsDir = strings.TrimSpace(activeModsDir)
+	if activeModsDir == "" {
+		return paths, filenames
+	}
+	loadedPaths, loadedFilenames, _, err := beamNGEnabledArchiveKeysFrom(activeModsDir, filepath.Join(activeModsDir, "db.json"))
+	if err != nil {
+		// An unavailable database only means that presence cannot be proven.
+		return paths, filenames
+	}
+	return loadedPaths, loadedFilenames
+}
+
+func modFamilyArchiveInstalled(archivePath string, paths map[string]struct{}, filenames map[string]string) bool {
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" {
+		return false
+	}
+	if _, ok := paths[archiveSourcePathKey(archivePath)]; ok {
+		return true
+	}
+	_, ok := filenames[archiveSourceFilenameKey(archivePath)]
+	return ok
+}
+
+func modFamilyNamespaces(manifest modFamilyManifest) []string {
+	unique := make(map[string]struct{})
+	for _, values := range manifest.Namespaces {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				unique[value] = struct{}{}
+			}
+		}
+	}
+	namespaces := make([]string, 0, len(unique))
+	for namespace := range unique {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	return namespaces
+}
+
+func modFamilyContentKey(title string, namespaces []string) string {
+	return title + "\x00" + strings.Join(namespaces, "\x00")
+}
+
+func modFamilyManifestBroken(manifest modFamilyManifest) bool {
+	for _, issue := range manifest.Issues {
+		if strings.EqualFold(strings.TrimSpace(issue.Severity), "error") {
+			return true
+		}
+	}
+	return false
+}
+
+func modFamilyIssueSeverity(manifest modFamilyManifest) string {
+	worst := ""
+	worstRank := 0
+	for _, issue := range manifest.Issues {
+		severity := strings.ToLower(strings.TrimSpace(issue.Severity))
+		rank := 0
+		switch severity {
+		case "info":
+			rank = 1
+		case "warning":
+			rank = 2
+		case "error":
+			rank = 3
+		default:
+			continue
+		}
+		if rank > worstRank {
+			worstRank = rank
+			worst = severity
+		}
+	}
+	return worst
 }
 
 func modFamilyResourceIDs(manifest modFamilyManifest) []string {
@@ -459,13 +699,16 @@ func (s *Store) makeModFamily(ctx context.Context, familyID, confidence, resourc
 	members := make([]ModFamilyMember, 0, len(candidates))
 	for _, candidate := range candidates {
 		link := modFamilyArchiveLink{
-			LinkID:      candidate.LinkID,
-			ArchivePath: candidate.ArchivePath,
-			SizeBytes:   candidate.SizeBytes,
-			ModifiedAt:  candidate.ModifiedAt,
-			SHA256:      candidate.SHA256,
-			Fingerprint: candidate.Fingerprint,
-			SourceLabel: candidate.SourceLabel,
+			LinkID:          candidate.LinkID,
+			ArtifactID:      candidate.ArtifactID,
+			ArchivePath:     candidate.ArchivePath,
+			SizeBytes:       candidate.SizeBytes,
+			ModifiedAt:      candidate.ModifiedAt,
+			SHA256:          candidate.SHA256,
+			Fingerprint:     candidate.Fingerprint,
+			SourceLabel:     candidate.SourceLabel,
+			Manifest:        candidate.Manifest,
+			InstalledInGame: candidate.InstalledInGame,
 		}
 		member, err := s.makeModFamilyMember(ctx, candidate, link, cache)
 		if err != nil {
@@ -518,26 +761,26 @@ func (s *Store) makeModFamilyMember(ctx context.Context, candidate *modFamilyCan
 			collections = []string{}
 		}
 		var workspaceCount int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspaces WHERE entity_id=?`, candidate.EntityID).Scan(&workspaceCount); err != nil {
-			return ModFamilyMember{}, err
-		}
 		base = ModFamilyMember{
-			EntityID:       candidate.EntityID,
-			LinkID:         candidate.LinkID,
-			DisplayName:    candidate.DisplayName,
-			Title:          candidate.Title,
-			Author:         candidate.Author,
-			Version:        candidate.Version,
-			ArchivePath:    candidate.ArchivePath,
-			SizeBytes:      candidate.SizeBytes,
-			ModifiedAt:     candidate.ModifiedAt,
-			SHA256:         candidate.SHA256,
-			SourceLabel:    candidate.SourceLabel,
-			Collections:    collections,
-			WorkspaceCount: workspaceCount,
-			ThumbnailURL:   candidate.ThumbnailURL,
-			Keeper:         false,
-			KeeperReason:   "",
+			EntityID:        candidate.EntityID,
+			LinkID:          candidate.LinkID,
+			DisplayName:     candidate.DisplayName,
+			Title:           candidate.Title,
+			Author:          candidate.Author,
+			Version:         candidate.Version,
+			ArchivePath:     candidate.ArchivePath,
+			SizeBytes:       candidate.SizeBytes,
+			ModifiedAt:      candidate.ModifiedAt,
+			SHA256:          candidate.SHA256,
+			SourceLabel:     candidate.SourceLabel,
+			Collections:     collections,
+			WorkspaceCount:  workspaceCount,
+			ThumbnailURL:    candidate.ThumbnailURL,
+			Namespaces:      []string{},
+			HealthStatus:    candidate.HealthStatus,
+			InstalledInGame: candidate.InstalledInGame,
+			Keeper:          false,
+			KeeperReason:    "",
 		}
 		cache[candidate.EntityID] = base
 	}
@@ -549,9 +792,15 @@ func (s *Store) makeModFamilyMember(ctx context.Context, candidate *modFamilyCan
 	member.SHA256 = link.SHA256
 	member.SourceLabel = link.SourceLabel
 	member.Collections = append([]string{}, base.Collections...)
+	member.EntryCount = len(link.Manifest.Members)
+	member.VariantCount = len(link.Manifest.Variants)
+	member.Namespaces = modFamilyNamespaces(link.Manifest)
+	member.IssueCount = len(link.Manifest.Issues)
+	member.IssueSeverity = modFamilyIssueSeverity(link.Manifest)
+	member.HealthStatus = candidate.HealthStatus
+	member.InstalledInGame = link.InstalledInGame
 	return member, nil
 }
-
 func (s *Store) makeFileModFamily(ctx context.Context, candidate *modFamilyCandidate, cache map[string]ModFamilyMember) (ModFamily, error) {
 	members := make([]ModFamilyMember, 0, len(candidate.archiveLinks))
 	for _, link := range candidate.archiveLinks {

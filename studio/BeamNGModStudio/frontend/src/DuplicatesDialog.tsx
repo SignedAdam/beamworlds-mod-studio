@@ -12,22 +12,21 @@ import { CollectionDialog } from "./CollectionUI";
 import { Button, formatBytes, formatDate } from "./ui";
 import "./DuplicatesDialog.css";
 
-type RemovalMode = "forget" | "delete";
-type PlanMode = RemovalMode | "files";
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-interface PlannedModRemoval {
-  mode: RemovalMode;
-  impact: ModRemovalImpact;
-  targetIDs: string[];
-}
+type PlanMode = "delete" | "files";
+type FamilyImpact = ArchiveFileRemovalImpact | ModRemovalImpact;
 
-interface PlannedArchiveFileRemoval {
-  mode: "files";
-  impact: ArchiveFileRemovalImpact;
-  targetIDs: string[];
-}
-
-type PlannedRemoval = PlannedModRemoval | PlannedArchiveFileRemoval;
+type ResolvedFamily = {
+  mode: PlanMode;
+  keeperID: string;
+  keeperLabel: string;
+  impact: FamilyImpact;
+  result: ModRemovalResult;
+  error?: string;
+};
 
 interface DuplicatesDialogProps {
   families: ModFamily[];
@@ -37,6 +36,10 @@ interface DuplicatesDialogProps {
   onFamiliesChange: (families: ModFamily[]) => void;
   onNotify: (message: string, tone?: "success" | "error" | "info") => void;
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -50,44 +53,11 @@ function errorMessage(error: unknown): string {
   ) {
     return error.message;
   }
-  return "The duplicate-family operation could not be completed.";
+  return "Something went wrong.";
 }
 
 function membersOf(family: ModFamily): ModFamilyMember[] {
   return family.members ?? [];
-}
-
-function proposedKeeper(family: ModFamily): string {
-  const members = membersOf(family);
-  const keeper = members.find((member) => member.keeper) ?? members[0];
-  return keeper ? memberSelectionID(family, keeper) : "";
-}
-
-function familyKindLabel(kind: string): string {
-  return kind === "copies" ? "copies" : "versions";
-}
-
-function archiveFilename(path: string): string {
-  const separator = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"))
-  return separator >= 0 ? path.slice(separator + 1) : path
-}
-
-function archiveDirectory(path: string): string {
-  const separator = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"))
-  return separator >= 0 ? path.slice(0, separator + 1) : ""
-}
-
-function familyReclaimableBytes(family: ModFamily, keeperID: string): number {
-  return membersOf(family)
-    .filter((member) => memberSelectionID(family, member) !== keeperID)
-    .reduce((total, member) => total + Math.max(0, member.sizeBytes || 0), 0);
-}
-
-function memberCollections(member: ModFamilyMember): string {
-  const collections = member.collections ?? [];
-  return collections.length > 0
-    ? collections.join(", ")
-    : "No collections";
 }
 
 function memberSelectionID(family: ModFamily, member: ModFamilyMember): string {
@@ -96,470 +66,513 @@ function memberSelectionID(family: ModFamily, member: ModFamilyMember): string {
     : member.entityId;
 }
 
-function memberIdentity(family: ModFamily, member: ModFamilyMember): string {
-  if (family.confidence === "identical") {
-    return archiveFilename(member.archivePath) || "Archive unavailable";
-  }
-  return member.displayName || member.entityId;
-}
-
-function versionsMatch(family: ModFamily): boolean {
+function proposedKeeper(family: ModFamily): string {
   const members = membersOf(family);
-  if (members.length < 2) return true;
-  const version = members[0]?.version.trim() ?? "";
-  return members.every((member) => member.version.trim() === version);
+  const keeper = members.find((m) => m.keeper) ?? members[0];
+  return keeper ? memberSelectionID(family, keeper) : "";
 }
 
-function emptyArchiveFileRemovalImpact(): ArchiveFileRemovalImpact {
-  return {
-    files: [],
-    refusals: [],
-    archiveCount: 0,
-    archiveBytes: 0,
-  };
+function memberIdentity(family: ModFamily, member?: ModFamilyMember): string {
+  if (!member) return "Unavailable";
+  if (family.confidence === "identical") {
+    return archiveFilename(member.archivePath || "") || "Unavailable";
+  }
+  return member.displayName || member.title || "Unnamed";
 }
 
-function emptyModRemovalResult(): ModRemovalResult {
-  return {
-    forgotten: 0,
-    recycled: 0,
-    failures: [],
-  };
+function archiveFilename(path: string): string {
+  const sep = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return sep >= 0 ? path.slice(sep + 1) : path;
 }
 
-function plannedFileLabel(count: number): string {
-  return `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
+function archiveDirectory(path: string): string {
+  const sep = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return sep >= 0 ? path.slice(0, sep + 1) : "";
 }
-
 
 function memberVersion(member: ModFamilyMember): string {
-  return member.version.trim() || "no version declared";
+  return typeof member.version === "string" ? member.version.trim() : "";
 }
 
 function removalTargets(family: ModFamily, keeperID: string): string[] {
   return membersOf(family)
-    .filter((member) => memberSelectionID(family, member) !== keeperID)
-    .map((member) => memberSelectionID(family, member));
+    .filter((m) => memberSelectionID(family, m) !== keeperID)
+    .map((m) => memberSelectionID(family, m));
 }
 
-function plannedArchiveLabel(impact: ModRemovalImpact): string {
-  const count = impact.archiveCount.toLocaleString();
-  return `${count} archive${impact.archiveCount === 1 ? "" : "s"}`;
+function familyReclaimableBytes(family: ModFamily, keeperID: string): number {
+  return membersOf(family)
+    .filter((m) => memberSelectionID(family, m) !== keeperID)
+    .reduce(
+      (sum, m) => sum + (Number.isFinite(m.sizeBytes) ? Math.max(0, m.sizeBytes) : 0),
+      0,
+    );
 }
 
-function plannedModLabel(count: number): string {
-  return `${count.toLocaleString()} mod${count === 1 ? "" : "s"}`;
+function emptyArchiveFileRemovalImpact(): ArchiveFileRemovalImpact {
+  return { files: [], refusals: [], archiveCount: 0, archiveBytes: 0 };
 }
 
-function FamilyMemberRow({
+function emptyModRemovalImpact(): ModRemovalImpact {
+  return { mods: [], collections: [], workspaces: [], archiveCount: 0, archiveBytes: 0 };
+}
+
+function emptyModRemovalResult(): ModRemovalResult {
+  return { forgotten: 0, recycled: 0, failures: [] };
+}
+
+function impactRefusal(family: ModFamily, impact: FamilyImpact): string | undefined {
+  if (family.confidence === "identical") {
+    const refusals = (impact as ArchiveFileRemovalImpact).refusals ?? [];
+    return refusals.length > 0
+      ? `Can't delete: ${refusals.join(", ")}`
+      : undefined;
+  }
+  const mod = impact as ModRemovalImpact;
+  const cols = mod.collections ?? [];
+  if (cols.length > 0) {
+    const names = cols.join(", ");
+    return cols.length === 1
+      ? `Part of collection ${names} \u2014 remove it first.`
+      : `Part of collections ${names} \u2014 remove it first.`;
+  }
+  const ws = mod.workspaces ?? [];
+  if (ws.length > 0) {
+    return "Open in ModMaker \u2014 close the project first.";
+  }
+  return undefined;
+}
+
+function recycleLabel(family: ModFamily, impact: FamilyImpact): string {
+  if (family.confidence === "identical") {
+    const fi = impact as ArchiveFileRemovalImpact;
+    const n = fi.archiveCount;
+    return `Recycle ${n} ${n === 1 ? "file" : "files"} \u00b7 ${formatBytes(fi.archiveBytes)}`;
+  }
+  const mi = impact as ModRemovalImpact;
+  const n = mi.archiveCount;
+  return `Recycle ${n} ${n === 1 ? "mod" : "mods"} \u00b7 ${formatBytes(mi.archiveBytes)}`;
+}
+
+function memberMeta(family: ModFamily, member: ModFamilyMember): string {
+  if (family.confidence === "identical") return "";
+  const parts: string[] = [];
+  const v = memberVersion(member);
+  if (v) parts.push(v);
+  parts.push(formatBytes(member.sizeBytes));
+  if (member.modifiedAt) parts.push(formatDate(member.modifiedAt));
+  return parts.join(" \u00b7 ");
+}
+
+// ---------------------------------------------------------------------------
+// Member row
+// ---------------------------------------------------------------------------
+
+function MemberRow({
   family,
   member,
-  keeperID,
-  showVersion,
-  onKeeperChange,
+  index,
+  isKeeper,
+  disabled,
+  inputRef,
+  onSelect,
+  onArrow,
 }: {
   family: ModFamily;
   member: ModFamilyMember;
-  keeperID: string;
-  showVersion: boolean;
-  onKeeperChange: (selectionID: string) => void;
+  index: number;
+  isKeeper: boolean;
+  disabled: boolean;
+  inputRef: (el: HTMLInputElement | null) => void;
+  onSelect: () => void;
+  onArrow: (direction: -1 | 1) => void;
 }) {
-  const selectionID = memberSelectionID(family, member);
-  const selected = selectionID === keeperID;
-  const identity = memberIdentity(family, member);
+  const identical = family.confidence === "identical";
+  const path = typeof member.archivePath === "string" ? member.archivePath.trim() : "";
+  const name = archiveFilename(path) || member.displayName || member.title || "Unnamed";
+  const meta = memberMeta(family, member);
+  const dir = identical ? archiveDirectory(path) : "";
+  const inGame = member.installedInGame === true;
+  const reason = isKeeper ? (member.keeperReason || "") : "";
+
   return (
-    <div className={`duplicates-member${selected ? " is-keeper" : ""}`}>
-      <label className="duplicates-member__choice">
-        <input
-          type="radio"
-          name={`keeper-${family.id}`}
-          value={selectionID}
-          checked={selected}
-          onChange={() => onKeeperChange(selectionID)}
-          aria-label={`Keep ${identity}`}
-        />
-        <span className="duplicates-member__identity">
-          <strong title={identity}>{identity}</strong>
-          {selected && <span className="duplicates-member__keeper">Keeper</span>}
+    <label className={`dup-member${isKeeper ? " is-keeper" : ""}`}>
+      <input
+        ref={inputRef}
+        type="radio"
+        name={`dup-keeper-${family.id}`}
+        checked={isKeeper}
+        disabled={disabled}
+        onChange={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+            e.preventDefault();
+            onArrow(-1);
+          } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onArrow(1);
+          }
+        }}
+        aria-label={`Keep ${name}`}
+      />
+      <div className="dup-member__body">
+        <span className="dup-member__name" title={path || name}>{name}</span>
+        {dir && (
+          <code className="dup-member__path" title={path}>
+            <span className="dup-member__dir">{dir}</span>
+          </code>
+        )}
+        {meta && (
+          <span className="dup-member__meta">
+            {meta}
+            {inGame && <>{" \u00b7 "}<em className="dup-member__active">In game</em></>}
+          </span>
+        )}
+        {!meta && inGame && (
+          <span className="dup-member__meta">
+            <em className="dup-member__active">In game</em>
+          </span>
+        )}
+        {reason && <small className="dup-member__reason">{reason}</small>}
+      </div>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Action area
+// ---------------------------------------------------------------------------
+
+function ActionArea({
+  family,
+  keeperID,
+  impact,
+  impactLoading,
+  impactError,
+  busy,
+  error,
+  resolved,
+  dismissed,
+  onAction,
+  onDismiss,
+  onRetryImpact,
+  onReviewRemaining,
+}: {
+  family: ModFamily;
+  keeperID: string;
+  impact?: FamilyImpact;
+  impactLoading: boolean;
+  impactError?: string;
+  busy: boolean;
+  error?: string;
+  resolved?: ResolvedFamily;
+  dismissed?: boolean;
+  onAction: (mode: PlanMode) => void;
+  onDismiss: () => void;
+  onRetryImpact: () => void;
+  onReviewRemaining: () => void;
+}) {
+  if (resolved) {
+    const bytes =
+      resolved.mode === "files"
+        ? (resolved.impact as ArchiveFileRemovalImpact).archiveBytes
+        : (resolved.impact as ModRemovalImpact).archiveBytes;
+    return (
+      <div className="dup-action dup-action--done" role="status">
+        <span className="dup-action__summary">
+          Kept {resolved.keeperLabel} &mdash; freed {formatBytes(bytes)}
         </span>
-      </label>
-      <dl className="duplicates-member__details">
-        {showVersion && (
-          <div>
-            <dt>Version</dt>
-            <dd>{memberVersion(member)}</dd>
-          </div>
+        {resolved.error && (
+          <p className="dup-action__error" role="alert" title={resolved.error}>
+            {resolved.error}
+          </p>
         )}
-        <div>
-          <dt>Size</dt>
-          <dd>{formatBytes(member.sizeBytes)}</dd>
+        <div className="dup-action__buttons">
+          <Button type="button" onClick={onReviewRemaining}>Review remaining</Button>
         </div>
-        <div>
-          <dt>File date</dt>
-          <dd>{formatDate(member.modifiedAt)}</dd>
+      </div>
+    );
+  }
+
+  if (dismissed) {
+    return (
+      <div className="dup-action dup-action--done" role="status">
+        <span className="dup-action__summary">Skipped</span>
+      </div>
+    );
+  }
+
+  if (busy) {
+    return (
+      <div className="dup-action" role="status" aria-live="polite">
+        <span className="dup-action__summary">Deleting&hellip;</span>
+      </div>
+    );
+  }
+
+  if (impactError && !impact) {
+    return (
+      <div className="dup-action" role="status">
+        <p className="dup-action__error" role="alert" title={impactError}>
+          {impactError}
+        </p>
+        <div className="dup-action__buttons">
+          <Button type="button" onClick={onRetryImpact}>Retry</Button>
+          <Button type="button" onClick={onDismiss}>Skip</Button>
         </div>
-        <div>
-          <dt>Source</dt>
-          <dd>{member.sourceLabel || "Unknown source"}</dd>
+      </div>
+    );
+  }
+
+  if (impactLoading || !impact) {
+    return (
+      <div className="dup-action" role="status" aria-live="polite">
+        <span className="dup-action__summary">Checking&hellip;</span>
+      </div>
+    );
+  }
+
+  const identical = family.confidence === "identical";
+  const refusal = impactRefusal(family, impact);
+
+  if (refusal) {
+    return (
+      <div className="dup-action">
+        <p className="dup-action__refusal" role="alert" title={refusal}>{refusal}</p>
+        <div className="dup-action__buttons">
+          <Button type="button" onClick={onDismiss}>Skip</Button>
         </div>
-        <div className="duplicates-member__detail--wide">
-          <dt>Archive</dt>
-          {/* Copies of one mod usually sit under near-identical directories, so
-              a normal end-truncation hides the only part that tells them
-              apart. Keep the filename whole and ellipsize the directory from
-              its left. */}
-          <dd title={member.archivePath || "Archive unavailable"}>
-            {member.archivePath ? (
-              <code className="duplicates-member__path">
-                <span className="duplicates-member__path-dir">{archiveDirectory(member.archivePath)}</span>
-                <span className="duplicates-member__path-file">{archiveFilename(member.archivePath)}</span>
-              </code>
-            ) : (
-              <code>Archive unavailable</code>
-            )}
-          </dd>
-        </div>
-        <div className="duplicates-member__detail--wide">
-          <dt>Collections</dt>
-          <dd>{memberCollections(member)}</dd>
-        </div>
-        {member.workspaceCount > 0 && (
-          <div>
-            <dt>ModMaker</dt>
-            <dd>
-              {member.workspaceCount.toLocaleString()} project
-              {member.workspaceCount === 1 ? "" : "s"}
-            </dd>
-          </div>
-        )}
-      </dl>
-      {member.keeperReason && (
-        <p className="duplicates-member__reason">{member.keeperReason}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="dup-action">
+      {error && (
+        <p className="dup-action__error" role="alert" title={error}>{error}</p>
       )}
+      <div className="dup-action__buttons">
+        <Button
+          type="button"
+          tone="danger"
+          disabled={busy}
+          onClick={() => onAction(identical ? "files" : "delete")}
+        >
+          {recycleLabel(family, impact)}
+        </Button>
+        <Button type="button" disabled={busy} onClick={onDismiss}>Skip</Button>
+      </div>
     </div>
   );
 }
 
-function PlannedRemovalNotice({
-  plan,
-  busy,
-  error,
-  onConfirm,
-  onCancel,
-}: {
-  plan: PlannedRemoval;
-  busy: boolean;
-  error?: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const filePlan = plan.mode === "files" ? plan : undefined;
-  const modPlan = plan.mode === "files" ? null : plan;
-  const collectionNames = modPlan?.impact.collections ?? [];
-  const workspaceNames = modPlan?.impact.workspaces ?? [];
-  const fileTargets = filePlan?.impact.files ?? [];
-  const refusals = filePlan?.impact.refusals ?? [];
-  const confirmLabel = filePlan
-    ? `Delete ${plannedFileLabel(filePlan.impact.archiveCount)} to Recycle Bin`
-    : plan.mode === "delete"
-      ? `Delete ${plannedArchiveLabel(plan.impact)} to Recycle Bin`
-      : `Forget ${plannedModLabel(plan.targetIDs.length)}`;
-  return (
-    <div className="duplicates-plan" role="status">
-      <strong>
-        {filePlan
-          ? "Review which files will be removed"
-          : "Review what this action will affect"}
-      </strong>
-      {filePlan ? (
-        <>
-          <p>
-            Files: {plannedFileLabel(filePlan.impact.archiveCount)} ·{" "}
-            {formatBytes(filePlan.impact.archiveBytes)}
-          </p>
-          {fileTargets.length > 0 && (
-            <ul className="duplicates-plan__files">
-              {fileTargets.map((file) => (
-                <li key={`${file.linkId}-${file.archivePath}`}>
-                  <strong
-                    title={
-                      file.archivePath ||
-                      file.displayName ||
-                      "Archive unavailable"
-                    }
-                  >
-                    {archiveFilename(file.archivePath) ||
-                      file.displayName ||
-                      "Archive unavailable"}
-                  </strong>
-                  <span className="duplicates-plan__file-name">
-                    {file.displayName || "Unnamed mod"}
-                  </span>
-                  <span className="duplicates-plan__file-path">
-                    {file.archivePath ? (
-                      <code className="duplicates-member__path">
-                        <span className="duplicates-member__path-dir">
-                          {archiveDirectory(file.archivePath)}
-                        </span>
-                        <span className="duplicates-member__path-file">
-                          {archiveFilename(file.archivePath)}
-                        </span>
-                      </code>
-                    ) : (
-                      <code>Archive unavailable</code>
-                    )}
-                  </span>
-                  <span>
-                    {file.missing
-                      ? "Archive already missing"
-                      : formatBytes(file.sizeBytes)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {refusals.length > 0 && (
-            <ul className="duplicates-plan__refusals" role="alert">
-              {refusals.map((refusal, index) => (
-                <li key={`${index}-${refusal}`}>{refusal}</li>
-              ))}
-            </ul>
-          )}
-        </>
-      ) : modPlan ? (
-        <>
-          {collectionNames.length > 0 && (
-            <p>
-              Collections: <span>{collectionNames.join(", ")}</span>
-            </p>
-          )}
-          {workspaceNames.length > 0 && (
-            <p className="duplicates-plan__warning" role="alert">
-              ModMaker projects: <span>{workspaceNames.join(", ")}</span>. The
-              affected mod will be refused until its project is closed or deleted.
-            </p>
-          )}
-          <p>
-            Archives: {plannedArchiveLabel(modPlan.impact)} ·{" "}
-            {formatBytes(modPlan.impact.archiveBytes)}
-          </p>
-          {modPlan.impact.mods?.some((mod) => mod.missing) && (
-            <p className="duplicates-plan__warning">
-              One or more archives are already missing; no file will be recycled for
-              those members.
-            </p>
-          )}
-        </>
-      ) : null}
-      {error && (
-        <p className="duplicates-plan__error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="duplicates-plan__actions">
-        <Button
-          type="button"
-          tone={filePlan || plan.mode === "delete" ? "danger" : "primary"}
-          disabled={busy || Boolean(filePlan && filePlan.impact.archiveCount <= 0)}
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </Button>
-        <Button type="button" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Family card
+// ---------------------------------------------------------------------------
+
 function FamilyCard({
   family,
   keeperID,
-  plan,
+  impact,
+  impactLoading,
+  impactError,
   busy,
   error,
+  resolved,
+  dismissed,
   onKeeperChange,
-  onPlan,
-  onConfirm,
-  onCancelPlan,
+  onAction,
   onDismiss,
+  onRetryImpact,
+  onReviewRemaining,
 }: {
   family: ModFamily;
   keeperID: string;
-  plan?: PlannedRemoval;
+  impact?: FamilyImpact;
+  impactLoading: boolean;
+  impactError?: string;
   busy: boolean;
   error?: string;
+  resolved?: ResolvedFamily;
+  dismissed?: boolean;
   onKeeperChange: (selectionID: string) => void;
-  onPlan: (mode: PlanMode) => void;
-  onConfirm: () => void;
-  onCancelPlan: () => void;
+  onAction: (mode: PlanMode) => void;
   onDismiss: () => void;
+  onRetryImpact: () => void;
+  onReviewRemaining: () => void;
 }) {
   const members = membersOf(family);
-  const identical = family.confidence === "identical";
-  const reclaimableBytes =
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const isDisabled = Boolean(resolved || dismissed || busy);
+
+  const moveKeeper = (index: number, direction: -1 | 1) => {
+    if (isDisabled || members.length < 2) return;
+    const nextIndex = (index + direction + members.length) % members.length;
+    const nextID = memberSelectionID(family, members[nextIndex]);
+    onKeeperChange(nextID);
+    window.requestAnimationFrame(() => {
+      inputRefs.current[nextID]?.focus({ preventScroll: true });
+    });
+  };
+
+  const reclaimable =
     keeperID === proposedKeeper(family)
       ? family.reclaimableBytes
       : familyReclaimableBytes(family, keeperID);
-  const targetIDs = removalTargets(family, keeperID);
-  const kind = familyKindLabel(family.kind);
-  const showVersion = !identical || !versionsMatch(family);
+
   return (
-    <article className="duplicates-family" id={`duplicate-family-${family.id}`}>
-      <header className="duplicates-family__header">
-        <div>
-          <h4>{family.title || "Untitled mod"}</h4>
-          <p>{family.author || "Author not declared"}</p>
-        </div>
-        <p className="duplicates-family__summary">
-          {members.length.toLocaleString()} {kind}
-          {reclaimableBytes > 0 && <> · frees <strong>{formatBytes(reclaimableBytes)}</strong></>}
-        </p>
+    <article
+      className="dup-card"
+      id={`duplicate-family-${family.id}`}
+      data-family-id={family.id}
+    >
+      <header className="dup-card__header">
+        <h4>{family.title || "Unnamed"}</h4>
+        {reclaimable > 0 && (
+          <span className="dup-card__saves">
+            Frees {formatBytes(reclaimable)}
+          </span>
+        )}
       </header>
-      <div
-        className="duplicates-family__members"
-        role="radiogroup"
-        aria-label={
-          identical
-            ? `Choose the file to keep for ${family.title || "this mod family"}`
-            : `Choose the keeper for ${family.title || "this mod family"}`
-        }
-      >
-        {members.map((member) => (
-          <FamilyMemberRow
-            key={`${family.id}-${memberSelectionID(family, member)}`}
-            family={family}
-            member={member}
-            keeperID={keeperID}
-            showVersion={showVersion}
-            onKeeperChange={onKeeperChange}
-          />
-        ))}
+      <div className="dup-members">
+        {members.map((member, index) => {
+          const selID = memberSelectionID(family, member);
+          return (
+            <MemberRow
+              key={selID}
+              family={family}
+              member={member}
+              index={index}
+              isKeeper={selID === keeperID}
+              disabled={isDisabled}
+              inputRef={(el) => {
+                inputRefs.current[selID] = el;
+              }}
+              onSelect={() => onKeeperChange(selID)}
+              onArrow={(dir) => moveKeeper(index, dir)}
+            />
+          );
+        })}
       </div>
-      {error && !plan && (
-        <p className="duplicates-family__error" role="alert">
-          {error}
-        </p>
-      )}
-      {plan ? (
-        <PlannedRemovalNotice
-          plan={plan}
-          busy={busy}
-          error={error}
-          onConfirm={onConfirm}
-          onCancel={onCancelPlan}
-        />
-      ) : (
-        <div className="duplicates-family__actions">
-          {identical ? (
-            <Button
-              type="button"
-              tone="danger"
-              disabled={busy || targetIDs.length === 0}
-              onClick={() => onPlan("files")}
-            >
-              Delete other files…
-            </Button>
-          ) : (
-            <>
-              <Button
-                type="button"
-                disabled={busy || targetIDs.length === 0}
-                onClick={() => onPlan("forget")}
-              >
-                Forget others
-              </Button>
-              <Button
-                type="button"
-                tone="danger"
-                disabled={busy || targetIDs.length === 0}
-                onClick={() => onPlan("delete")}
-              >
-                Delete others…
-              </Button>
-            </>
-          )}
-          <Button type="button" disabled={busy} onClick={onDismiss}>
-            {identical ? "Not duplicates" : "Not the same mod"}
-          </Button>
-        </div>
-      )}
+      <ActionArea
+        family={family}
+        keeperID={keeperID}
+        impact={impact}
+        impactLoading={impactLoading}
+        impactError={impactError}
+        busy={busy}
+        error={error}
+        resolved={resolved}
+        dismissed={dismissed}
+        onAction={onAction}
+        onDismiss={onDismiss}
+        onRetryImpact={onRetryImpact}
+        onReviewRemaining={onReviewRemaining}
+      />
     </article>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Section
+// ---------------------------------------------------------------------------
+
+function sectionHeading(confidence: string): string {
+  switch (confidence) {
+    case "identical": return "Extra copies";
+    case "repo":      return "Same mod";
+    case "content":   return "Likely duplicates";
+    case "metadata":  return "Possible duplicates";
+    default:          return "Duplicates";
+  }
+}
+
+function sectionNote(confidence: string): string | undefined {
+  switch (confidence) {
+    case "content":  return "Same name and vehicles \u2014 verify before deleting.";
+    case "metadata": return "Same name and author \u2014 verify before deleting.";
+    default:         return undefined;
+  }
+}
+
 function FamilySection({
-  heading,
   confidence,
   families,
   familyRefs,
   keeperByFamilyID,
-  plans,
-  busyByFamilyID,
+  impacts,
+  impactLoadingByFamilyID,
+  impactErrors,
   errors,
+  resolvedByFamilyID,
+  dismissedByFamilyID,
+  busyByFamilyID,
   highlightedFamilyID,
   onKeeperChange,
-  onPlan,
-  onConfirm,
-  onCancelPlan,
+  onAction,
   onDismiss,
+  onRetryImpact,
+  onReviewRemaining,
 }: {
-  heading: string;
-  confidence: "identical" | "repo" | "metadata";
+  confidence: "identical" | "repo" | "content" | "metadata";
   families: ModFamily[];
   familyRefs: MutableRefObject<Record<string, HTMLElement | null>>;
   keeperByFamilyID: Record<string, string>;
-  plans: Record<string, PlannedRemoval | undefined>;
-  busyByFamilyID: Record<string, boolean | undefined>;
+  impacts: Record<string, FamilyImpact | undefined>;
+  impactLoadingByFamilyID: Record<string, boolean | undefined>;
+  impactErrors: Record<string, string | undefined>;
   errors: Record<string, string | undefined>;
+  resolvedByFamilyID: Record<string, ResolvedFamily | undefined>;
+  dismissedByFamilyID: Record<string, boolean | undefined>;
+  busyByFamilyID: Record<string, boolean | undefined>;
   highlightedFamilyID: string;
   onKeeperChange: (familyID: string, selectionID: string) => void;
-  onPlan: (family: ModFamily, mode: PlanMode) => void;
-  onConfirm: (family: ModFamily) => void;
-  onCancelPlan: (familyID: string) => void;
+  onAction: (family: ModFamily, mode: PlanMode) => void;
   onDismiss: (family: ModFamily) => void;
+  onRetryImpact: (family: ModFamily) => void;
+  onReviewRemaining: (familyID: string) => void;
 }) {
-  const headingID = confidence;
-  const note =
-    confidence === "identical"
-      ? "The same archive is in more than one place. Keep one path; the mod stays in your library."
-      : confidence === "repo"
-        ? "These carry the same BeamNG repository ID, so they are the same mod."
-        : "These declare the same title and author. Check the files before deleting anything.";
+  if (families.length === 0) return null;
+  const heading = sectionHeading(confidence);
+  const note = sectionNote(confidence);
   return (
-    <section className="duplicates-section" aria-labelledby={`duplicates-${headingID}`}>
-      <h3 id={`duplicates-${headingID}`}>{heading}</h3>
-      <p className="duplicates-section__note">{note}</p>
-      {families.length === 0 ? (
-        <p className="duplicates-section__empty">No families in this group.</p>
-      ) : (
-        families.map((family) => (
-          <div
-            key={family.id}
-            className={family.id === highlightedFamilyID ? "is-highlighted" : undefined}
-            ref={(element) => {
-              familyRefs.current[family.id] = element;
-            }}
-          >
-            <FamilyCard
-              family={family}
-              keeperID={keeperByFamilyID[family.id] ?? proposedKeeper(family)}
-              plan={plans[family.id]}
-              busy={Boolean(busyByFamilyID[family.id])}
-              error={errors[family.id]}
-              onKeeperChange={(selectionID) =>
-                onKeeperChange(family.id, selectionID)
-              }
-              onPlan={(mode) => onPlan(family, mode)}
-              onConfirm={() => onConfirm(family)}
-              onCancelPlan={() => onCancelPlan(family.id)}
-              onDismiss={() => onDismiss(family)}
-            />
-          </div>
-        ))
-      )}
+    <section className="dup-section" aria-labelledby={`dup-${confidence}`}>
+      <h3 id={`dup-${confidence}`}>{heading}</h3>
+      {note && <p className="dup-section__note">{note}</p>}
+      {families.map((family) => (
+        <div
+          key={family.id}
+          tabIndex={-1}
+          className={`dup-shell${family.id === highlightedFamilyID ? " is-highlighted" : ""}`}
+          ref={(el) => {
+            familyRefs.current[family.id] = el;
+          }}
+        >
+          <FamilyCard
+            family={family}
+            keeperID={keeperByFamilyID[family.id] ?? proposedKeeper(family)}
+            impact={impacts[family.id]}
+            impactLoading={Boolean(impactLoadingByFamilyID[family.id])}
+            impactError={impactErrors[family.id]}
+            busy={Boolean(busyByFamilyID[family.id])}
+            error={errors[family.id]}
+            resolved={resolvedByFamilyID[family.id]}
+            dismissed={Boolean(dismissedByFamilyID[family.id])}
+            onKeeperChange={(selID) => onKeeperChange(family.id, selID)}
+            onAction={(mode) => onAction(family, mode)}
+            onDismiss={() => onDismiss(family)}
+            onRetryImpact={() => onRetryImpact(family)}
+            onReviewRemaining={() => onReviewRemaining(family.id)}
+          />
+        </div>
+      ))}
     </section>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Main dialog
+// ---------------------------------------------------------------------------
 
 export function DuplicatesDialog({
   families,
@@ -569,61 +582,100 @@ export function DuplicatesDialog({
   onFamiliesChange,
   onNotify,
 }: DuplicatesDialogProps) {
+  const [visibleFamilies] = useState<ModFamily[]>(() => families);
   const familyRefs = useRef<Record<string, HTMLElement | null>>({});
   const [keeperByFamilyID, setKeeperByFamilyID] = useState<Record<string, string>>(
     () =>
-      families.reduce<Record<string, string>>((lookup, family) => {
-        lookup[family.id] = proposedKeeper(family);
-        return lookup;
+      visibleFamilies.reduce<Record<string, string>>((acc, f) => {
+        acc[f.id] = proposedKeeper(f);
+        return acc;
       }, {}),
   );
-  const [plans, setPlans] = useState<Record<string, PlannedRemoval | undefined>>({});
-  const [busyByFamilyID, setBusyByFamilyID] = useState<
+  const [impacts, setImpacts] = useState<Record<string, FamilyImpact | undefined>>({});
+  const [impactLoadingByFamilyID, setImpactLoadingByFamilyID] = useState<
     Record<string, boolean | undefined>
   >({});
+  const [impactErrors, setImpactErrors] = useState<Record<string, string | undefined>>({});
+  const [impactRetryByFamilyID, setImpactRetryByFamilyID] = useState<
+    Record<string, number | undefined>
+  >({});
+  const [busyByFamilyID, setBusyByFamilyID] = useState<Record<string, boolean | undefined>>({});
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
+  const [resolvedByFamilyID, setResolvedByFamilyID] = useState<
+    Record<string, ResolvedFamily | undefined>
+  >({});
+  const [dismissedByFamilyID, setDismissedByFamilyID] = useState<
+    Record<string, boolean | undefined>
+  >({});
   const [highlightedFamilyID, setHighlightedFamilyID] = useState("");
 
+  // --- Impact loading ---
+
   useEffect(() => {
-    setKeeperByFamilyID((current) => {
-      const next: Record<string, string> = {};
-      for (const family of families) {
-        const currentKeeper = current[family.id];
-        next[family.id] =
-          currentKeeper &&
-          membersOf(family).some(
-            (member) => memberSelectionID(family, member) === currentKeeper,
-          )
-            ? currentKeeper
-            : proposedKeeper(family);
+    let cancelled = false;
+    const loading: Record<string, boolean | undefined> = {};
+    for (const family of visibleFamilies) {
+      if (resolvedByFamilyID[family.id] || dismissedByFamilyID[family.id]) continue;
+      loading[family.id] = true;
+    }
+    setImpactLoadingByFamilyID((c) => ({ ...c, ...loading }));
+    setImpactErrors((c) => {
+      const next = { ...c };
+      for (const family of visibleFamilies) {
+        if (loading[family.id]) delete next[family.id];
       }
       return next;
     });
-    setPlans((current) => {
-      const next: Record<string, PlannedRemoval | undefined> = {};
-      for (const family of families) {
-        const plan = current[family.id];
-        if (
-          plan &&
-          plan.targetIDs.every((targetID) =>
-            membersOf(family).some(
-              (member) => memberSelectionID(family, member) === targetID,
-            ),
-          )
-        ) {
-          next[family.id] = plan;
+    for (const family of visibleFamilies) {
+      if (resolvedByFamilyID[family.id] || dismissedByFamilyID[family.id]) continue;
+      const kid = keeperByFamilyID[family.id] ?? proposedKeeper(family);
+      const targets = removalTargets(family, kid);
+      void (async () => {
+        try {
+          let imp: FamilyImpact;
+          if (targets.length === 0) {
+            imp =
+              family.confidence === "identical"
+                ? emptyArchiveFileRemovalImpact()
+                : emptyModRemovalImpact();
+          } else if (family.confidence === "identical") {
+            imp =
+              (await API.PlanArchiveFileRemoval(targets)) ??
+              emptyArchiveFileRemovalImpact();
+          } else {
+            imp =
+              (await API.PlanModRemoval(targets)) ?? emptyModRemovalImpact();
+          }
+          if (cancelled) return;
+          setImpacts((c) => ({ ...c, [family.id]: imp }));
+          setImpactLoadingByFamilyID((c) => ({ ...c, [family.id]: false }));
+        } catch (err) {
+          if (cancelled) return;
+          setImpactErrors((c) => ({ ...c, [family.id]: errorMessage(err) }));
+          setImpactLoadingByFamilyID((c) => ({ ...c, [family.id]: false }));
         }
-      }
-      return next;
-    });
-  }, [families]);
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    visibleFamilies,
+    keeperByFamilyID,
+    impactRetryByFamilyID,
+    resolvedByFamilyID,
+    dismissedByFamilyID,
+  ]);
+
+  // --- Focus / highlight ---
 
   useEffect(() => {
     if (!focusFamilyID) return;
     const frame = window.requestAnimationFrame(() => {
-      const element = familyRefs.current[focusFamilyID];
-      if (!element) return;
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      familyRefs.current[focusFamilyID]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       setHighlightedFamilyID(focusFamilyID);
     });
     const timer = window.setTimeout(() => setHighlightedFamilyID(""), 2200);
@@ -631,226 +683,200 @@ export function DuplicatesDialog({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [families, focusFamilyID]);
+  }, [visibleFamilies, focusFamilyID]);
 
-  const changeKeeper = (familyID: string, entityID: string) => {
-    setKeeperByFamilyID((current) => ({ ...current, [familyID]: entityID }));
-    setPlans((current) => {
-      const next = { ...current };
+  const focusFamily = (familyID: string) => {
+    window.requestAnimationFrame(() => {
+      familyRefs.current[familyID]?.focus({ preventScroll: true });
+    });
+  };
+
+  // --- Keeper change ---
+
+  const changeKeeper = (familyID: string, selectionID: string) => {
+    setKeeperByFamilyID((c) => ({ ...c, [familyID]: selectionID }));
+    setImpacts((c) => {
+      const next = { ...c };
       delete next[familyID];
       return next;
     });
-    setErrors((current) => {
-      const next = { ...current };
+    setImpactLoadingByFamilyID((c) => ({ ...c, [familyID]: true }));
+    setImpactErrors((c) => {
+      const next = { ...c };
+      delete next[familyID];
+      return next;
+    });
+    setErrors((c) => {
+      const next = { ...c };
       delete next[familyID];
       return next;
     });
   };
 
-  const planRemoval = async (family: ModFamily, mode: PlanMode) => {
-    const keeperID = keeperByFamilyID[family.id] ?? proposedKeeper(family);
-    const targetIDs = removalTargets(family, keeperID);
-    if (targetIDs.length === 0 || busyByFamilyID[family.id]) return;
-    setBusyByFamilyID((current) => ({ ...current, [family.id]: true }));
-    setErrors((current) => {
-      const next = { ...current };
+  const retryImpact = (family: ModFamily) => {
+    setImpacts((c) => {
+      const next = { ...c };
       delete next[family.id];
       return next;
     });
-    try {
-      if (mode === "files") {
-        const impact =
-          (await API.PlanArchiveFileRemoval(targetIDs)) ??
-          emptyArchiveFileRemovalImpact();
-        setPlans((current) => ({
-          ...current,
-          [family.id]: { mode, impact, targetIDs },
-        }));
-      } else {
-        const impact = await API.PlanModRemoval(targetIDs);
-        setPlans((current) => ({
-          ...current,
-          [family.id]: { mode, impact, targetIDs },
-        }));
-      }
-    } catch (error) {
-      setErrors((current) => ({ ...current, [family.id]: errorMessage(error) }));
-    } finally {
-      setBusyByFamilyID((current) => ({ ...current, [family.id]: false }));
-    }
+    setImpactLoadingByFamilyID((c) => ({ ...c, [family.id]: true }));
+    setImpactRetryByFamilyID((c) => ({
+      ...c,
+      [family.id]: (c[family.id] ?? 0) + 1,
+    }));
   };
 
-  const cancelPlan = (familyID: string) => {
-    setPlans((current) => {
-      const next = { ...current };
-      delete next[familyID];
-      return next;
-    });
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[familyID];
-      return next;
-    });
-  };
+  // --- Removal ---
 
-  const confirmRemoval = async (family: ModFamily) => {
-    const plan = plans[family.id];
-    if (!plan || busyByFamilyID[family.id]) return;
-    if (plan.mode === "files" && plan.impact.archiveCount <= 0) return;
-    setBusyByFamilyID((current) => ({ ...current, [family.id]: true }));
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[family.id];
+  const performRemoval = async (family: ModFamily, mode: PlanMode) => {
+    const fid = family.id;
+    if (busyByFamilyID[fid] || resolvedByFamilyID[fid] || dismissedByFamilyID[fid])
+      return;
+    const impact = impacts[fid];
+    if (!impact || impactRefusal(family, impact)) return;
+    const kid = keeperByFamilyID[fid] ?? proposedKeeper(family);
+    const targets = removalTargets(family, kid);
+    if (targets.length === 0) return;
+
+    setBusyByFamilyID((c) => ({ ...c, [fid]: true }));
+    setErrors((c) => {
+      const next = { ...c };
+      delete next[fid];
       return next;
     });
-    let refreshError = "";
+
     try {
-      let result: ModRemovalResult;
-      if (plan.mode === "files") {
-        result =
-          (await API.DeleteArchiveFiles(plan.targetIDs)) ??
-          emptyModRemovalResult();
-      } else if (plan.mode === "delete") {
-        result = await API.DeleteModArchives(plan.targetIDs);
-      } else {
-        result = await API.ForgetMods(plan.targetIDs);
-      }
+      const result =
+        mode === "files"
+          ? ((await API.DeleteArchiveFiles(targets)) ?? emptyModRemovalResult())
+          : ((await API.DeleteModArchives(targets)) ?? emptyModRemovalResult());
+
       const failures = result.failures ?? [];
-      if (failures.length > 0) {
-        setErrors((current) => ({
-          ...current,
-          [family.id]: failures.join(" · "),
-        }));
-      } else {
-        setPlans((current) => {
-          const next = { ...current };
-          delete next[family.id];
-          return next;
-        });
-      }
+      let refreshError = "";
       try {
         await onRefresh();
-      } catch (error) {
-        refreshError = errorMessage(error);
-        setErrors((current) => ({
-          ...current,
-          [family.id]: current[family.id]
-            ? `${current[family.id]} · ${refreshError}`
-            : refreshError,
+      } catch (err) {
+        refreshError = errorMessage(err);
+      }
+
+      if (failures.length > 0) {
+        const msg =
+          failures.join(" \u00b7 ") + (refreshError ? ` \u00b7 ${refreshError}` : "");
+        setErrors((c) => ({ ...c, [fid]: msg }));
+        onNotify("Some copies could not be removed.", "error");
+      } else {
+        setResolvedByFamilyID((c) => ({
+          ...c,
+          [fid]: {
+            mode,
+            keeperID: kid,
+            keeperLabel: memberIdentity(
+              family,
+              membersOf(family).find(
+                (m) => memberSelectionID(family, m) === kid,
+              ) ?? membersOf(family)[0],
+            ),
+            impact,
+            result,
+            error: refreshError || undefined,
+          },
         }));
+        if (refreshError) {
+          onNotify(`Deleted, but refresh failed: ${refreshError}`, "error");
+        } else {
+          const n = result.recycled;
+          onNotify(
+            mode === "files"
+              ? `Recycled ${n} ${n === 1 ? "copy" : "copies"}`
+              : `Recycled ${n} ${n === 1 ? "mod" : "mods"}`,
+            "success",
+          );
+        }
+        focusFamily(fid);
       }
-      if (failures.length === 0 && !refreshError) {
-        onNotify(
-          plan.mode === "files"
-            ? `Deleted ${result.recycled.toLocaleString()} file${result.recycled === 1 ? "" : "s"} to the Recycle Bin`
-            : plan.mode === "delete"
-              ? `Deleted ${result.recycled.toLocaleString()} archive${result.recycled === 1 ? "" : "s"} to the Recycle Bin`
-              : `Forgot ${result.forgotten.toLocaleString()} mod${result.forgotten === 1 ? "" : "s"}`,
-          "success",
-        );
-      } else if (failures.length > 0) {
-        onNotify("Some duplicate members could not be removed.", "error");
-      }
-    } catch (error) {
-      setErrors((current) => ({ ...current, [family.id]: errorMessage(error) }));
+    } catch (err) {
+      const msg = errorMessage(err);
+      setErrors((c) => ({ ...c, [fid]: msg }));
+      onNotify(msg, "error");
     } finally {
-      setBusyByFamilyID((current) => ({ ...current, [family.id]: false }));
+      setBusyByFamilyID((c) => ({ ...c, [fid]: false }));
     }
   };
 
+  // --- Dismiss ---
+
   const dismissFamily = async (family: ModFamily) => {
-    if (busyByFamilyID[family.id]) return;
-    setBusyByFamilyID((current) => ({ ...current, [family.id]: true }));
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[family.id];
+    const fid = family.id;
+    if (busyByFamilyID[fid] || resolvedByFamilyID[fid] || dismissedByFamilyID[fid])
+      return;
+    setBusyByFamilyID((c) => ({ ...c, [fid]: true }));
+    setErrors((c) => {
+      const next = { ...c };
+      delete next[fid];
       return next;
     });
     try {
-      const refreshed = await API.DismissModFamily(family.id);
+      const refreshed = await API.DismissModFamily(fid);
       onFamiliesChange(refreshed ?? []);
-      onNotify("Duplicate family dismissed.", "info");
-    } catch (error) {
-      setErrors((current) => ({ ...current, [family.id]: errorMessage(error) }));
+      setDismissedByFamilyID((c) => ({ ...c, [fid]: true }));
+      onNotify("Dismissed.", "info");
+      focusFamily(fid);
+    } catch (err) {
+      const msg = errorMessage(err);
+      setErrors((c) => ({ ...c, [fid]: msg }));
+      onNotify(msg, "error");
     } finally {
-      setBusyByFamilyID((current) => ({ ...current, [family.id]: false }));
+      setBusyByFamilyID((c) => ({ ...c, [fid]: false }));
     }
   };
 
-  const identicalFamilies = families.filter(
-    (family) => family.confidence === "identical",
-  );
-  const repoFamilies = families.filter((family) => family.confidence === "repo");
-  const metadataFamilies = families.filter(
-    (family) => family.confidence === "metadata",
-  );
+  // --- Render ---
+
+  const identical = visibleFamilies.filter((f) => f.confidence === "identical");
+  const repo = visibleFamilies.filter((f) => f.confidence === "repo");
+  const content = visibleFamilies.filter((f) => f.confidence === "content");
+  const metadata = visibleFamilies.filter((f) => f.confidence === "metadata");
+
+  const sectionProps = {
+    familyRefs,
+    keeperByFamilyID,
+    impacts,
+    impactLoadingByFamilyID,
+    impactErrors,
+    errors,
+    resolvedByFamilyID,
+    dismissedByFamilyID,
+    busyByFamilyID,
+    highlightedFamilyID,
+    onKeeperChange: changeKeeper,
+    onAction: (family: ModFamily, mode: PlanMode) => void performRemoval(family, mode),
+    onDismiss: (family: ModFamily) => void dismissFamily(family),
+    onRetryImpact: retryImpact,
+    onReviewRemaining: focusFamily,
+  };
 
   return (
     <CollectionDialog
-      title="Review duplicate mods"
+      title="Duplicates"
       wide
       onClose={onClose}
       footer={
-        <Button type="button" onClick={onClose} disabled={Object.values(busyByFamilyID).some(Boolean)}>
+        <Button
+          type="button"
+          onClick={onClose}
+          disabled={Object.values(busyByFamilyID).some(Boolean)}
+        >
           Close
         </Button>
       }
     >
-      <div className="duplicates-dialog">
-        <p className="duplicates-dialog__intro">
-          Choose one keeper in each family. Nothing changes until you review the
-          impact and confirm a removal.
-        </p>
-        <FamilySection
-          heading="Extra copies on disk"
-          confidence="identical"
-          families={identicalFamilies}
-          familyRefs={familyRefs}
-          keeperByFamilyID={keeperByFamilyID}
-          plans={plans}
-          busyByFamilyID={busyByFamilyID}
-          errors={errors}
-          highlightedFamilyID={highlightedFamilyID}
-          onKeeperChange={changeKeeper}
-          onPlan={(family, mode) => void planRemoval(family, mode)}
-          onConfirm={(family) => void confirmRemoval(family)}
-          onCancelPlan={cancelPlan}
-          onDismiss={(family) => void dismissFamily(family)}
-        />
-        <FamilySection
-          heading="Same mod (repository ID matched)"
-          confidence="repo"
-          families={repoFamilies}
-          familyRefs={familyRefs}
-          keeperByFamilyID={keeperByFamilyID}
-          plans={plans}
-          busyByFamilyID={busyByFamilyID}
-          errors={errors}
-          highlightedFamilyID={highlightedFamilyID}
-          onKeeperChange={changeKeeper}
-          onPlan={(family, mode) => void planRemoval(family, mode)}
-          onConfirm={(family) => void confirmRemoval(family)}
-          onCancelPlan={cancelPlan}
-          onDismiss={(family) => void dismissFamily(family)}
-        />
-        <FamilySection
-          heading="Looks like the same mod (title and author)"
-          confidence="metadata"
-          families={metadataFamilies}
-          familyRefs={familyRefs}
-          keeperByFamilyID={keeperByFamilyID}
-          plans={plans}
-          busyByFamilyID={busyByFamilyID}
-          errors={errors}
-          highlightedFamilyID={highlightedFamilyID}
-          onKeeperChange={changeKeeper}
-          onPlan={(family, mode) => void planRemoval(family, mode)}
-          onConfirm={(family) => void confirmRemoval(family)}
-          onCancelPlan={cancelPlan}
-          onDismiss={(family) => void dismissFamily(family)}
-        />
-        {families.length === 0 && (
-          <p className="duplicates-dialog__empty">No duplicate families remain.</p>
+      <div className="dup-dialog">
+        <FamilySection confidence="identical" families={identical} {...sectionProps} />
+        <FamilySection confidence="repo" families={repo} {...sectionProps} />
+        <FamilySection confidence="content" families={content} {...sectionProps} />
+        <FamilySection confidence="metadata" families={metadata} {...sectionProps} />
+        {visibleFamilies.length === 0 && (
+          <p className="dup-dialog__empty">No duplicates found.</p>
         )}
       </div>
     </CollectionDialog>

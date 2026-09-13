@@ -988,3 +988,102 @@ html[data-theme="light"] .mod-row--archived {
 .library-view--archived .library-preview-card {
   opacity: 0.5;
 }
+
+/* Group row: one quiet line in the table — disclosure, name, count, size. */
+.group-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.group-row__cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.group-row__toggle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-3);
+  transition: transform 0.12s ease;
+}
+
+.group-row__toggle:hover {
+  color: var(--text);
+}
+
+.group-row--collapsed .group-row__toggle {
+  transform: rotate(-90deg);
+}
+
+.group-row__label {
+  font-weight: 600;
+  font-size: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.group-row__count {
+  color: var(--text-3);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.group-row__size {
+  color: var(--text-3);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.group-row__match {
+  margin-left: auto;
+  color: var(--blue);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.group-row:hover .group-row__cell {
+  background: var(--surface-raised);
+}
+
+/* Light theme group rows */
+html[data-theme="light"] .mod-table-panel--library .group-row__cell {
+  background: var(--library-table-header);
+  border-bottom-color: var(--library-table-divider);
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-row:hover .group-row__cell {
+  background: var(--library-table-hover);
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-row__label {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-row__count,
+html[data-theme="light"] .mod-table-panel--library .group-row__size {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-row__toggle {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-row__match {
+  color: var(--library-table-info);
+}

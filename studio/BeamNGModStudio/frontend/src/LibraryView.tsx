@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { LibraryGroupPage as GroupPage, LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { AddModDialog } from './AddModDialog'
 import { CollectionDialog, CollectionMenuPopup, type CollectionMenuAction } from './CollectionUI'
 import { DuplicatesDialog } from './DuplicatesDialog'
@@ -100,6 +100,142 @@ export function LibraryView(props: LibraryViewProps) {
   const [removal, setRemoval] = useState<{ impact: ModRemovalImpact } | null>(null)
   const [removalBusy, setRemovalBusy] = useState(false)
   const [removalError, setRemovalError] = useState('')
+
+  // Grouping mode: when enabled, the table renders server-paged group rows.
+  const GROUPING_KEY = 'beamworlds.library-grouped'
+  const PAGE_SIZE_KEY = 'beamworlds.library-page-size.v1'
+  const [grouped, setGrouped] = useState(() => window.localStorage.getItem(GROUPING_KEY) === 'true')
+  const [groupData, setGroupData] = useState<GroupPage | null>(null)
+  const [groupPage, setGroupPage] = useState(0)
+  const [groupPageSize, setGroupPageSize] = useState(() => {
+    const stored = window.localStorage.getItem(PAGE_SIZE_KEY)
+    if (stored === 'all') return 0
+    const n = Number(stored)
+    return n > 0 ? n : 50
+  })
+  const [groupLoading, setGroupLoading] = useState(false)
+  const groupLoadVersion = useRef(0)
+  const [groupNameDraft, setGroupNameDraft] = useState('')
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false)
+  const [groupCreateBusy, setGroupCreateBusy] = useState(false)
+  const [groupCreateError, setGroupCreateError] = useState('')
+  const [groupAddOpen, setGroupAddOpen] = useState(false)
+  const [groupAddTarget, setGroupAddTarget] = useState('')
+  const [groupRemoveOpen, setGroupRemoveOpen] = useState(false)
+  const [groupRemoveTarget, setGroupRemoveTarget] = useState('')
+  const [manageGroupsOpen, setManageGroupsOpen] = useState(false)
+  const [promotionBusy, setPromotionBusy] = useState('')
+
+  const groupedTags = useMemo(() => (props.tags ?? []).filter(t => t.grouped), [props.tags])
+
+  const loadGroupPage = useCallback(async (
+    pageNum: number,
+    pageSize?: number,
+  ) => {
+    const version = ++groupLoadVersion.current
+    setGroupLoading(true)
+    try {
+      const ps = pageSize ?? groupPageSize
+      const result = await API.LibraryGroupPage(
+        'all', 'all',
+        props.query,
+        props.collectionID,
+        props.scope,
+        pageNum, ps,
+      )
+      if (version !== groupLoadVersion.current) return
+      setGroupData(result)
+    } catch (error) {
+      if (version !== groupLoadVersion.current) return
+      props.onError(error)
+    } finally {
+      if (version === groupLoadVersion.current) setGroupLoading(false)
+    }
+  }, [props.query, props.collectionID, props.scope, props.onError, groupPageSize])
+
+  // Reload group page when any input to the grouped stream changes.
+  // loadGroupPage identity encodes query, collectionID, scope, and groupPageSize.
+  useEffect(() => {
+    if (!grouped) return
+    void loadGroupPage(groupPage)
+  }, [grouped, groupPage, loadGroupPage])
+
+  // Reset group page on filter change.
+  useEffect(() => {
+    if (grouped) setGroupPage(0)
+  }, [props.query, props.collectionID, props.scope])
+
+  const toggleGrouped = (on: boolean) => {
+    setGrouped(on)
+    try { window.localStorage.setItem(GROUPING_KEY, String(on)) } catch {}
+    if (on) {
+      setGroupPage(0)
+      void loadGroupPage(0)
+    }
+  }
+
+  const handleToggleGroupCollapsed = async (groupId: string, collapsed: boolean) => {
+    try {
+      await API.SetGroupCollapsed(groupId, collapsed)
+      void loadGroupPage(groupPage)
+    } catch (error) {
+      props.onError(error)
+    }
+  }
+
+  const handleGroupPageChange = (page: number) => {
+    setGroupPage(page)
+  }
+
+  const handlePageSizeChange = useCallback(() => {
+    const stored = window.localStorage.getItem(PAGE_SIZE_KEY)
+    const next = stored === 'all' ? 0 : (Number(stored) > 0 ? Number(stored) : 50)
+    setGroupPageSize(next)
+    setGroupPage(0)
+  }, [])
+
+  const addModsToGroup = async (tagID: string, entityIDs: string[]) => {
+    try {
+      const result = await API.AddModsToGroup(tagID, entityIDs)
+      props.onOrganization(result)
+      if (grouped) void loadGroupPage(groupPage)
+    } catch (error) {
+      props.onError(error)
+    }
+  }
+
+  const removeModsFromGroup = async (tagID: string, entityIDs: string[]) => {
+    try {
+      const result = await API.RemoveModsFromGroup(tagID, entityIDs)
+      props.onOrganization(result)
+      if (grouped) void loadGroupPage(groupPage)
+    } catch (error) {
+      props.onError(error)
+    }
+  }
+
+  const createGroupFromSelection = async (name: string, entityIDs: string[]) => {
+    try {
+      const result = await API.CreateGroupFromSelection(name, entityIDs)
+      props.onOrganization(result)
+      if (grouped) void loadGroupPage(groupPage)
+    } catch (error) {
+      props.onError(error)
+    }
+  }
+
+  const toggleTagGrouped = async (tagID: string, on: boolean) => {
+    setPromotionBusy(tagID)
+    try {
+      const result = await API.SetTagGrouped(tagID, on)
+      props.onOrganization(result)
+      if (grouped) void loadGroupPage(groupPage)
+    } catch (error) {
+      props.onError(error)
+    } finally {
+      setPromotionBusy('')
+    }
+  }
 
   // Switching between active and archived clears the selection since the two
   // sets never overlap.
@@ -318,6 +454,39 @@ export function LibraryView(props: LibraryViewProps) {
         icon: 'folderPlus',
         onClick: () => openAddDialog(entityIDs),
       })
+      if (groupedTags.length > 0) {
+        actions.push({
+          label: count === 1 ? 'Add to group' : `Add ${count.toLocaleString()} mods to group`,
+          icon: 'folder',
+          onClick: () => {
+            setGroupAddTarget(groupedTags[0].id)
+            setGroupAddOpen(true)
+            setContextMenu(null)
+            setSelectionMenu(null)
+          },
+        })
+        actions.push({
+          label: count === 1 ? 'Remove from group' : `Remove ${count.toLocaleString()} mods from group`,
+          icon: 'close',
+          onClick: () => {
+            setGroupRemoveTarget(groupedTags[0].id)
+            setGroupRemoveOpen(true)
+            setContextMenu(null)
+            setSelectionMenu(null)
+          },
+        })
+      }
+      actions.push({
+        label: 'New group from selection',
+        icon: 'plus',
+        onClick: () => {
+          setGroupNameDraft('')
+          setGroupCreateError('')
+          setGroupCreateOpen(true)
+          setContextMenu(null)
+          setSelectionMenu(null)
+        },
+      })
     }
     if (scanTarget) {
       actions.push({
@@ -474,6 +643,20 @@ export function LibraryView(props: LibraryViewProps) {
           onClick={() => setPreviewSize(size)}
         >{size.charAt(0).toUpperCase()}</button>)}
       </div>}
+      {viewMode === 'table' && <div className="segmented segmented--compact" role="group" aria-label="Grouping">
+        <button
+          type="button"
+          aria-pressed={grouped}
+          className={grouped ? 'is-active' : ''}
+          title={grouped ? 'Turn off grouping' : 'Group mods by tag'}
+          onClick={() => toggleGrouped(!grouped)}
+        ><Icon name="folder" size={14}/><span>Grouped</span></button>
+        {grouped && <button
+          type="button"
+          title="Choose which tags are groups"
+          onClick={() => setManageGroupsOpen(true)}
+        ><Icon name="settings" size={14}/></button>}
+      </div>}
       {selectedEntityIDs.size > 0 && <div className="library-selection" role="group" aria-label="Selected mods">
         <span className="library-selection__count" role="status" aria-live="polite" aria-label={selectedCountLabel}>{selectedChipLabel}</span>
         {props.scope === 'archived' ? (
@@ -550,12 +733,20 @@ export function LibraryView(props: LibraryViewProps) {
             onActivate: props.onSelect,
             onContextMenu: openContextMenu,
           }}
-          loading={props.loading}
+          loading={grouped ? groupLoading : props.loading}
           loadingLabel="Filtering mods"
           familyByEntityID={familyByEntityID}
           onReviewFamily={openDuplicates}
           emptyTitle={emptyFilterTitle}
           resetKey={`${props.query}\u0000${props.collectionID}`}
+          groupRows={grouped ? (groupData?.rows ?? undefined) : undefined}
+          groupTotalRows={grouped ? (groupData?.totalRows ?? 0) : undefined}
+          groupDistinctMods={grouped ? (groupData?.distinctMods ?? 0) : undefined}
+          groupPage={grouped ? groupPage : undefined}
+          onGroupPageChange={grouped ? handleGroupPageChange : undefined}
+          onToggleGroupCollapsed={grouped ? handleToggleGroupCollapsed : undefined}
+          hasActiveSearch={grouped ? Boolean(props.query.trim()) : false}
+          onPageSizeChange={grouped ? handlePageSizeChange : undefined}
         />
       )}
     </div>
@@ -655,6 +846,96 @@ export function LibraryView(props: LibraryViewProps) {
         {formatBytes(removal.impact.archiveBytes)} across {removal.impact.archiveCount.toLocaleString()} file{removal.impact.archiveCount === 1 ? '' : 's'}.
       </p>}
       {removalError && <p className="collection-add__error" role="alert">{removalError}</p>}
+    </CollectionDialog>}
+    {groupCreateOpen && selectedEntityIDs.size > 0 && <CollectionDialog
+      title="New group from selection"
+      onClose={() => { if (!groupCreateBusy) setGroupCreateOpen(false) }}
+      footer={<><Button type="button" onClick={() => setGroupCreateOpen(false)} disabled={groupCreateBusy}>Cancel</Button><Button type="button" tone="primary" disabled={groupCreateBusy || !groupNameDraft.trim()} onClick={() => {
+        const name = groupNameDraft.trim()
+        if (!name) return
+        setGroupCreateBusy(true)
+        setGroupCreateError('')
+        void createGroupFromSelection(name, [...selectedEntityIDs]).then(() => {
+          setGroupCreateOpen(false)
+          props.onNotify(`Created group "${name}"`, 'success')
+        }).catch(error => {
+          setGroupCreateError(errorMessage(error))
+        }).finally(() => setGroupCreateBusy(false))
+      }}>Create</Button></>}
+    >
+      <form className="collection-add__field" onSubmit={e => { e.preventDefault() }}>
+        <span>Group name</span>
+        <input autoFocus value={groupNameDraft} onChange={event => { setGroupNameDraft(event.target.value); setGroupCreateError('') }} disabled={groupCreateBusy} aria-label="Group name" />
+      </form>
+      <p style={{ margin: '8px 0 0', color: 'var(--text-3)', fontSize: 'inherit' }}>
+        {selectedEntityIDs.size.toLocaleString()} {selectedEntityIDs.size === 1 ? 'mod' : 'mods'} will be added to the new group.
+      </p>
+      {groupCreateError && <p className="collection-add__error" role="alert">{groupCreateError}</p>}
+    </CollectionDialog>}
+    {groupAddOpen && selectedEntityIDs.size > 0 && groupedTags.length > 0 && <CollectionDialog
+      title={`Add ${selectedEntityIDs.size === 1 ? 'mod' : `${selectedEntityIDs.size.toLocaleString()} mods`} to group`}
+      onClose={() => setGroupAddOpen(false)}
+      footer={<><Button type="button" onClick={() => setGroupAddOpen(false)}>Cancel</Button><Button type="button" tone="primary" disabled={!groupAddTarget} onClick={() => {
+        setGroupAddOpen(false)
+        void addModsToGroup(groupAddTarget, [...selectedEntityIDs]).then(() => {
+          const tag = groupedTags.find(t => t.id === groupAddTarget)
+          props.onNotify(`Added to ${tag?.name ?? 'group'}`, 'success')
+        })
+      }}>Add</Button></>}
+    >
+      <label className="collection-add__field">
+        <span>Group</span>
+        <select value={groupAddTarget} onChange={e => setGroupAddTarget(e.target.value)}>
+          {groupedTags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+        </select>
+      </label>
+    </CollectionDialog>}
+    {groupRemoveOpen && selectedEntityIDs.size > 0 && groupedTags.length > 0 && <CollectionDialog
+      title={`Remove ${selectedEntityIDs.size === 1 ? 'mod' : `${selectedEntityIDs.size.toLocaleString()} mods`} from group`}
+      onClose={() => setGroupRemoveOpen(false)}
+      footer={<><Button type="button" onClick={() => setGroupRemoveOpen(false)}>Cancel</Button><Button type="button" tone="primary" disabled={!groupRemoveTarget} onClick={() => {
+        setGroupRemoveOpen(false)
+        void removeModsFromGroup(groupRemoveTarget, [...selectedEntityIDs]).then(() => {
+          const tag = groupedTags.find(t => t.id === groupRemoveTarget)
+          props.onNotify(`Removed from ${tag?.name ?? 'group'}`, 'success')
+        })
+      }}>Remove</Button></>}
+    >
+      <label className="collection-add__field">
+        <span>Group</span>
+        <select value={groupRemoveTarget} onChange={e => setGroupRemoveTarget(e.target.value)}>
+          {groupedTags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+        </select>
+      </label>
+    </CollectionDialog>}
+    {manageGroupsOpen && <CollectionDialog
+      title="Manage groups"
+      onClose={() => setManageGroupsOpen(false)}
+      footer={<Button type="button" onClick={() => setManageGroupsOpen(false)}>Done</Button>}
+    >
+      <p style={{ margin: '0 0 10px', color: 'var(--text-3)', fontSize: 'inherit' }}>
+        Toggle which tags appear as groups. Scanner tags are marked &mdash; promoting one with many mods creates a large group.
+      </p>
+      <div style={{ maxHeight: 320, overflow: 'auto' }}>
+        {(props.tags ?? []).filter(t => t.modCount > 0).sort((a, b) => a.name.localeCompare(b.name)).map(tag => (
+          <label key={tag.id} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={tag.grouped}
+              disabled={promotionBusy === tag.id}
+              onChange={() => void toggleTagGrouped(tag.id, !tag.grouped)}
+              style={{ accentColor: 'var(--orange)' }}
+            />
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tag.name}
+            </span>
+            <small style={{ color: 'var(--text-3)', whiteSpace: 'nowrap', fontSize: 10 }}>
+              {tag.modCount.toLocaleString()} {tag.modCount === 1 ? 'mod' : 'mods'}
+              {tag.origin === 'scanner' ? ' · scanner' : ''}
+            </small>
+          </label>
+        ))}
+      </div>
     </CollectionDialog>}
     {duplicatesOpen && <DuplicatesDialog
       families={props.families}

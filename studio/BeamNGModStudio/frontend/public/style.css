@@ -610,9 +610,13 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 .library-workarea{display:block;min-width:0;min-height:0}
 .library-results{height:100%;min-width:0}
 .library-search{position:relative;min-width:0;z-index:210}
-.library-search .search-box{width:100%;max-width:none;border-color:var(--line-strong);background:var(--field)}
+/* The toolbar slot shrinks as the sidebar opens, so the field has to shrink
+   with it: the shared 190px floor otherwise overflows and clips the
+   placeholder mid-word.  The input needs min-width:0 for the same reason -
+   a flex child will not go below its intrinsic width without it. */
+.library-search .search-box{width:100%;min-width:0;max-width:none;border-color:var(--line-strong);background:var(--field)}
 .library-search .search-box:focus-within{border-color:color-mix(in srgb,var(--active-tab) 70%,var(--line-strong));box-shadow:0 0 0 1px color-mix(in srgb,var(--active-tab) 20%,transparent)}
-.library-search .search-box input{font-size:var(--font-control)}
+.library-search .search-box input{min-width:0;font-size:var(--font-control)}
 .library-search .spinner{flex:none}
 .search-suggestions{position:absolute;left:0;right:0;top:39px;z-index:240;max-height:min(430px,calc(100vh - 150px));overflow:auto;padding:5px;border:1px solid var(--line-strong);border-radius:6px;background:var(--surface-solid);box-shadow:0 18px 48px rgba(0,0,0,.48);animation:search-suggestions-in .13s cubic-bezier(.2,.8,.2,1)}
 .search-suggestions>button{width:100%;min-height:48px;display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 9px;border:0;border-radius:4px;background:transparent;color:var(--text-2);text-align:left}
@@ -772,9 +776,21 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 @container page-header (max-width:800px){.page-shell__actions .button:has(>svg)>span{display:none}.page-shell__actions .button:has(>svg){min-width:var(--control-height,32px);padding-inline:0}}
 
 /* One toolbar contract under every page title: search first, scope controls trailing. */
-.page-toolbar{container:page-toolbar/inline-size;flex:none;position:relative;z-index:80;height:var(--page-toolbar-height);min-height:var(--page-toolbar-height);min-width:0;display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-4);border-bottom:1px solid var(--line-strong);background:var(--surface)}
+/* One row at every width Adam actually uses: the table must not shift down
+   just because a mod got selected.  Wrapping is allowed only below 1060px,
+   where the alternative is crushing a control that states the current filter
+   or scope.  A container query cannot style its own container, so the wrap
+   switch has to be a media query rather than one of the rungs below. */
+.page-toolbar{container:page-toolbar/inline-size;flex:none;position:relative;z-index:80;height:auto;min-height:var(--page-toolbar-height);min-width:0;display:flex;flex-wrap:nowrap;align-items:center;align-content:center;gap:var(--space-2);padding:0 var(--space-4);border-bottom:1px solid var(--line-strong);background:var(--surface)}
+@media(max-width:1060px){.page-toolbar{flex-wrap:wrap;gap:var(--space-1)}}
 .page-toolbar>*{flex:none;min-width:0}
-.page-toolbar>:is(.library-search,.search-box,.collections-search,.scanner-search){flex:1 1 180px;max-width:460px}
+/* Basis equals the floor: flex decides to wrap from the basis, before it
+   shrinks anything, so a larger basis would push the row onto two lines
+   while there was still room to give. */
+.page-toolbar>:is(.library-search,.search-box,.collections-search,.scanner-search){flex:1 1 140px;min-width:140px;max-width:460px}
+/* The collection filter states which collection you are looking at, so it
+   must stay legible rather than shrink to a sliver. */
+.page-toolbar>.collection-control{min-width:84px}
 .page-toolbar :is(.search-box,.collections-search,.scanner-search,.collection-trigger,.segmented,select,.button){height:var(--control-height);min-height:var(--control-height);border-radius:4px}
 .page-toolbar :is(.search-box,.collections-search,.scanner-search) input{font-size:var(--font-control)}
 .page-toolbar__meta{margin-left:auto;color:var(--text-3);font-size:var(--font-caption);font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -791,6 +807,20 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 @container page-toolbar (max-width:900px){.library-selection__add>span{display:none}.library-selection__add{padding:0 9px}}
 @container page-toolbar (max-width:780px){.library-selection__more>span{display:none}.library-selection__more{padding:0 9px}}
 @container page-toolbar (max-width:680px){.page-toolbar>.library-search{flex:1 1 120px}.library-selection__count{padding:0 6px}}
+/* No state is allowed to vanish from this toolbar.  Hiding the selection
+   strip outright would erase the only statement of how many mods are
+   selected, and hiding the scope control would strand a user inside Archived
+   with no way back.  So the narrow rungs fold labels to icons, keep the
+   count, the scope, the grouping toggle and the clear button, and drop only
+   the two action buttons that the row's right-click menu already offers. */
+@container page-toolbar (max-width:860px){.page-toolbar>.segmented--compact button>span{display:none}.page-toolbar>.collection-control .collection-trigger{max-width:132px}}
+/* Add-to-collection and the actions menu are the only controls here that the
+   row's own right-click menu already offers in full, so they are what folds
+   away first - the count, the clear button, the scope, the grouping toggle,
+   the collection filter and the search all stay. */
+@container page-toolbar (max-width:740px){.library-selection__add,.library-selection__more{display:none}.page-toolbar>.collection-control .collection-trigger{max-width:104px}}
+@container page-toolbar (max-width:620px){.library-selection__count{padding:0 5px}.library-selection{gap:4px}}
+@container page-toolbar (max-width:560px){.page-toolbar>.library-search{flex:1 1 124px;min-width:124px}.page-toolbar>.collection-control .collection-trigger{max-width:96px}}
 /* In light mode --active-tab is near-white, so the chip borrows the Library's
    own accent to stay readable as a count rather than another button. */
 html[data-theme="light"] .library-view .library-selection__count{border-color:color-mix(in srgb,var(--library-accent) 42%,var(--line-strong));background:color-mix(in srgb,var(--library-accent) 12%,transparent);color:var(--library-table-primary-text,var(--text))}
@@ -962,9 +992,8 @@ html{
   --table-row-height:max(42px,calc(44px * var(--interface-scale)));
   --menu-item-height:max(38px,calc(42px * var(--interface-scale)));
   --menu-item-height-rich:max(48px,calc(56px * var(--interface-scale)));
-  --sidebar-expanded:max(184px,calc(196px * var(--interface-scale)));
-  --sidebar-collapsed:max(56px,calc(56px * var(--interface-scale)));
   --inspector-width:min(480px,calc(100vw - var(--sidebar)));
+  --sidebar-collapsed:max(56px,calc(56px * var(--interface-scale)));
   font-size:var(--font-body);
 }
 html[data-interface-size="compact"]{--interface-scale:.9}
@@ -1115,8 +1144,13 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
   .app-statusbar{grid-template-columns:240px minmax(0,1fr)}
 }
 /* Integrated inspector contract: compact actions, stable rows, and a live boundary. */
-.app-main.has-inspector{margin-right:var(--inspector-width)}
-.inspector{width:var(--inspector-width);min-width:0;max-width:none;overflow:visible}
+/* The resizer writes the user's chosen width into --inspector-width, so that
+   choice is honoured until it would starve the library: the table and its
+   toolbar keep 620px, and the inspector never drops below 320px.  A flat
+   viewport percentage would override a deliberate drag even on a wide
+   window. */
+.app-main.has-inspector{margin-right:min(var(--inspector-width),max(320px,calc(100vw - var(--sidebar) - 700px)))}
+.inspector{width:min(var(--inspector-width),max(320px,calc(100vw - var(--sidebar) - 700px)));min-width:0;max-width:none;overflow:visible}
 .inspector,.tag-editor__menu{--inspector-accent:var(--active-tab);--inspector-accent-contrast:var(--bg)}
 html[data-theme="light"] :is(.inspector,.tag-editor__menu){--inspector-accent:var(--library-accent,#1d4ed8);--inspector-accent-contrast:#fff}
 .inspector{container-type:inline-size;container-name:inspector}
@@ -1228,4 +1262,7 @@ html:not([data-theme="light"]) .inspector .index-card-tabs{--index-card-tabs-acc
   .inspector .variant-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}
   .inspector .variant-fields{grid-template-columns:minmax(0,1fr)}
   .inspector .variant-field--description{grid-column:auto}
+}
+@container inspector (max-width:380px){
+  .inspector .tag-editor__color-options,.inspector .tag-editor__icon-options{grid-template-columns:repeat(5,minmax(0,1fr))}
 }

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -979,13 +980,20 @@ export function ModTable({
                 ? (groupRows ?? []).map((row, index) => {
                     if (row.rowType === "group") {
                       return (
-                        <GroupRow
-                          key={`g-${row.groupId}`}
-                          row={row}
-                          columnCount={visibleColumns.length + 1}
-                          onToggleCollapsed={onToggleGroupCollapsed}
-                          hasActiveSearch={hasActiveSearch}
-                        />
+                        <Fragment key={`g-${row.groupId}`}>
+                          <GroupRow
+                            row={row}
+                            columnCount={visibleColumns.length + 1}
+                            onToggleCollapsed={onToggleGroupCollapsed}
+                            hasActiveSearch={hasActiveSearch}
+                          />
+                          {!row.collapsed && (
+                            <GroupSectionHeader
+                              columns={visibleColumns}
+                              surface={surface}
+                            />
+                          )}
+                        </Fragment>
                       );
                     }
                     const item = row.item;
@@ -1376,10 +1384,9 @@ const GroupRow = memo(function GroupRow({
             <Icon name="chevron" size={14} />
           </button>
           <span className="group-row__label">{label}</span>
-          <span className="group-row__count">
-            {row.modCount.toLocaleString()} {row.modCount === 1 ? "mod" : "mods"}
+          <span className="group-row__meta">
+            {row.modCount.toLocaleString()} {row.modCount === 1 ? "mod" : "mods"} · {formatBytes(row.sizeBytes)}
           </span>
-          <span className="group-row__size">{formatBytes(row.sizeBytes)}</span>
           {showMatch && (
             <span className="group-row__match">
               {row.matchCount.toLocaleString()} {row.matchCount === 1 ? "match" : "matches"}
@@ -1387,6 +1394,22 @@ const GroupRow = memo(function GroupRow({
           )}
         </div>
       </td>
+    </tr>
+  );
+});
+const GroupSectionHeader = memo(function GroupSectionHeader({
+  columns,
+  surface,
+}: {
+  columns: ColumnState[];
+  surface: ModTableProps["surface"];
+}) {
+  return (
+    <tr className="group-section-header" aria-hidden="true">
+      <td />
+      {columns.map((column) => (
+        <td key={column.key}>{columnLabel(column.key, surface)}</td>
+      ))}
     </tr>
   );
 });

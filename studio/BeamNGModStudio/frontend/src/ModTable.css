@@ -1035,14 +1035,7 @@ html[data-theme="light"] .mod-row--archived {
   min-width: 0;
 }
 
-.group-row__count {
-  color: var(--text-3);
-  font-size: inherit;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.group-row__size {
+.group-row__meta {
   color: var(--text-3);
   font-size: inherit;
   font-variant-numeric: tabular-nums;
@@ -1075,8 +1068,7 @@ html[data-theme="light"] .mod-table-panel--library .group-row__label {
   color: var(--library-table-primary-text);
 }
 
-html[data-theme="light"] .mod-table-panel--library .group-row__count,
-html[data-theme="light"] .mod-table-panel--library .group-row__size {
+html[data-theme="light"] .mod-table-panel--library .group-row__meta {
   color: var(--library-table-secondary-text);
 }
 
@@ -1086,4 +1078,29 @@ html[data-theme="light"] .mod-table-panel--library .group-row__toggle {
 
 html[data-theme="light"] .mod-table-panel--library .group-row__match {
   color: var(--library-table-info);
+}
+
+/* Per-group column labels: lightweight orientation aid, not interactive chrome. */
+.group-section-header {
+  pointer-events: none;
+  user-select: none;
+}
+
+.group-section-header td {
+  height: 26px;
+  padding: 0 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--font-caption, 10px);
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html[data-theme="light"] .mod-table-panel--library .group-section-header td {
+  border-bottom-color: var(--library-table-divider);
+  color: var(--library-table-secondary-text);
 }

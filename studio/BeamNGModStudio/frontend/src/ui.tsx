@@ -45,6 +45,8 @@ export function Page({
                   key={key}
                   icon={icon}
                   tone={role === "secondary" ? "default" : role}
+                  title={label}
+                  aria-label={label}
                   {...props}
                 >
                   {label}

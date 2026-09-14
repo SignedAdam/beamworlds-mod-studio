@@ -84,6 +84,31 @@ func (service *AppService) DeleteModArchives(entityIDs []string) (ModRemovalResu
 	return result, nil
 }
 
+// DeleteModArchivesAndWorkspaces deletes both the library archives and any
+// ModMaker projects associated with the given entities. The caller must have
+// shown the user which projects will be destroyed and received explicit
+// confirmation; this is the acknowledged path where the user agreed to lose
+// both the archive and the project.
+func (service *AppService) DeleteModArchivesAndWorkspaces(entityIDs []string) (ModRemovalResult, error) {
+	ctx := context.Background()
+	// Delete every workspace belonging to these entities first, so the
+	// archive-deletion path no longer sees them and does not refuse.
+	for _, entityID := range entityIDs {
+		workspaceIDs, err := service.store.scanStrings(ctx,
+			`SELECT id FROM workspaces WHERE entity_id=?`, entityID)
+		if err != nil {
+			return ModRemovalResult{}, err
+		}
+		for _, wsID := range workspaceIDs {
+			if err := service.DeleteWorkspace(wsID); err != nil {
+				return ModRemovalResult{}, fmt.Errorf(
+					"deleting ModMaker project for %s: %w", entityID, err)
+			}
+		}
+	}
+	return service.DeleteModArchives(entityIDs)
+}
+
 func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRemovalImpact, error) {
 	ids, err := normalizeOrganizationIDs(entityIDs, "entity IDs")
 	if err != nil {

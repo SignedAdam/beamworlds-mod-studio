@@ -155,12 +155,32 @@ export function DeleteModArchives(entityIDs: string[] | null): $CancellablePromi
     return $Call.ByID(3170877512, entityIDs);
 }
 
+/**
+ * DeleteModArchivesAndWorkspaces deletes both the library archives and any
+ * ModMaker projects associated with the given entities. The caller must have
+ * shown the user which projects will be destroyed and received explicit
+ * confirmation; this is the acknowledged path where the user agreed to lose
+ * both the archive and the project.
+ */
+export function DeleteModArchivesAndWorkspaces(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalResult> {
+    return $Call.ByID(430184387, entityIDs);
+}
+
 export function DeleteModTag(tagID: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1455379505, tagID);
 }
 
 export function DeletePlayProfile(profileID: string): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(1330165372, profileID);
+}
+
+/**
+ * DeleteWorkspace removes a ModMaker project: its database rows and its
+ * files on disk. It never touches the library archive the project was
+ * created from.
+ */
+export function DeleteWorkspace(workspaceID: string): $CancellablePromise<void> {
+    return $Call.ByID(1487213990, workspaceID);
 }
 
 export function DeleteWorkspaceDraft(workspaceID: string, relativePath: string): $CancellablePromise<void> {

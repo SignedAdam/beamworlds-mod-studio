@@ -349,6 +349,7 @@ export function LibraryView(props: LibraryViewProps) {
   }
 
   const removalMods = removal?.impact.mods ?? []
+  const removalWorkspaces = removal?.impact.workspaces ?? []
 
   const openRemoval = async (entityIDs: string[]) => {
     setContextMenu(null)
@@ -367,7 +368,10 @@ export function LibraryView(props: LibraryViewProps) {
     setRemovalError('')
     try {
       const entityIDs = removalMods.map(mod => mod.entityId)
-      const result = await API.DeleteModArchives(entityIDs)
+      const hasWorkspaces = removalWorkspaces.length > 0
+      const result = hasWorkspaces
+        ? await API.DeleteModArchivesAndWorkspaces(entityIDs)
+        : await API.DeleteModArchives(entityIDs)
       const failures = result.failures ?? []
       if (failures.length > 0) {
         // Anything still on disk stays in the library, so the dialog remains
@@ -383,8 +387,9 @@ export function LibraryView(props: LibraryViewProps) {
         return next
       })
       setRemoval(null)
+      const projectNote = hasWorkspaces ? ' and removed ModMaker projects' : ''
       props.onNotify(
-        `Deleted ${result.recycled.toLocaleString()} archive${result.recycled === 1 ? '' : 's'} to the Recycle Bin`,
+        `Deleted ${result.recycled.toLocaleString()} archive${result.recycled === 1 ? '' : 's'} to the Recycle Bin${projectNote}`,
         'success',
       )
       props.onRemoved()
@@ -891,7 +896,9 @@ export function LibraryView(props: LibraryViewProps) {
       footer={<>
         <Button type="button" onClick={() => setRemoval(null)} disabled={removalBusy}>Cancel</Button>
         <Button type="button" tone="danger" disabled={removalBusy} onClick={() => void confirmRemoval()}>
-          Delete to Recycle Bin
+          {removalWorkspaces.length > 0
+            ? `Delete ${removalMods.length === 1 ? 'archive' : `${removalMods.length.toLocaleString()} archives`} + ${removalWorkspaces.length === 1 ? 'project' : `${removalWorkspaces.length.toLocaleString()} projects`}`
+            : 'Delete to Recycle Bin'}
         </Button>
       </>}
     >
@@ -908,9 +915,13 @@ export function LibraryView(props: LibraryViewProps) {
         <Icon name="warning" size={14} />
         <span>Also removed from {(removal.impact.collections ?? []).join(', ')}.</span>
       </p>}
-      {(removal.impact.workspaces ?? []).length > 0 && <p className="library-removal__warning" role="alert">
+      {removalWorkspaces.length > 0 && <p className="library-removal__warning" role="alert">
         <Icon name="warning" size={14} />
-        <span>Open in ModMaker: {(removal.impact.workspaces ?? []).join(', ')}. Delete the project first.</span>
+        <span>
+          Also deletes {removalWorkspaces.length === 1 ? 'the ModMaker project' : `${removalWorkspaces.length} ModMaker projects`}:{' '}
+          {removalWorkspaces.join(', ')}.
+          Project files go to the Recycle Bin; editor drafts and Virgil sessions are lost.
+        </span>
       </p>}
       {removal.impact.archiveCount > 0 && <p className="library-removal__copy">
         {formatBytes(removal.impact.archiveBytes)} across {removal.impact.archiveCount.toLocaleString()} file{removal.impact.archiveCount === 1 ? '' : 's'}.

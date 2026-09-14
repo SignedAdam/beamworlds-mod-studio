@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type {
   LibraryItem,
   WorkspaceRecord,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
+import {
+  CollectionDialog,
+  CollectionMenuPopup,
+  type CollectionMenuAction,
+} from "./CollectionUI";
 import {
   Button,
   EmptyState,
@@ -66,6 +72,12 @@ function processLabel(record: WorkspaceRecord): string {
     : "";
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return "The project could not be deleted.";
+}
+
 function VirgilWork({ record }: { record: WorkspaceRecord }) {
   const running = record.agentStatus?.toLowerCase() === "running";
   const process = processLabel(record);
@@ -92,10 +104,17 @@ function ProjectCard({
   record,
   item,
   onOpen,
+  onContextMenu,
+  onShowMenu,
 }: {
   record: WorkspaceRecord;
   item?: LibraryItem;
   onOpen: (workspaceID: string) => void;
+  onContextMenu: (
+    record: WorkspaceRecord,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => void;
+  onShowMenu: (record: WorkspaceRecord, x: number, y: number) => void;
 }) {
   const thumbnailUrl = thumbUrl(item?.thumbnailUrl);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -110,6 +129,18 @@ function ProjectCard({
       type="button"
       className="project-card"
       onClick={() => onOpen(record.id)}
+      onContextMenu={(event) => onContextMenu(record, event)}
+      onKeyDown={(event) => {
+        if (
+          event.key === "ContextMenu" ||
+          (event.shiftKey && event.key === "F10")
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          onShowMenu(record, rect.right - 8, rect.top + 8);
+        }
+      }}
       aria-label={`Open ${record.displayName}`}
     >
       <div
@@ -164,15 +195,27 @@ export function ProjectBrowser({
   allItems,
   onOpen,
   onNew,
+  onDelete,
 }: {
   workspaces: WorkspaceRecord[];
   allItems: LibraryItem[];
   onOpen: (workspaceID: string) => void;
   onNew: () => void;
+  onDelete: (workspaceID: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [display, setDisplay] = useState<DisplayMode>(readDisplayMode);
   const [selectedIDs, setSelectedIDs] = useState<Set<string>>(() => new Set());
+  const [contextMenu, setContextMenu] = useState<{
+    record: WorkspaceRecord;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceRecord | null>(
+    null,
+  );
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     try {
@@ -200,6 +243,75 @@ export function ProjectBrowser({
         .filter((item): item is LibraryItem => Boolean(item)),
     [allItems, visible],
   );
+
+  const openContextMenu = (
+    record: WorkspaceRecord,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    event.preventDefault();
+    const target = event.currentTarget;
+    const rect =
+      target instanceof HTMLElement ? target.getBoundingClientRect() : null;
+    const x = event.clientX || rect?.right || 0;
+    const y = event.clientY || rect?.bottom || 0;
+    setContextMenu({
+      record,
+      x: Math.max(8, Math.min(x, window.innerWidth - 16)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 16)),
+    });
+  };
+
+  const showMenuAt = (record: WorkspaceRecord, x: number, y: number) => {
+    setContextMenu({
+      record,
+      x: Math.max(8, Math.min(x, window.innerWidth - 16)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 16)),
+    });
+  };
+
+  const openTableContextMenu = (
+    item: LibraryItem,
+    event: ReactMouseEvent<HTMLTableRowElement>,
+  ) => {
+    const record = visible.find(
+      (candidate) => candidate.entityId === item.entityId,
+    );
+    if (!record) return;
+    openContextMenu(record, event);
+  };
+
+  const projectActions = (
+    record: WorkspaceRecord,
+  ): CollectionMenuAction[] => [
+    {
+      label: "Open",
+      icon: "arrow",
+      onClick: () => onOpen(record.id),
+    },
+    {
+      label: "Delete project",
+      icon: "trash",
+      danger: true,
+      onClick: () => {
+        setDeleteTarget(record);
+        setDeleteError("");
+      },
+    },
+  ];
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await onDelete(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch (error) {
+      setDeleteError(errorMessage(error));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   return (
     <Page
@@ -274,6 +386,8 @@ export function ProjectBrowser({
                   (item) => item.entityId === record.entityId,
                 )}
                 onOpen={onOpen}
+                onContextMenu={openContextMenu}
+                onShowMenu={showMenuAt}
               />
             ))}
           </div>
@@ -291,6 +405,7 @@ export function ProjectBrowser({
                 );
                 if (record) onOpen(record.id);
               },
+              onContextMenu: openTableContextMenu,
             }}
             ariaLabel="Mod Maker workspaces"
             surface="mod-maker"
@@ -305,6 +420,59 @@ export function ProjectBrowser({
           Create New Mod
         </Button>
       </div>
+      {contextMenu && (
+        <CollectionMenuPopup
+          label={`Actions for ${contextMenu.record.displayName}`}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          actions={projectActions(contextMenu.record)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+      {deleteTarget && (
+        <CollectionDialog
+          title={`Delete this project?`}
+          onClose={() => {
+            if (!deleteBusy) {
+              setDeleteTarget(null);
+              setDeleteError("");
+            }
+          }}
+          footer={
+            <>
+              <Button
+                type="button"
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteError("");
+                }}
+                disabled={deleteBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                tone="danger"
+                disabled={deleteBusy}
+                onClick={() => void confirmDelete()}
+              >
+                Delete project
+              </Button>
+            </>
+          }
+        >
+          <p className="library-removal__copy">
+            The editable working copy of{" "}
+            <strong>{deleteTarget.displayName}</strong> and any unsaved work
+            will be permanently deleted. The library mod is not affected.
+          </p>
+          {deleteError && (
+            <p className="collection-add__error" role="alert">
+              {deleteError}
+            </p>
+          )}
+        </CollectionDialog>
+      )}
     </Page>
   );
 }

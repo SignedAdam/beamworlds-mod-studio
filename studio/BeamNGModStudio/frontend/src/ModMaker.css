@@ -325,6 +325,36 @@
   }
 }
 
+.maker-header__delete {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.maker-header__delete:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--line-strong));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.maker-header__delete:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.maker-header__delete:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 
 @media (forced-colors: active) {
   .modmaker-editor-action--icon {

@@ -48,6 +48,9 @@ export interface LibraryViewProps {
   collectionID: string
   selectedID: string
   scope: 'active' | 'archived'
+  // Bumped by the app whenever a mod's own data changes outside this view, so
+  // the server-rendered grouped rows are refetched instead of going stale.
+  libraryRevision: number
   onQueryChange: (value: string) => void
   onCollectionChange: (value: string) => void
   onScopeChange: (scope: 'active' | 'archived') => void
@@ -155,10 +158,13 @@ export function LibraryView(props: LibraryViewProps) {
 
   // Reload group page when any input to the grouped stream changes.
   // loadGroupPage identity encodes query, collectionID, scope, and groupPageSize.
+  // props.libraryRevision covers edits made outside this view — assigning tags
+  // in the details sidebar rewrites a row the server already sent us, and the
+  // grouped table renders those rows rather than the item list App updates.
   useEffect(() => {
     if (!grouped) return
     void loadGroupPage(groupPage)
-  }, [grouped, groupPage, loadGroupPage])
+  }, [grouped, groupPage, loadGroupPage, props.libraryRevision])
 
   // Reset group page on filter change.
   useEffect(() => {

@@ -171,6 +171,7 @@ function App() {
   const toastTimer = useRef<number>();
   const autoScanStarted = useRef(false);
   const libraryLoadVersion = useRef(0);
+  const [libraryRevision, setLibraryRevision] = useState(0);
   const organizationLoadVersion = useRef(0);
   const virusScanRequestVersion = useRef(0);
   const workspaceDetailLoadVersion = useRef(0);
@@ -1086,6 +1087,12 @@ function App() {
     notify(`Created tag ${name}`, "success");
     return createdTag;
   };
+  // The grouped library renders rows the server built, so an edit made here has
+  // to tell that view to refetch. Without it a tag assignment only showed up
+  // after a restart.
+  const bumpLibraryRevision = useCallback(() => {
+    setLibraryRevision((current) => current + 1);
+  }, []);
   const updateSelectedTag = (tagID: string, replacement: ModTag | null) => {
     if (inspectorStaleRef.current) return;
     const current = selectedItemRef.current;
@@ -1115,6 +1122,7 @@ function App() {
         : currentDetail,
     );
     advanceInspectorBaseline(nextItem);
+    bumpLibraryRevision();
   };
   const updateTagVisual = async (
     tagID: string,
@@ -1162,6 +1170,7 @@ function App() {
       })),
     );
     updateSelectedTag(tagID, null);
+    bumpLibraryRevision();
     notify("Tag deleted", "success");
   };
   const setSelectedTags = async (tagIDs: string[]): Promise<ModTag[]> => {
@@ -1210,6 +1219,7 @@ function App() {
         }),
       };
     });
+    bumpLibraryRevision();
     return assignedTags;
   };
   const saveDetails = async (
@@ -1233,6 +1243,7 @@ function App() {
       currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
     );
     setEntityDetail(next);
+    bumpLibraryRevision();
   };
   const saveVariant = async (update: LibraryVariantUpdate): Promise<void> => {
     const current = selectedItemRef.current;
@@ -1506,6 +1517,7 @@ function App() {
                 collectionID={collectionID}
                 selectedID={selectedItem?.entityId ?? ""}
                 scope={libraryScope}
+                libraryRevision={libraryRevision}
                 onQueryChange={setSearchInput}
                 onCollectionChange={setCollectionID}
                 onScopeChange={(next) => {

@@ -55,6 +55,7 @@ type CollectionMod struct {
 	ArchivedAt    string      `json:"archivedAt"`
 	SHA256        string      `json:"sha256"`
 	SizeBytes     int64       `json:"sizeBytes"`
+	ModifiedAt    string      `json:"modifiedAt"`
 	ThumbnailURL  string      `json:"thumbnailUrl"`
 	Available     bool        `json:"available"`
 	CollectionIDs []string    `json:"collectionIds"`

@@ -35,6 +35,7 @@ import { SettingsView, settingsUpdate } from "./SettingsView";
 import { SetupWizard } from "./SetupWizard";
 import { BeamWorldsMark, Icon } from "./icons";
 import { formatBytes, formatDate } from "./ui";
+import { TooltipLayer } from "./Tooltip";
 import "./AppArt.css";
 
 type View =
@@ -941,10 +942,35 @@ function App() {
 
   const refreshAfterVirusScan = async () => {
     await Promise.all([loadLibrary(), loadOrganization(), loadShell()]);
+    setLibraryRevision((current) => current + 1);
   };
 
+  // Archiving, restoring and deleting rewrite which mods belong in the
+  // current scope, so the grouped table has to refetch the rows the server
+  // built for it. Reloading the item list alone left the mod on screen
+  // until the next app start.
   const refreshAfterModRemoval = useCallback(async () => {
-    await Promise.all([loadLibrary(), loadOrganization(), loadFamilies()]);
+    const [, , , nextWorkspaces] = await Promise.all([
+      loadLibrary(),
+      loadOrganization(),
+      loadFamilies(),
+      API.ListWorkspaces(),
+    ]);
+    setLibraryRevision((current) => current + 1);
+
+    // Deleting a mod can take its ModMaker project with it.  The editor holds
+    // the workspace in state, so without this it keeps rendering a project
+    // whose files are already in the Recycle Bin - a file tree where every
+    // action fails.
+    const openWorkspaces = nextWorkspaces ?? [];
+    setWorkspaces(openWorkspaces);
+    const openID = selectedWorkspaceIDRef.current;
+    if (openID && !openWorkspaces.some((workspace) => workspace.id === openID)) {
+      workspaceDetailLoadVersion.current += 1;
+      selectedWorkspaceIDRef.current = "";
+      setSelectedWorkspaceID("");
+      setWorkspaceDetail(null);
+    }
   }, [loadFamilies, loadLibrary, loadOrganization]);
 
   const createNewMod = async (
@@ -1341,12 +1367,15 @@ function App() {
 
   if (setupState && (setupState.required || setupOpen)) {
     return (
-      <SetupWizard
-        state={setupState}
-        required={setupState.required}
-        onCancel={setupState.required ? undefined : () => setSetupOpen(false)}
-        onError={handleError}
-      />
+      <>
+        <SetupWizard
+          state={setupState}
+          required={setupState.required}
+          onCancel={setupState.required ? undefined : () => setSetupOpen(false)}
+          onError={handleError}
+        />
+        <TooltipLayer />
+      </>
     );
   }
 
@@ -1746,6 +1775,7 @@ function App() {
           <Icon name="close" size={14} />
         </button>
       </div>
+      <TooltipLayer />
     </div>
   );
 }

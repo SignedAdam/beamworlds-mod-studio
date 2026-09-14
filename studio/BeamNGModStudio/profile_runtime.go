@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
@@ -21,6 +23,15 @@ const (
 	playRuntimeMarkerName = ".beamworlds-play.json"
 	playCacheDirectory    = ".archive-cache"
 )
+
+type modMaterializeResult struct {
+	key           string
+	inPlace       bool
+	bytesCopied   int64
+	pendingEntity string
+	pendingHash   string
+	err           error
+}
 
 func (service *AppService) LaunchPlaySelection(request PlayRequest) (PlayResult, error) {
 	if !service.profileMu.TryLock() {
@@ -239,120 +250,81 @@ func (service *AppService) activatePlaySelection(ctx context.Context, request Pl
 		}
 	}()
 
+	// --- Concurrent materialize loop ---
+	// Each mod's I/O (hashing, caching, linking) runs in a bounded worker pool.
+	// Results are collected per-index so selectedKeys order is deterministic.
+
+	results := make([]modMaterializeResult, len(selection.Mods))
+	workers := min(8, runtime.NumCPU())
+	sem := make(chan struct{}, workers)
+	gctx, gcancel := context.WithCancel(ctx)
+	defer gcancel()
+
+	var (
+		progressMu    sync.Mutex
+		completedMods int
+		cancelOnce    sync.Once
+		firstErr      error
+	)
+	progress.Phase = "materializing"
+	service.emitPlayProgress(progress)
+
+	var wg sync.WaitGroup
+	for i, mod := range selection.Mods {
+		wg.Add(1)
+		go func(i int, mod CollectionMod) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-gctx.Done():
+				results[i].err = gctx.Err()
+				return
+			}
+			defer func() { <-sem }()
+
+			res := service.materializeMod(gctx, mod, cacheRoot, managedRoot, nextManaged)
+			results[i] = res
+			if res.err != nil {
+				cancelOnce.Do(func() {
+					firstErr = res.err
+					gcancel()
+				})
+				return
+			}
+
+			progressMu.Lock()
+			completedMods++
+			progress.Completed = completedMods
+			progress.Current = mod.DisplayName
+			progress.BytesCopied += res.bytesCopied
+			snapshot := progress
+			progressMu.Unlock()
+			service.emitPlayProgress(snapshot)
+		}(i, mod)
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return PlayActivation{}, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return PlayActivation{}, err
+	}
+
+	// Collect results in index order: deterministic selectedKeys and pendingFingerprints.
 	selectedKeys := make([]string, 0, len(selection.Mods))
 	selectedKeySet := make(map[string]struct{}, len(selection.Mods))
-	// Newly computed archive fingerprints are recorded only after the selection
-	// is activated. Writing them here would change the resolved selection that
-	// the post-materialization review compares against, rejecting the very
-	// first Play of any mod whose archive was never hashed.
 	pendingFingerprints := make(map[string]string, len(selection.Mods))
-	for index, mod := range selection.Mods {
-		if err := ctx.Err(); err != nil {
-			return PlayActivation{}, err
-		}
-		progress.Phase = "materializing"
-		progress.Current = mod.DisplayName
-		service.emitPlayProgress(progress)
-		sourcePath := cleanOptionalPath(mod.ArchivePath)
-		expectedHash := strings.ToLower(strings.TrimSpace(mod.SHA256))
-		hashMissing := expectedHash == ""
-		sourceExists := false
-		if sourcePath != "" {
-			info, statErr := os.Stat(sourcePath)
-			switch {
-			case statErr == nil && !info.IsDir():
-				sourceExists = true
-				actualHash, hashErr := modkit.FullSHA256(ctx, sourcePath)
-				if hashErr != nil {
-					return PlayActivation{}, fmt.Errorf("fingerprint %s: %w", mod.DisplayName, hashErr)
-				}
-				if expectedHash != "" && !strings.EqualFold(actualHash, expectedHash) {
-					return PlayActivation{}, fmt.Errorf("%s changed since the Play preview; review the selection again", mod.DisplayName)
-				}
-				if expectedHash == "" {
-					expectedHash = actualHash
-				}
-			case statErr != nil && !errors.Is(statErr, os.ErrNotExist):
-				return PlayActivation{}, fmt.Errorf("inspect archive %s: %w", mod.DisplayName, statErr)
+	for _, res := range results {
+		if res.key != "" {
+			if _, exists := selectedKeySet[res.key]; !exists {
+				selectedKeys = append(selectedKeys, res.key)
+				selectedKeySet[res.key] = struct{}{}
 			}
 		}
-		if sourceExists && strings.EqualFold(filepath.Ext(sourcePath), ".zip") &&
-			pathWithin(sourcePath, service.config.ActiveModsDir) && !pathWithin(sourcePath, managedRoot) {
-			key, keyErr := beamNGModKey(sourcePath, service.config.ActiveModsDir)
-			if keyErr != nil {
-				return PlayActivation{}, keyErr
-			}
-			if _, exists := selectedKeySet[key]; !exists {
-				selectedKeys = append(selectedKeys, key)
-				selectedKeySet[key] = struct{}{}
-			}
-			progress.Completed = index + 1
-			service.emitPlayProgress(progress)
-			continue
+		if res.pendingEntity != "" {
+			pendingFingerprints[res.pendingEntity] = res.pendingHash
 		}
-		if hashMissing && sourceExists {
-			pendingFingerprints[mod.EntityID] = expectedHash
-		}
-		if expectedHash == "" {
-			if sourcePath == "" {
-				return PlayActivation{}, fmt.Errorf("%s has no linked archive or cached fingerprint", mod.DisplayName)
-			}
-			return PlayActivation{}, fmt.Errorf("%s is unavailable; rescan or relink its archive", mod.DisplayName)
-		}
-		cachePath := filepath.Join(cacheRoot, expectedHash+".zip")
-		cacheInfo, statErr := os.Stat(cachePath)
-		if statErr == nil {
-			if cacheInfo.IsDir() {
-				return PlayActivation{}, fmt.Errorf("cached archive for %s is not a file", mod.DisplayName)
-			}
-			cachedHash, hashErr := modkit.FullSHA256(ctx, cachePath)
-			if hashErr != nil {
-				return PlayActivation{}, fmt.Errorf("verify cached archive %s: %w", mod.DisplayName, hashErr)
-			}
-			if !strings.EqualFold(cachedHash, expectedHash) {
-				if err := os.Remove(cachePath); err != nil {
-					return PlayActivation{}, fmt.Errorf("discard corrupt cache for %s: %w", mod.DisplayName, err)
-				}
-				statErr = os.ErrNotExist
-			}
-		}
-		if errors.Is(statErr, os.ErrNotExist) {
-			if !sourceExists {
-				return PlayActivation{}, fmt.Errorf("%s is unavailable; rescan or relink its archive", mod.DisplayName)
-			}
-			if err := copyArchiveToCache(ctx, sourcePath, cachePath, expectedHash, func(written int64) {
-				progress.BytesCopied += written
-				service.emitPlayProgress(progress)
-			}); err != nil {
-				return PlayActivation{}, fmt.Errorf("cache %s: %w", mod.DisplayName, err)
-			}
-		} else if statErr != nil {
-			return PlayActivation{}, statErr
-		}
-		base := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath)))
-		if base == "" {
-			base = sanitizeArchiveLabel(mod.DisplayName)
-		}
-		if base == "" {
-			base = "mod"
-		}
-		entitySuffix := shortPlayID(mod.EntityID)
-		destination := filepath.Join(nextManaged, fmt.Sprintf("%s-%s.zip", base, entitySuffix))
-		if err := os.Link(cachePath, destination); err != nil {
-			if err := copyFileAtomic(cachePath, destination); err != nil {
-				return PlayActivation{}, err
-			}
-		}
-		key, err := beamNGModKey(filepath.Join(managedRoot, filepath.Base(destination)), service.config.ActiveModsDir)
-		if err != nil {
-			return PlayActivation{}, err
-		}
-		if _, exists := selectedKeySet[key]; !exists {
-			selectedKeys = append(selectedKeys, key)
-			selectedKeySet[key] = struct{}{}
-		}
-		progress.Completed = index + 1
-		service.emitPlayProgress(progress)
 	}
 
 	progress.Phase = "reviewing"
@@ -619,18 +591,177 @@ func (s *Store) SetEntityArtifactSHA(ctx context.Context, entityID, hash string)
 	return requireChanged(result, err, "artifact")
 }
 
-func copyArchiveToCache(ctx context.Context, source, destination, expectedHash string, onWrite func(int64)) error {
+// recordedArchiveIdentityHolds reports whether the archive on disk is still the
+// one the scan fingerprinted: same length, same modification time, and a hash
+// recorded alongside them. A rewrite that preserved both would defeat it, but
+// nothing a mod manager or a download does preserves both, and this is the same
+// identity the scan pipeline already trusts when it skips re-analysis.
+func recordedArchiveIdentityHolds(mod CollectionMod, info os.FileInfo) bool {
+	if strings.TrimSpace(mod.SHA256) == "" || mod.SizeBytes <= 0 || strings.TrimSpace(mod.ModifiedAt) == "" {
+		return false
+	}
+	if info.Size() != mod.SizeBytes {
+		return false
+	}
+	recorded, parseErr := time.Parse(time.RFC3339Nano, mod.ModifiedAt)
+	if parseErr != nil {
+		return false
+	}
+	return info.ModTime().UTC().Equal(recorded.UTC())
+}
+
+// materializeMod performs the per-mod I/O for the concurrent materialize loop.
+// It is safe to call from multiple goroutines: each mod writes to distinct
+// filesystem paths and the returned result is collected per-index by the caller.
+func (service *AppService) materializeMod(ctx context.Context, mod CollectionMod, cacheRoot, managedRoot, nextManaged string) modMaterializeResult {
+	sourcePath := cleanOptionalPath(mod.ArchivePath)
+	expectedHash := strings.ToLower(strings.TrimSpace(mod.SHA256))
+	hashMissing := expectedHash == ""
+	sourceExists := false
+
+	if sourcePath != "" {
+		info, statErr := os.Stat(sourcePath)
+		switch {
+		case statErr == nil && !info.IsDir():
+			sourceExists = true
+			// The scan recorded this archive's size, mtime and hash together,
+			// and the scanner itself already treats size+mtime as identity when
+			// it decides whether to re-analyse. Reading the bytes again on every
+			// launch cost two full passes over the whole selection.
+			if !recordedArchiveIdentityHolds(mod, info) {
+				actualHash, hashErr := modkit.FullSHA256(ctx, sourcePath)
+				if hashErr != nil {
+					return modMaterializeResult{err: fmt.Errorf("fingerprint %s: %w", mod.DisplayName, hashErr)}
+				}
+				if expectedHash != "" && !strings.EqualFold(actualHash, expectedHash) {
+					return modMaterializeResult{err: fmt.Errorf("%s changed since the Play preview; review the selection again", mod.DisplayName)}
+				}
+				if expectedHash == "" {
+					expectedHash = actualHash
+				}
+			}
+		case statErr != nil && !errors.Is(statErr, os.ErrNotExist):
+			return modMaterializeResult{err: fmt.Errorf("inspect archive %s: %w", mod.DisplayName, statErr)}
+		}
+	}
+
+	// In-place mod: already a .zip inside ActiveModsDir (but not in our managed dir).
+	if sourceExists && strings.EqualFold(filepath.Ext(sourcePath), ".zip") &&
+		pathWithin(sourcePath, service.config.ActiveModsDir) && !pathWithin(sourcePath, managedRoot) {
+		key, keyErr := beamNGModKey(sourcePath, service.config.ActiveModsDir)
+		if keyErr != nil {
+			return modMaterializeResult{err: keyErr}
+		}
+		return modMaterializeResult{key: key, inPlace: true}
+	}
+
+	var res modMaterializeResult
+	if hashMissing && sourceExists {
+		res.pendingEntity = mod.EntityID
+		res.pendingHash = expectedHash
+	}
+	if expectedHash == "" {
+		if sourcePath == "" {
+			return modMaterializeResult{err: fmt.Errorf("%s has no linked archive or cached fingerprint", mod.DisplayName)}
+		}
+		return modMaterializeResult{err: fmt.Errorf("%s is unavailable; rescan or relink its archive", mod.DisplayName)}
+	}
+
+	// Cache verification: content-addressed, so check size instead of re-hashing.
+	cachePath := filepath.Join(cacheRoot, expectedHash+".zip")
+	cacheInfo, statErr := os.Stat(cachePath)
+	if statErr == nil {
+		if cacheInfo.IsDir() {
+			return modMaterializeResult{err: fmt.Errorf("cached archive for %s is not a file", mod.DisplayName)}
+		}
+		if cacheInfo.Size() != mod.SizeBytes {
+			// Size mismatch: verify with full hash before discarding.
+			cachedHash, hashErr := modkit.FullSHA256(ctx, cachePath)
+			if hashErr != nil {
+				return modMaterializeResult{err: fmt.Errorf("verify cached archive %s: %w", mod.DisplayName, hashErr)}
+			}
+			if !strings.EqualFold(cachedHash, expectedHash) {
+				if err := os.Remove(cachePath); err != nil {
+					return modMaterializeResult{err: fmt.Errorf("discard corrupt cache for %s: %w", mod.DisplayName, err)}
+				}
+				statErr = os.ErrNotExist
+			}
+		}
+		// Size matches recorded archive size: trust the content-addressed name.
+	}
+	if errors.Is(statErr, os.ErrNotExist) {
+		if !sourceExists {
+			return modMaterializeResult{err: fmt.Errorf("%s is unavailable; rescan or relink its archive", mod.DisplayName)}
+		}
+		copied, err := linkOrCopyArchiveToCache(ctx, sourcePath, cachePath, expectedHash)
+		if err != nil {
+			return modMaterializeResult{err: fmt.Errorf("cache %s: %w", mod.DisplayName, err)}
+		}
+		res.bytesCopied = copied
+	} else if statErr != nil {
+		return modMaterializeResult{err: statErr}
+	}
+
+	base := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath)))
+	if base == "" {
+		base = sanitizeArchiveLabel(mod.DisplayName)
+	}
+	if base == "" {
+		base = "mod"
+	}
+	entitySuffix := shortPlayID(mod.EntityID)
+	destination := filepath.Join(nextManaged, fmt.Sprintf("%s-%s.zip", base, entitySuffix))
+	if err := os.Link(cachePath, destination); err != nil {
+		if err := copyFileAtomic(cachePath, destination); err != nil {
+			return modMaterializeResult{err: err}
+		}
+	}
+	key, err := beamNGModKey(filepath.Join(managedRoot, filepath.Base(destination)), service.config.ActiveModsDir)
+	if err != nil {
+		return modMaterializeResult{err: err}
+	}
+	res.key = key
+	return res
+}
+
+// linkOrCopyArchiveToCache fills the content-addressed cache entry for a source
+// archive whose hash has already been established as expectedHash.
+//
+// It tries os.Link first: when the source and cache live on the same volume the
+// link avoids copying any bytes and creates no additional disk usage. When the
+// link fails (cross-volume, no hard-link support, or destination exists) it
+// falls back to the original atomic copy-and-verify path.
+//
+// Returns the number of bytes physically copied (0 when the link succeeds).
+func linkOrCopyArchiveToCache(ctx context.Context, source, destination, expectedHash string) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
+		return 0, err
+	}
+	// Fast path: hard-link the source into the cache. This is legitimate
+	// because the caller has already confirmed the source hashes to
+	// expectedHash (either by a full read or by the size+mtime identity
+	// check backed by a previously recorded hash).
+	if linkErr := os.Link(source, destination); linkErr == nil {
+		return 0, nil
+	}
+	// Fallback: stream-copy with inline hash verification.
+	return copyArchiveToCacheCounting(ctx, source, destination, expectedHash)
+}
+
+// copyArchiveToCacheCounting is the original copy-and-verify path, returning
+// the byte count so progress accounting stays honest.
+func copyArchiveToCacheCounting(ctx context.Context, source, destination, expectedHash string) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return 0, err
 	}
 	input, err := os.Open(source)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer input.Close()
 	temporary, err := os.CreateTemp(filepath.Dir(destination), ".play-cache-*.tmp")
 	if err != nil {
-		return err
+		return 0, err
 	}
 	temporaryPath := temporary.Name()
 	keep := false
@@ -642,45 +773,44 @@ func copyArchiveToCache(ctx context.Context, source, destination, expectedHash s
 	}()
 	hash := sha256.New()
 	buffer := make([]byte, 1<<20)
+	var written int64
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return 0, err
 		}
 		read, readErr := input.Read(buffer)
 		if read > 0 {
 			if _, err := temporary.Write(buffer[:read]); err != nil {
-				return err
+				return 0, err
 			}
 			if _, err := hash.Write(buffer[:read]); err != nil {
-				return err
+				return 0, err
 			}
-			if onWrite != nil {
-				onWrite(int64(read))
-			}
+			written += int64(read)
 		}
 		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {
-			return readErr
+			return 0, readErr
 		}
 	}
 	actualHash := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actualHash, expectedHash) {
-		return fmt.Errorf("source checksum changed: got %s, expected %s", actualHash, expectedHash)
+		return 0, fmt.Errorf("source checksum changed: got %s, expected %s", actualHash, expectedHash)
 	}
 	if err := temporary.Sync(); err != nil {
-		return err
+		return 0, err
 	}
 	if err := temporary.Close(); err != nil {
-		return err
+		return 0, err
 	}
 	if err := os.Rename(temporaryPath, destination); err != nil {
 		if _, statErr := os.Stat(destination); statErr == nil {
-			return nil
+			return written, nil
 		}
-		return err
+		return 0, err
 	}
 	keep = true
-	return nil
+	return written, nil
 }

@@ -242,6 +242,7 @@ export interface CollectionMod {
     "archivedAt": string;
     "sha256": string;
     "sizeBytes": number;
+    "modifiedAt": string;
     "thumbnailUrl": string;
     "available": boolean;
     "collectionIds": string[] | null;

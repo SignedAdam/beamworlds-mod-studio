@@ -47,6 +47,7 @@ type collectionModMetadata struct {
 	archivePath  string
 	sha256       string
 	sizeBytes    int64
+	modifiedAt   string
 	active       int
 	archivedAt   string
 	thumbnailSHA string
@@ -1483,6 +1484,7 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			ArchivedAt:    meta.archivedAt,
 			SHA256:        meta.sha256,
 			SizeBytes:     meta.sizeBytes,
+			ModifiedAt:    meta.modifiedAt,
 			Available:     meta.active != 0 && strings.TrimSpace(meta.archivePath) != "",
 			CollectionIDs: append([]string(nil), entry.collectionIDs...),
 			RootIDs:       append([]string(nil), entry.rootIDs...),
@@ -1582,7 +1584,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for index, id := range chunk {
 			args[index] = id
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.active,0),COALESCE(e.archived_at,''),COALESCE(ast.sha256,'')
+		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.modified_at,''),COALESCE(l.active,0),COALESCE(e.archived_at,''),COALESCE(ast.sha256,'')
 			FROM entities e
 			LEFT JOIN archive_links l ON l.id=(SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1)
 			LEFT JOIN artifacts a ON a.id=l.artifact_id
@@ -1595,7 +1597,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for rows.Next() {
 			var meta collectionModMetadata
 			var kind string
-			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.active, &meta.archivedAt, &meta.thumbnailSHA); err != nil {
+			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.modifiedAt, &meta.active, &meta.archivedAt, &meta.thumbnailSHA); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}

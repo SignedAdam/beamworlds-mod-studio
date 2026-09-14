@@ -765,10 +765,11 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 .inspector .tag-editor__creator>footer .text-button{height:var(--control-height-small);min-height:var(--control-height-small)}
 .inspector .tag-editor__creator>footer .button{height:var(--control-height);min-height:var(--control-height)}
 .page-shell{min-width:0;min-height:0}
-.page-shell__header{flex:none;height:64px;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 16px;border-bottom:1px solid var(--line-strong);background:var(--surface);box-shadow:none}
-.page-shell__header h1{min-width:0;margin:0;color:var(--text);font-size:var(--font-title,18px);font-weight:700;letter-spacing:.01em;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.page-shell__actions{min-width:0;display:flex;flex:0 1 auto;align-items:center;justify-content:flex-end;gap:7px;overflow-x:auto;overflow-y:hidden;padding:2px 0}
+.page-shell__header{container:page-header/inline-size;flex:none;height:64px;min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 16px;border-bottom:1px solid var(--line-strong);background:var(--surface);box-shadow:none}
+.page-shell__header h1{min-width:0;flex:1 1 auto;margin:0;color:var(--text);font-size:var(--font-title,18px);font-weight:700;letter-spacing:.01em;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-shell__actions{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-end;gap:7px;padding:2px 0}
 .page-shell__actions .button{flex:0 0 auto}
+@container page-header (max-width:800px){.page-shell__actions .button:has(>svg)>span{display:none}.page-shell__actions .button:has(>svg){min-width:var(--control-height,32px);padding-inline:0}}
 
 /* One toolbar contract under every page title: search first, scope controls trailing. */
 .page-toolbar{container:page-toolbar/inline-size;flex:none;position:relative;z-index:80;height:var(--page-toolbar-height);min-height:var(--page-toolbar-height);min-width:0;display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-4);border-bottom:1px solid var(--line-strong);background:var(--surface)}
@@ -793,7 +794,7 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 /* In light mode --active-tab is near-white, so the chip borrows the Library's
    own accent to stay readable as a count rather than another button. */
 html[data-theme="light"] .library-view .library-selection__count{border-color:color-mix(in srgb,var(--library-accent) 42%,var(--line-strong));background:color-mix(in srgb,var(--library-accent) 12%,transparent);color:var(--library-table-primary-text,var(--text))}
-@media(max-width:520px){.page-shell__header{gap:10px;padding:0 10px}.page-shell__actions{justify-content:flex-start}}
+@media(max-width:520px){.page-shell__header{gap:10px;padding:0 10px}}
 
 /* Status text that predates the light theme is hardcoded for a near-black
    canvas: .button--danger at #ffaaa5 measures 1.6:1 on the light dialog
@@ -998,7 +999,7 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
 .mod-table__name span,.mod-table__path,.mod-table__tags em{font-size:var(--font-caption)}
 .page-shell__header h1,.maker-title strong{font-size:var(--font-title)}
 .page-shell__header,.maker-header{min-height:calc(56px * var(--interface-scale));height:calc(64px * var(--interface-scale));padding-inline:var(--space-4)}
-.page-shell__actions{gap:var(--space-2);flex-wrap:wrap}
+.page-shell__actions{gap:var(--space-2)}
 
 /* Settings controls use the same tokens as every other form surface. */
 .settings-body{padding:var(--space-4) var(--space-5) calc(var(--space-5) + 6px)}
@@ -1063,7 +1064,6 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
   .settings-body{padding-inline:var(--space-3)}
   .sizing-controls{grid-template-columns:1fr}
   .page-shell__header,.maker-header{height:auto;min-height:var(--control-height);padding-block:var(--space-2)}
-  .page-shell__actions{justify-content:flex-start}
   .app-statusbar{grid-template-columns:var(--sidebar) minmax(0,1fr)}
   .usage-compact{display:none!important}
 }

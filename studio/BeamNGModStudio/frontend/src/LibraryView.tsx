@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { LibraryGroupPage as GroupPage, LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { LibraryGroupPage as GroupPage, LibraryGroupRow, LibraryItem, ModCollection, ModFamily, ModRemovalImpact, ModTag, OrganizationState, ScanProgress } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import { AddModDialog } from './AddModDialog'
 import { CollectionDialog, CollectionMenuPopup, type CollectionMenuAction } from './CollectionUI'
 import { DuplicatesDialog } from './DuplicatesDialog'
@@ -118,6 +118,10 @@ export function LibraryView(props: LibraryViewProps) {
   })
   const [groupLoading, setGroupLoading] = useState(false)
   const groupLoadVersion = useRef(0)
+  // Cache mod rows per group for instant fold/unfold. Invalidated when
+  // the underlying stream changes (search, filter, scope, external edits).
+  const groupRowCacheRef = useRef(new Map<string, LibraryGroupRow[]>())
+  const cacheKeyRef = useRef('')
   const [groupNameDraft, setGroupNameDraft] = useState('')
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
   const [groupCreateBusy, setGroupCreateBusy] = useState(false)
@@ -131,12 +135,20 @@ export function LibraryView(props: LibraryViewProps) {
 
   const groupedTags = useMemo(() => (props.tags ?? []).filter(t => t.grouped), [props.tags])
 
+  // Invalidate cache when the stream parameters change.
+  const cacheKey = `${props.query}\0${props.collectionID}\0${props.scope}\0${props.libraryRevision}`
+  if (cacheKeyRef.current !== cacheKey) {
+    cacheKeyRef.current = cacheKey
+    groupRowCacheRef.current.clear()
+  }
+
   const loadGroupPage = useCallback(async (
     pageNum: number,
     pageSize?: number,
+    silent = false,
   ) => {
     const version = ++groupLoadVersion.current
-    setGroupLoading(true)
+    if (!silent) setGroupLoading(true)
     try {
       const ps = pageSize ?? groupPageSize
       const result = await API.LibraryGroupPage(
@@ -148,9 +160,20 @@ export function LibraryView(props: LibraryViewProps) {
       )
       if (version !== groupLoadVersion.current) return
       setGroupData(result)
+      // Populate cache from server data: store mod rows for each expanded group.
+      const cache = groupRowCacheRef.current
+      let gid = ''
+      for (const row of result.rows ?? []) {
+        if (row.rowType === 'group') {
+          gid = row.groupId
+          if (!row.collapsed) cache.set(gid, [])
+        } else if (gid && cache.has(gid)) {
+          cache.get(gid)!.push(row)
+        }
+      }
     } catch (error) {
       if (version !== groupLoadVersion.current) return
-      props.onError(error)
+      if (!silent) props.onError(error)
     } finally {
       if (version === groupLoadVersion.current) setGroupLoading(false)
     }
@@ -180,12 +203,53 @@ export function LibraryView(props: LibraryViewProps) {
     }
   }
 
-  const handleToggleGroupCollapsed = async (groupId: string, collapsed: boolean) => {
-    try {
-      await API.SetGroupCollapsed(groupId, collapsed)
-      void loadGroupPage(groupPage)
-    } catch (error) {
-      props.onError(error)
+  const handleToggleGroupCollapsed = (groupId: string, collapsed: boolean) => {
+    const cache = groupRowCacheRef.current
+    if (collapsed) {
+      // Collapsing: strip mod rows for this group, cache them, update instantly.
+      setGroupData(prev => {
+        if (!prev?.rows) return prev
+        const removed: LibraryGroupRow[] = []
+        const next: LibraryGroupRow[] = []
+        let inTarget = false
+        for (const row of prev.rows) {
+          if (row.rowType === 'group') {
+            inTarget = row.groupId === groupId
+            next.push(inTarget ? { ...row, collapsed: true } : row)
+          } else if (inTarget) {
+            removed.push(row)
+          } else {
+            next.push(row)
+          }
+        }
+        if (removed.length > 0) cache.set(groupId, removed)
+        return { ...prev, rows: next, totalRows: prev.totalRows - removed.length }
+      })
+      API.SetGroupCollapsed(groupId, true).catch(props.onError)
+    } else {
+      // Expanding: restore from cache if available, else fetch.
+      const cached = cache.get(groupId)
+      setGroupData(prev => {
+        if (!prev?.rows) return prev
+        const next: LibraryGroupRow[] = []
+        for (const row of prev.rows) {
+          if (row.rowType === 'group' && row.groupId === groupId) {
+            next.push({ ...row, collapsed: false })
+            if (cached) next.push(...cached)
+          } else {
+            next.push(row)
+          }
+        }
+        return { ...prev, rows: next, totalRows: prev.totalRows + (cached?.length ?? 0) }
+      })
+      if (!cached) {
+        // No cache — persist then fetch the actual rows.
+        API.SetGroupCollapsed(groupId, false)
+          .then(() => loadGroupPage(groupPage))
+          .catch(props.onError)
+        return
+      }
+      API.SetGroupCollapsed(groupId, false).catch(props.onError)
     }
   }
 

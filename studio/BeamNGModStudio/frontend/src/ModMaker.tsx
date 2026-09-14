@@ -6,6 +6,7 @@ import {
   type MutableRefObject,
 } from "react";
 import { Events } from "@wailsio/runtime";
+import { CollectionDialog } from "./CollectionUI";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
   AgentActivity,
@@ -667,6 +668,12 @@ export function ModMaker({
   const [runtime, setRuntime] = useState<RuntimeReport | null>(null);
   const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [newModOpen, setNewModOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deletedWorkspaceIDs, setDeletedWorkspaceIDs] = useState<
+    Set<string>
+  >(() => new Set());
   const [sourceSaveToast, setSourceSaveToast] = useState("");
   const [sourceSaveToastTone, setSourceSaveToastTone] = useState<
     "success" | "error" | "warning"
@@ -3117,14 +3124,33 @@ export function ModMaker({
     setUtility((current) => (current === tool ? null : tool));
   };
 
+  const visibleWorkspaces = useMemo(
+    () =>
+      deletedWorkspaceIDs.size
+        ? workspaces.filter((ws) => !deletedWorkspaceIDs.has(ws.id))
+        : workspaces,
+    [workspaces, deletedWorkspaceIDs],
+  );
+
+  const handleDeleteProject = async (workspaceID: string) => {
+    await API.DeleteWorkspace(workspaceID);
+    setDeletedWorkspaceIDs((prev) => new Set([...prev, workspaceID]));
+    if (selectedID === workspaceID) {
+      onSelect("");
+    }
+    onNotify("Project deleted", "success");
+  };
+
+
   if (!selectedID) {
     return (
       <section className="project-browser-view">
         <ProjectBrowser
-          workspaces={workspaces}
+          workspaces={visibleWorkspaces}
           allItems={allItems}
           onOpen={onSelect}
           onNew={() => setNewModOpen(true)}
+          onDelete={handleDeleteProject}
         />
         {newModOpen && (
           <div
@@ -3487,6 +3513,19 @@ export function ModMaker({
             )}
             {dirty && <span className="status-test">Unsaved changes</span>}
           </div>
+          <button
+            type="button"
+            className="maker-header__delete"
+            aria-label="Delete project"
+            title="Delete project"
+            disabled={stale || deleteBusy}
+            onClick={() => {
+              setDeleteConfirmOpen(true);
+              setDeleteError("");
+            }}
+          >
+            <Icon name="trash" size={16} />
+          </button>
         </header>
         {stale && (
           <div
@@ -3981,6 +4020,63 @@ export function ModMaker({
             if (!mutationBlocked()) void configureVirgil(enabled, "choice");
           }}
         />
+      )}
+      {deleteConfirmOpen && (
+        <CollectionDialog
+          title="Delete this project?"
+          onClose={() => {
+            if (!deleteBusy) {
+              setDeleteConfirmOpen(false);
+              setDeleteError("");
+            }
+          }}
+          footer={
+            <>
+              <Button
+                type="button"
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  setDeleteError("");
+                }}
+                disabled={deleteBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                tone="danger"
+                disabled={deleteBusy}
+                onClick={() => {
+                  setDeleteBusy(true);
+                  setDeleteError("");
+                  void handleDeleteProject(loadedWorkspace.id)
+                    .then(() => setDeleteConfirmOpen(false))
+                    .catch((error) =>
+                      setDeleteError(
+                        error instanceof Error
+                          ? error.message
+                          : "The project could not be deleted.",
+                      ),
+                    )
+                    .finally(() => setDeleteBusy(false));
+                }}
+              >
+                Delete project
+              </Button>
+            </>
+          }
+        >
+          <p className="library-removal__copy">
+            The editable working copy of{" "}
+            <strong>{loadedDetail.entity.displayName}</strong> and any unsaved
+            work will be permanently deleted. The library mod is not affected.
+          </p>
+          {deleteError && (
+            <p className="collection-add__error" role="alert">
+              {deleteError}
+            </p>
+          )}
+        </CollectionDialog>
       )}
     </section>
   );

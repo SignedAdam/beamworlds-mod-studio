@@ -127,7 +127,7 @@ func TestRemovalRefusesWhileAModMakerProjectExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A mod authored in ModMaker owns a workspace: unsaved user work that does
-	// not live in the archive, so removal has to refuse rather than discard it.
+	// not live in the archive, so unacknowledged removal must refuse.
 	impact, err := service.PlanModRemoval([]string{mod.Entity.EntityID})
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +136,32 @@ func TestRemovalRefusesWhileAModMakerProjectExists(t *testing.T) {
 		t.Fatal("a ModMaker project was not reported in the removal impact")
 	}
 	if _, err := service.DeleteModArchives([]string{mod.Entity.EntityID}); err == nil {
-		t.Fatal("a mod with an open project had its archive deleted")
+		t.Fatal("a mod with an open project had its archive deleted without acknowledgment")
+	}
+
+	// Acknowledged deletion removes the archive, the project rows, and files.
+	wsID := mod.Workspace.ID
+	wsRoot := mod.Workspace.Root
+	result, err := service.DeleteModArchivesAndWorkspaces([]string{mod.Entity.EntityID})
+	if err != nil {
+		t.Fatalf("acknowledged deletion failed: %v", err)
+	}
+	if result.Forgotten != 1 {
+		t.Fatalf("expected 1 forgotten entity, got %d", result.Forgotten)
+	}
+
+	ctx := context.Background()
+	// Workspace row and files must be gone.
+	if _, wsErr := service.store.GetWorkspace(ctx, wsID); wsErr == nil {
+		t.Fatal("workspace row survived the acknowledged deletion")
+	}
+	if _, statErr := os.Stat(wsRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("workspace directory survived: %v", statErr)
+	}
+
+	// The library entry must also be gone.
+	if _, entErr := service.store.GetLibraryItem(ctx, mod.Entity.EntityID); entErr == nil {
+		t.Fatal("entity survived the acknowledged deletion")
 	}
 }
 

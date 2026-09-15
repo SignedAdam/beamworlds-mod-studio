@@ -526,7 +526,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
 
   return <div className="tag-editor">
     <header>
-      <small id={helperId}>Click a tag to assign or remove it</small>
+      <small id={helperId}>Click to assign or remove tags</small>
     </header>
 
     <div className="tag-editor__group tag-editor__group--assigned">

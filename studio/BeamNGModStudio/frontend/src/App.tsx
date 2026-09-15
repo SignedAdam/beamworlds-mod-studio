@@ -50,6 +50,10 @@ const INSPECTOR_WIDTH_STORAGE_KEY = "beamworlds.inspector-width";
 const INSPECTOR_DEFAULT_WIDTH = 480;
 const INSPECTOR_MIN_WIDTH = 320;
 const INSPECTOR_MAX_WIDTH = 720;
+// Mirrors `--sidebar` and the 700px the stylesheet reserves for the library
+// beside the details pane.
+const NAV_SIDEBAR_WIDTH = 196;
+const LIBRARY_RESERVED_WIDTH = 700;
 
 function readInspectorWidth(): number {
   try {
@@ -198,10 +202,15 @@ function App() {
   const workspaceSetupID = useRef("");
   const inspectorDirtyRef = useRef(false);
   const isWriteBlocked = useCallback(() => writeBlockedRef.current, []);
-  const inspectorMaxWidth = Math.min(
-    INSPECTOR_MAX_WIDTH,
-    Math.max(INSPECTOR_MIN_WIDTH, Math.floor(viewportWidth * 0.6)),
+  // The stylesheet caps the pane so the library keeps 700px beside it
+  // (`.inspector` in public/style.css). The handle has to advertise and commit
+  // the same range, otherwise a drag reports a width the pane never renders -
+  // at a 1000px window it would claim 600px while showing 320px.
+  const inspectorSpaceCap = Math.max(
+    INSPECTOR_MIN_WIDTH,
+    viewportWidth - NAV_SIDEBAR_WIDTH - LIBRARY_RESERVED_WIDTH,
   );
+  const inspectorMaxWidth = Math.min(INSPECTOR_MAX_WIDTH, inspectorSpaceCap);
   const inspectorWidth = Math.max(
     INSPECTOR_MIN_WIDTH,
     Math.min(inspectorMaxWidth, inspectorPreferredWidth),

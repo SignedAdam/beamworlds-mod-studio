@@ -591,6 +591,37 @@ func (s *Store) SetEntityArtifactSHA(ctx context.Context, entityID, hash string)
 	return requireChanged(result, err, "artifact")
 }
 
+// relinkCacheEntryToSource replaces a cache entry that holds its own copy of
+// the bytes with a hardlink to the library archive. It is best-effort by
+// design: the cache entry is already valid, so every failure path simply
+// leaves it alone. The link is built under a temporary name and renamed over
+// the entry, so a reader either sees the old file or the new one. Any profile
+// folder already linked to the old copy keeps working - it holds its own
+// reference to those bytes until it is rebuilt.
+func relinkCacheEntryToSource(sourcePath, cachePath string, sourceInfo, cacheInfo os.FileInfo) {
+	if os.SameFile(sourceInfo, cacheInfo) {
+		return
+	}
+	if sourceInfo.Size() != cacheInfo.Size() {
+		return
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(cachePath), ".play-relink-*.tmp")
+	if err != nil {
+		return
+	}
+	temporaryPath := temporary.Name()
+	_ = temporary.Close()
+	if err := os.Remove(temporaryPath); err != nil {
+		return
+	}
+	if err := os.Link(sourcePath, temporaryPath); err != nil {
+		return
+	}
+	if err := os.Rename(temporaryPath, cachePath); err != nil {
+		_ = os.Remove(temporaryPath)
+	}
+}
+
 // recordedArchiveIdentityHolds reports whether the archive on disk is still the
 // one the scan fingerprinted: same length, same modification time, and a hash
 // recorded alongside them. A rewrite that preserved both would defeat it, but
@@ -618,12 +649,14 @@ func (service *AppService) materializeMod(ctx context.Context, mod CollectionMod
 	expectedHash := strings.ToLower(strings.TrimSpace(mod.SHA256))
 	hashMissing := expectedHash == ""
 	sourceExists := false
+	var sourceInfo os.FileInfo
 
 	if sourcePath != "" {
 		info, statErr := os.Stat(sourcePath)
 		switch {
 		case statErr == nil && !info.IsDir():
 			sourceExists = true
+			sourceInfo = info
 			// The scan recorded this archive's size, mtime and hash together,
 			// and the scanner itself already treats size+mtime as identity when
 			// it decides whether to re-analyse. Reading the bytes again on every
@@ -687,7 +720,14 @@ func (service *AppService) materializeMod(ctx context.Context, mod CollectionMod
 				statErr = os.ErrNotExist
 			}
 		}
-		// Size matches recorded archive size: trust the content-addressed name.
+		// A cache entry written before the cache learned to hardlink is a full
+		// second copy of the library archive. Once the source's identity is
+		// established, the copy is redundant: replace it with a link so the
+		// duplicated gigabytes drain away as the user plays, instead of asking
+		// them to delete a cache directory by hand.
+		if statErr == nil && sourceExists && sourceInfo != nil && cacheInfo.Size() == mod.SizeBytes {
+			relinkCacheEntryToSource(sourcePath, cachePath, sourceInfo, cacheInfo)
+		}
 	}
 	if errors.Is(statErr, os.ErrNotExist) {
 		if !sourceExists {

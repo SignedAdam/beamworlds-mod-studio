@@ -488,3 +488,73 @@ func TestLinkOrCopyLinkedEntrySurvivesCacheVerification(t *testing.T) {
 		t.Fatalf("expected 1 mod on second launch, got %d", activation.ModCount)
 	}
 }
+
+func TestLaunchReplacesDuplicateCacheCopyWithLink(t *testing.T) {
+	// Adam's cache had grown to 366 standalone copies of his library archives,
+	// 90.17 GiB of duplicated bytes, because the old cache fill always streamed
+	// bytes. Launching should heal those in place rather than asking him to
+	// delete a directory by hand.
+	service := newTestAppService(t)
+	_, collectionID := scanAndCreateCollection(t, service, "Relink", 1, 7090)
+	request := resolveAndFingerprint(t, service, collectionID)
+	activateAndCheck(t, service, request)
+
+	cacheRoot := filepath.Join(service.config.ProfileDir, playCacheDirectory)
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one cache entry, got %d", len(entries))
+	}
+	cachePath := filepath.Join(cacheRoot, entries[0].Name())
+	sourcePath := filepath.Join(service.config.DataDir, "library", fmt.Sprintf("library-%05d.zip", 7090))
+
+	// Recreate the pre-fix state: an independent copy of the same bytes.
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheInfo, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(sourceInfo, cacheInfo) {
+		t.Fatal("fixture did not produce an independent copy")
+	}
+
+	request = resolveAndFingerprint(t, service, collectionID)
+	activateAndCheck(t, service, request)
+
+	healedSource, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healedCache, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(healedSource, healedCache) {
+		t.Fatal("the duplicate cache copy was not replaced with a link to the library archive")
+	}
+	if healedCache.Size() != sourceInfo.Size() {
+		t.Fatalf("size changed: %d -> %d", sourceInfo.Size(), healedCache.Size())
+	}
+	got, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(content) {
+		t.Fatal("cache content changed while relinking")
+	}
+}

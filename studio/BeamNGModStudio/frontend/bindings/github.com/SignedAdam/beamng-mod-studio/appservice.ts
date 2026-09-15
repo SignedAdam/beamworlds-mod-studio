@@ -353,6 +353,14 @@ export function ModFamilies(): $CancellablePromise<$models.ModFamily[] | null> {
     return $Call.ByID(3872770186);
 }
 
+/**
+ * OpenCollectionFolder refreshes the collection's folder mirror and opens it in
+ * the native file manager.
+ */
+export function OpenCollectionFolder(collectionID: string): $CancellablePromise<$models.CollectionFolder> {
+    return $Call.ByID(2615031338, collectionID);
+}
+
 export function OpenGameDirectory(): $CancellablePromise<void> {
     return $Call.ByID(565250723);
 }

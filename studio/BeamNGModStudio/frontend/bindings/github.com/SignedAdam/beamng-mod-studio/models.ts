@@ -223,6 +223,23 @@ export interface CollectionDetail {
 }
 
 /**
+ * CollectionFolder describes the on-disk mirror of one collection: a plain
+ * folder holding every resolved mod archive. Entries are hard links into the
+ * library (symlink, then copy, as fallbacks) so the mirror costs no extra disk
+ * space yet can be zipped, copied, or dragged out like any other folder.
+ */
+export interface CollectionFolder {
+    "collectionId": string;
+    "name": string;
+    "path": string;
+    "modCount": number;
+    "addedCount": number;
+    "copiedCount": number;
+    "removedCount": number;
+    "skippedMods": string[] | null;
+}
+
+/**
  * A membership row: the mod stays in the collection when disabled, it just
  * stops contributing to a resolved selection. DisabledByArchive marks
  * memberships that were auto-disabled when the mod was archived; restoring

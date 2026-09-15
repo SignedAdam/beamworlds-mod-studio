@@ -22,6 +22,7 @@ import {
   type CollectionMenuAction,
 } from "./CollectionUI";
 import { Icon } from "./icons";
+import { useFileManagerLabel } from "./fileManager";
 import { ModTable } from "./ModTable";
 import {
   Badge,
@@ -193,6 +194,7 @@ export function CollectionsView({
   onError,
 }: CollectionsViewProps) {
   const collections = useMemo(() => collectionList(organization), [organization]);
+  const fileManagerLabel = useFileManagerLabel();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("name");
   const [selectedIDs, setSelectedIDs] = useState<Set<string>>(new Set());
@@ -520,6 +522,24 @@ export function CollectionsView({
     onNotify(
       `Created “${result.collection.name}” with copied direct members and shared child references.`,
       "success",
+    );
+  };
+
+  // The folder is a mirror of the resolved selection, so it is refreshed on
+  // every open rather than kept in sync in the background.
+  const openCollectionFolder = async (collection: ModCollection) => {
+    setContextMenu(null);
+    const folder = await runOperation("Opening collection folder", () =>
+      API.OpenCollectionFolder(collection.id),
+    );
+    if (!folder) return;
+    const skipped = folder.skippedMods?.length ?? 0;
+    const mods = `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? "" : "s"}`;
+    onNotify(
+      skipped > 0
+        ? `Opened “${folder.name}” with ${mods}; ${skipped.toLocaleString()} unavailable mod${skipped === 1 ? "" : "s"} skipped.`
+        : `Opened “${folder.name}” with ${mods}.`,
+      skipped > 0 ? "info" : "success",
     );
   };
 
@@ -860,6 +880,7 @@ export function CollectionsView({
         ...(multiple
           ? []
           : ([
+              { label: "Open as folder", icon: "export", detail: "Mirrors every mod into one folder", onClick: () => void openCollectionFolder(first) },
               { label: "Rename", icon: "edit", onClick: () => openEditDialog(first, "rename") },
               { label: "Edit description", icon: "edit", onClick: () => openEditDialog(first, "description") },
               { label: "Edit cover", icon: "columns", onClick: () => { setCoverEditorCollection(first); setContextMenu(null); } },
@@ -882,6 +903,7 @@ export function CollectionsView({
       const index = parent?.childIds?.indexOf(child.id) ?? -1;
       return [
         { label: "Open", icon: "folder", onClick: () => openCollection(child.id) },
+        { label: "Open as folder", icon: "export", detail: "Mirrors every mod into one folder", onClick: () => void openCollectionFolder(child) },
         { label: "Enable", icon: "check", disabled: Boolean(busy) || enabled, onClick: () => { setContextMenu(null); void toggleChildEnabled(child.id, true); } },
         { label: "Disable", icon: "close", disabled: Boolean(busy) || !enabled, onClick: () => { setContextMenu(null); void toggleChildEnabled(child.id, false); } },
         { label: "Remove from this collection", icon: "unlink", onClick: () => void removeChild(contextMenu.parentID, child.id) },
@@ -902,6 +924,7 @@ export function CollectionsView({
     const index = directEntityIDs.indexOf(mod.entityId);
     return [
       { label: "Inspect mod", icon: kindIcon(String(mod.kind)), onClick: () => { setContextMenu(null); onInspectMod(mod.entityId); } },
+      { label: fileManagerLabel, icon: "folder", disabled: !mod.linked, detail: mod.linked ? undefined : "The archive is no longer on disk", onClick: () => { setContextMenu(null); API.RevealLibraryArchive(mod.entityId).catch(onError); } },
       { label: "Enable", icon: "check", disabled: Boolean(busy) || enabled, onClick: () => { setContextMenu(null); void setModsEnabled(ids, true); } },
       { label: "Disable", icon: "close", disabled: Boolean(busy) || disabled, onClick: () => { setContextMenu(null); void setModsEnabled(ids, false); } },
       { label: "Remove from this collection", icon: "unlink", disabled: Boolean(busy), onClick: () => { setContextMenu(null); void removeMods(ids); } },
@@ -917,7 +940,9 @@ export function CollectionsView({
     currentCollectionID,
     directEntityIDs,
     enabledByEntityID,
+    fileManagerLabel,
     onAddToPlay,
+    onError,
     onInspectMod,
     openCollection,
     openDestinationPicker,
@@ -1159,6 +1184,7 @@ export function CollectionsView({
       { key: "add-mods", label: "Add mods", icon: "plus", onClick: () => openModPicker(currentCollection.id) },
       { key: "add-children", label: "Add collections", icon: "link", onClick: () => openChildPicker(currentCollection.id) },
       { key: "edit-cover", label: "Edit cover", icon: "columns", onClick: () => setCoverEditorCollection(currentCollection) },
+      { key: "open-folder", label: "Open as folder", icon: "export", onClick: () => void openCollectionFolder(currentCollection) },
       { key: "delete", label: "Delete", icon: "trash", role: "danger", onClick: () => void requestDelete([currentCollection.id]) },
     ]}>
       <div className="collections-breadcrumb-wrap"><nav className="collections-breadcrumb" aria-label="Collection breadcrumb"><button type="button" onClick={() => openCollection("")}><Icon name="library" size={14} />All collections</button>{routeStack.map((id, index) => <span key={`${id}-${index}`}><Icon name="chevron" size={12} /><button type="button" className={index === routeStack.length - 1 ? "is-current" : ""} onClick={() => openCollection(id)}>{collectionName(collections, id)}</button></span>)}</nav></div>

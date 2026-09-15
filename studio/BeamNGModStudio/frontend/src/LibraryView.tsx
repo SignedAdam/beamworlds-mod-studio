@@ -9,6 +9,7 @@ import { CollectionMenu } from './CollectionMenu'
 import { Icon } from './icons'
 import { LibraryPreviewGrid, type LibraryPreviewSize } from './LibraryPreviewGrid'
 import { LibrarySearch } from './LibrarySearch'
+import { useFileManagerLabel } from './fileManager'
 import { ModTable, sortLibraryItems, type ModFamilyBadge, type ModTableSort } from './ModTable'
 import { Button, Page, formatBytes, type PageActionSpec } from './ui'
 
@@ -80,6 +81,7 @@ interface AddDialogState {
 }
 
 export function LibraryView(props: LibraryViewProps) {
+  const fileManagerLabel = useFileManagerLabel()
   const [viewMode, setViewMode] = useState<LibraryViewMode>('table')
   const [previewSize, setPreviewSize] = useState<LibraryPreviewSize>('medium')
   const [librarySort, setLibrarySort] = useState<ModTableSort>({ key: 'name', direction: 1 })
@@ -570,6 +572,17 @@ export function LibraryView(props: LibraryViewProps) {
         disabled: !scanTarget.linked,
         detail: 'The archive is no longer on disk',
         onClick: () => props.onVirusScan(scanTarget),
+      })
+      actions.push({
+        label: fileManagerLabel,
+        icon: 'folder',
+        disabled: !scanTarget.linked,
+        detail: 'The archive is no longer on disk',
+        onClick: () => {
+          setContextMenu(null)
+          setSelectionMenu(null)
+          API.RevealLibraryArchive(scanTarget.entityId).catch(props.onError)
+        },
       })
     }
     actions.push({

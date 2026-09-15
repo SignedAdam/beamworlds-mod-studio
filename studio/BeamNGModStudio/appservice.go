@@ -21,28 +21,29 @@ type appGitRemoteOperation struct {
 }
 
 type AppService struct {
-	config        AppConfig
-	store         *Store
-	library       *LibraryEngine
-	agents        *AgentManager
-	aiRuntime     *managedAIRuntime
-	git           *GitService
-	githubPublish *GitHubPublishService
-	emit          func(string, any)
-	profileMu     sync.Mutex
-	auditMu       sync.Mutex
-	virusMu       sync.Mutex
-	auditAI       auditAIRunner
-	aiLoginMu     sync.Mutex
-	aiLogins      map[string]*aiLoginProcess
-	aiConnecting  map[string]bool
-	aiAuthCtx     context.Context
-	aiAuthCancel  context.CancelFunc
-	startProcess  func(string, []string, string) (ProcessLaunch, error)
-	gameRunning   func() (bool, error)
-	gitRemoteMu   sync.Mutex
-	gitRemoteOps  map[string][]*appGitRemoteOperation
-	modImportMu   sync.Mutex
+	config             AppConfig
+	store              *Store
+	library            *LibraryEngine
+	agents             *AgentManager
+	aiRuntime          *managedAIRuntime
+	git                *GitService
+	githubPublish      *GitHubPublishService
+	emit               func(string, any)
+	profileMu          sync.Mutex
+	auditMu            sync.Mutex
+	virusMu            sync.Mutex
+	auditAI            auditAIRunner
+	aiLoginMu          sync.Mutex
+	aiLogins           map[string]*aiLoginProcess
+	aiConnecting       map[string]bool
+	aiAuthCtx          context.Context
+	aiAuthCancel       context.CancelFunc
+	startProcess       func(string, []string, string) (ProcessLaunch, error)
+	gameRunning        func() (bool, error)
+	gitRemoteMu        sync.Mutex
+	gitRemoteOps       map[string][]*appGitRemoteOperation
+	modImportMu        sync.Mutex
+	collectionFolderMu sync.Mutex
 }
 
 type WorkspaceDetail struct {

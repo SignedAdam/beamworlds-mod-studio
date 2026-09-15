@@ -28,6 +28,7 @@ export type {
     CollectionCover,
     CollectionCoverImage,
     CollectionDetail,
+    CollectionFolder,
     CollectionMember,
     CollectionMod,
     CollectionReference,

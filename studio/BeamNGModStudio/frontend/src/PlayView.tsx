@@ -41,6 +41,8 @@ const LAUNCH_ART = [
 ] as const;
 const LAUNCH_ART_INTERVAL_MS = 16000;
 
+const ALL_MODS_ID = "all-mods";
+
 function useLaunchArt(): { current: string; previous: string | null; step: number } {
   const [step, setStep] = useState(() => Math.floor(Math.random() * LAUNCH_ART.length));
   const firstStep = useRef(step);
@@ -82,6 +84,7 @@ function collectionPathIDs(
 ): string[] {
   const found: string[] = [];
   for (const rootID of selected) {
+    if (rootID === ALL_MODS_ID) continue;
     const queue = [rootID];
     const seen = new Set<string>();
     while (queue.length) {
@@ -114,7 +117,7 @@ function resultSummary(result: PlayResult): string {
 
 function modProvenance(mod: CollectionMod, byID: Record<string, ModCollection>): string {
   const ids = uniqueIDs(mod.rootIds?.length ? mod.rootIds : mod.collectionIds ?? []);
-  const names = ids.map((id) => byID[id]?.name ?? id).filter(Boolean);
+  const names = ids.map((id) => id === ALL_MODS_ID ? "All mods" : byID[id]?.name ?? id).filter(Boolean);
   return names.length ? `Included via ${names.join(", ")}` : "Included by the selected collection graph";
 }
 
@@ -145,6 +148,8 @@ export function PlayView({
     return next;
   }, [collections]);
   const selectedIDs = useMemo(() => new Set(session.selection), [session.selection]);
+  const excludedIDs = useMemo(() => new Set(session.excludedSelection), [session.excludedSelection]);
+  const allModsSelected = selectedIDs.has(ALL_MODS_ID);
   // Child id -> the selected ancestor that pulls it in, so inherited cards can
   // name that parent and offer a route to inspect it.
   const inheritedParentIDByID = useMemo(() => {
@@ -168,6 +173,15 @@ export function PlayView({
   const dirtyProfileLabel = (profile: ModProfile) =>
     profile.id === session.profileId && session.dirty ? `${profile.name}*` : profile.name;
   const noModsSelected = !session.selection.length || (session.preview?.modCount ?? 0) === 0;
+
+  // Readiness line: shows arithmetic from the resolved selection.
+  const readinessText = session.previewLoading
+    ? "Checking mods\u2026"
+    : noModsSelected
+      ? "No mods selected"
+      : (session.preview?.excludedModCount ?? 0) > 0
+        ? `${(session.preview!.modCount + session.preview!.excludedModCount).toLocaleString()} included \u2212 ${session.preview!.excludedModCount.toLocaleString()} excluded = ${session.preview!.modCount.toLocaleString()} mods`
+        : `${session.preview?.modCount ?? 0} mod${session.preview?.modCount === 1 ? "" : "s"} from ${session.selection.length} collection${session.selection.length === 1 ? "" : "s"}`;
 
   useEffect(() => {
     if (!cardMenu) return;
@@ -285,11 +299,13 @@ export function PlayView({
     }
   };
 
-  const openCardMenu = (collection: ModCollection, event: MouseEvent<HTMLElement>) => {
+  const openCardMenu = (collectionOrId: ModCollection | string, event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
-    setCardMenu({ id: collection.id, x: event.clientX, y: event.clientY });
+    const id = typeof collectionOrId === "string" ? collectionOrId : collectionOrId.id;
+    setCardMenu({ id, x: event.clientX, y: event.clientY });
   };
 
+  const cardMenuIsExcluded = cardMenu ? excludedIDs.has(cardMenu.id) : false;
   const cardMenuCollection = cardMenu ? byID[cardMenu.id] : null;
   const cardActions = cardMenuCollection
     ? [
@@ -301,12 +317,24 @@ export function PlayView({
             setCardMenu(null);
           },
         },
-        {
+        // Include/remove — hidden when the card is excluded.
+        ...(cardMenuIsExcluded ? [] : [{
           label: selectedIDs.has(cardMenuCollection.id) ? "Remove from Play selection" : "Add to Play selection",
           icon: selectedIDs.has(cardMenuCollection.id) ? ("unlink" as const) : ("play" as const),
           disabled: selectionBusy,
           onClick: () => {
             void session.toggleCollection(cardMenuCollection.id).catch(onError);
+            setCardMenu(null);
+          },
+        }]),
+        // Exclude / stop excluding.
+        {
+          label: cardMenuIsExcluded ? "Stop excluding" : "Exclude from Play",
+          icon: cardMenuIsExcluded ? ("plus" as const) : ("close" as const),
+          danger: !cardMenuIsExcluded,
+          disabled: selectionBusy,
+          onClick: () => {
+            void session.toggleExclusion(cardMenuCollection.id).catch(onError);
             setCardMenu(null);
           },
         },
@@ -320,6 +348,7 @@ export function PlayView({
       ? "Switch between saved collection sets. Play always uses what is selected right now."
       : "Default is your current, unsaved selection. Choose a saved profile to load its collections.";
 
+  const hasAnySelection = session.selection.length > 0 || session.excludedSelection.length > 0;
 
   return (
     <Page title="Play" className="play-view" ariaLabel="Play">
@@ -341,20 +370,68 @@ export function PlayView({
             <p className="play-empty">Group mods into a collection, then pick it here.</p>
           ) : (
             <div className="play-card-grid" aria-label="Collections">
+              {/* All mods: a first-class entry backed by the all-mods sentinel. */}
+              <article
+                className={`collection-card play-all-mods-card${allModsSelected ? " is-selected" : ""}`}
+              >
+                <button
+                  type="button"
+                  className={`collection-card__check${allModsSelected ? " is-checked" : ""}`}
+                  aria-label={allModsSelected ? "Deselect All mods" : "Select All mods"}
+                  aria-pressed={allModsSelected}
+                  disabled={selectionBusy}
+                  onClick={() => void session.toggleCollection(ALL_MODS_ID).catch(onError)}
+                >
+                  {allModsSelected && <Icon name="check" size={15} />}
+                </button>
+                <button
+                  type="button"
+                  className="collection-card__main"
+                  aria-label="All mods — your entire library"
+                  aria-pressed={allModsSelected}
+                  disabled={selectionBusy}
+                  onClick={() => void session.toggleCollection(ALL_MODS_ID).catch(onError)}
+                >
+                  <span className="collection-card__art">
+                    <span className="collection-card__fallback play-all-mods-card__icon" aria-hidden="true">
+                      <Icon name="globe" size={32} />
+                    </span>
+                    <span className="collection-card__shade" />
+                  </span>
+                  <span className="collection-card__identity">
+                    <strong>All mods</strong>
+                    <span>Your entire library</span>
+                  </span>
+                </button>
+              </article>
+
               {filteredCollections.map((collection) => {
-                const inherited = byID[inheritedParentIDByID[collection.id] ?? ""]?.name;
+                const excluded = excludedIDs.has(collection.id);
                 const explicit = selectedIDs.has(collection.id);
+                // When "All mods" is selected, every non-excluded, non-directly-selected
+                // collection is implicitly included.
+                const inherited = excluded
+                  ? undefined
+                  : (allModsSelected && !explicit)
+                    ? "All mods"
+                    : byID[inheritedParentIDByID[collection.id] ?? ""]?.name;
                 return (
-                  <CollectionCard
-                    key={collection.id}
-                    collection={collection}
-                    selected={explicit}
-                    inherited={inherited}
-                    onOpen={() => onOpenCollection(collection.id)}
-                    onToggle={inherited || selectionBusy ? undefined : () => void session.toggleCollection(collection.id).catch(onError)}
-                    onContextMenu={(event) => openCardMenu(collection, event)}
-                    onMenu={(event) => openCardMenu(collection, event)}
-                  />
+                  <div key={collection.id} className={excluded ? "play-card-excluded" : undefined}>
+                    <CollectionCard
+                      collection={collection}
+                      selected={excluded ? false : explicit}
+                      inherited={excluded ? undefined : inherited}
+                      onOpen={() => onOpenCollection(collection.id)}
+                      onToggle={
+                        selectionBusy ? undefined
+                        : excluded ? () => void session.toggleExclusion(collection.id).catch(onError)
+                        : inherited ? undefined
+                        : () => void session.toggleCollection(collection.id).catch(onError)
+                      }
+                      onContextMenu={(event) => openCardMenu(collection, event)}
+                      onMenu={(event) => openCardMenu(collection, event)}
+                    />
+                  </div>
                 );
               })}
             </div>
@@ -400,9 +477,9 @@ export function PlayView({
             <span id="play-profile-help" className="sr-only">{profileHelp}</span>
           </div>
           <div className="play-launch-actions">
-            {session.selection.length > 0 && <button type="button" className="play-link" disabled={session.previewLoading || !session.preview} onClick={() => setReviewOpen(true)}>View mods</button>}
-            {session.selection.length > 0 && <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void session.clearSelection().catch(onError)}>Clear</button>}
-            {!session.profileId && session.selection.length > 0 && <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void handleCreateProfile(false)}>Save as profile</button>}
+            {hasAnySelection && <button type="button" className="play-link" disabled={session.previewLoading || !session.preview} onClick={() => setReviewOpen(true)}>View mods</button>}
+            {hasAnySelection && <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void session.clearSelection().catch(onError)}>Clear</button>}
+            {!session.profileId && hasAnySelection && <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void handleCreateProfile(false)}>Save as profile</button>}
             {session.profileId && session.dirty && <>
               <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void handleUpdate()}>Update</button>
               <button type="button" className="play-link" disabled={selectionBusy} onClick={() => void handleRevert()}>Revert</button>
@@ -411,7 +488,7 @@ export function PlayView({
           </div>
 
           <div className="play-launch-primary">
-            <span className="play-readiness">{session.previewLoading ? "Checking mods…" : noModsSelected ? "No mods selected" : `${session.preview?.modCount ?? 0} mod${session.preview?.modCount === 1 ? "" : "s"} from ${session.selection.length} collection${session.selection.length === 1 ? "" : "s"}`}</span>
+            <span className="play-readiness">{readinessText}</span>
             <button
               type="button"
               className="play-launch-button"
@@ -443,7 +520,7 @@ export function PlayView({
       {cardMenu && cardMenuCollection && <CollectionMenuPopup label={cardMenuCollection.name} x={cardMenu.x} y={cardMenu.y} actions={cardActions} onClose={() => setCardMenu(null)} />}
 
       {reviewOpen && <CollectionDialog title="Included mods" onClose={() => setReviewOpen(false)} wide footer={<Button onClick={() => setReviewOpen(false)}>Done</Button>}>
-        <div className="play-dialog-intro">{session.preview?.modCount ?? 0} mods</div>
+        <div className="play-dialog-intro">{session.preview?.modCount ?? 0} mods{(session.preview?.excludedModCount ?? 0) > 0 ? ` (${session.preview!.excludedModCount} excluded)` : ""}</div>
         {session.preview?.warnings?.map((warning) => <div className="play-dialog-warning" key={warning}><Icon name="warning" size={14} /><span>{warning}</span></div>)}
         <div className="play-mod-review">
           {(session.preview?.mods ?? []).map((mod) => <article className={`play-mod-review__row${mod.available ? "" : " is-missing"}`} key={mod.entityId}>
@@ -462,7 +539,7 @@ export function PlayView({
       {managerOpen && <CollectionDialog title="Manage profiles" onClose={() => setManagerOpen(false)} footer={<Button onClick={() => setManagerOpen(false)}>Close</Button>}>
         
         <div className="play-profile-list">
-          {profiles.map((profile) => renameID === profile.id ? <div className="play-profile-row is-editing" key={profile.id}><input autoFocus value={renameDraft} onChange={(event) => { setRenameDraft(event.target.value); setRenameError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void handleRename(profile); if (event.key === "Escape") { setRenameID(""); setRenameError(""); } }} aria-label={`Rename ${profile.name}`} /><div><Button tone="quiet" icon="close" onClick={() => { setRenameID(""); setRenameError(""); }}>Cancel</Button><Button tone="primary" icon="save" onClick={() => void handleRename(profile)}>Save</Button></div>{renameError && <small className="play-inline-error">{renameError}</small>}</div> : <div className="play-profile-row" key={profile.id}><div><strong>{profile.name}</strong><span>{profile.collectionCount} collection{profile.collectionCount === 1 ? "" : "s"} · {profile.modCount} mod{profile.modCount === 1 ? "" : "s"}</span></div><div><Button tone="quiet" icon="edit" disabled={selectionBusy} onClick={() => { setRenameID(profile.id); setRenameDraft(profile.name); setRenameError(""); }}>Rename</Button><Button tone="quiet" icon="trash" disabled={selectionBusy} onClick={() => setDeleteTarget(profile)}>Delete</Button></div></div>)}
+          {profiles.map((profile) => renameID === profile.id ? <div className="play-profile-row is-editing" key={profile.id}><input autoFocus value={renameDraft} onChange={(event) => { setRenameDraft(event.target.value); setRenameError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void handleRename(profile); if (event.key === "Escape") { setRenameID(""); setRenameError(""); } }} aria-label={`Rename ${profile.name}`} /><div><Button tone="quiet" icon="close" onClick={() => { setRenameID(""); setRenameError(""); }}>Cancel</Button><Button tone="primary" icon="save" onClick={() => void handleRename(profile)}>Save</Button></div>{renameError && <small className="play-inline-error">{renameError}</small>}</div> : <div className="play-profile-row" key={profile.id}><div><strong>{dirtyProfileLabel(profile)}</strong><span>{profile.modCount} mod{profile.modCount === 1 ? "" : "s"}, {profile.collectionCount} collection{profile.collectionCount === 1 ? "" : "s"}</span></div><div><Button tone="quiet" icon="edit" onClick={() => { setRenameID(profile.id); setRenameDraft(profile.name); setRenameError(""); }}>Rename</Button>{profile.id !== session.profileId && <Button tone="quiet" icon="trash" onClick={() => setDeleteTarget(profile)}>Delete</Button>}</div></div>)}
           {!profiles.length && <div className="play-manager-empty"><Icon name="user" size={20} /><strong>No saved profiles</strong></div>}
         </div>
       </CollectionDialog>}

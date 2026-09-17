@@ -118,8 +118,8 @@ export function CreateNewMod(request: $models.NewModRequest): $CancellablePromis
     return $Call.ByID(3533916892, request);
 }
 
-export function CreatePlayProfile(collectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
-    return $Call.ByID(728524565, collectionIDs);
+export function CreatePlayProfile(collectionIDs: string[] | null, excludedCollectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
+    return $Call.ByID(728524565, collectionIDs, excludedCollectionIDs);
 }
 
 export function CreateWorkspace(entityID: string): $CancellablePromise<$models.WorkspaceDetail> {
@@ -445,8 +445,8 @@ export function ResetEntityPreview(entityID: string): $CancellablePromise<$model
     return $Call.ByID(3865490126, entityID);
 }
 
-export function ResolvePlaySelection(collectionIDs: string[] | null): $CancellablePromise<$models.PlaySelection> {
-    return $Call.ByID(2225443946, collectionIDs);
+export function ResolvePlaySelection(collectionIDs: string[] | null, excludedCollectionIDs: string[] | null): $CancellablePromise<$models.PlaySelection> {
+    return $Call.ByID(2225443946, collectionIDs, excludedCollectionIDs);
 }
 
 export function RestartApplication(): $CancellablePromise<void> {
@@ -625,8 +625,8 @@ export function UpdateModTagVisual(tagID: string, color: string, icon: string): 
     return $Call.ByID(719045307, tagID, color, icon);
 }
 
-export function UpdatePlayProfile(profileID: string, collectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
-    return $Call.ByID(3672296970, profileID, collectionIDs);
+export function UpdatePlayProfile(profileID: string, collectionIDs: string[] | null, excludedCollectionIDs: string[] | null): $CancellablePromise<$models.ModProfile> {
+    return $Call.ByID(3672296970, profileID, collectionIDs, excludedCollectionIDs);
 }
 
 export function ValidateWorkspace(workspaceID: string): $CancellablePromise<modkit$0.ValidationResult> {

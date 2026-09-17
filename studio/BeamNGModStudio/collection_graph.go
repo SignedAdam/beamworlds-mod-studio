@@ -131,7 +131,7 @@ func (s *Store) listCollections(ctx context.Context) ([]ModCollection, error) {
 	})
 	result := make([]ModCollection, 0, len(nodes))
 	for _, node := range nodes {
-		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{node.collection.ID}, false)
+		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{node.collection.ID}, nil, false)
 		if err != nil {
 			return nil, err
 		}
@@ -167,14 +167,15 @@ func (s *Store) listPlayProfiles(ctx context.Context) ([]ModProfile, error) {
 			_ = rows.Close()
 			return nil, err
 		}
-		ids, err := profileCollectionIDsTx(ctx, tx, profile.ID)
+		ids, excludedIDs, err := profileCollectionIDsTx(ctx, tx, profile.ID)
 		if err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
 		profile.CollectionIDs = ids
+		profile.ExcludedCollectionIDs = excludedIDs
 		profile.CollectionCount = len(ids)
-		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
+		selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, excludedIDs, true)
 		if err != nil {
 			_ = rows.Close()
 			return nil, fmt.Errorf("resolve profile %q: %w", profile.Name, err)
@@ -398,7 +399,7 @@ func collectionDetailGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGr
 	if !ok {
 		return CollectionDetail{}, sql.ErrNoRows
 	}
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{collectionID}, false)
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, []string{collectionID}, nil, false)
 	if err != nil {
 		return CollectionDetail{}, err
 	}
@@ -1105,8 +1106,12 @@ func (s *Store) ReorderCollectionMembers(ctx context.Context, collectionID strin
 	return s.CollectionDetail(ctx, collectionID)
 }
 
-func (s *Store) CreatePlayProfile(ctx context.Context, collectionIDs []string) (ModProfile, error) {
+func (s *Store) CreatePlayProfile(ctx context.Context, collectionIDs, excludedCollectionIDs []string) (ModProfile, error) {
 	ids, err := normalizeProfileCollectionIDs(collectionIDs)
+	if err != nil {
+		return ModProfile{}, err
+	}
+	excludedIDs, err := normalizeProfileCollectionIDs(excludedCollectionIDs)
 	if err != nil {
 		return ModProfile{}, err
 	}
@@ -1117,7 +1122,10 @@ func (s *Store) CreatePlayProfile(ctx context.Context, collectionIDs []string) (
 		return ModProfile{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireCollectionsExistTx(ctx, tx, ids); err != nil {
+	if err := requireCollectionsOrSentinelExistTx(ctx, tx, ids); err != nil {
+		return ModProfile{}, err
+	}
+	if err := requireCollectionsOrSentinelExistTx(ctx, tx, excludedIDs); err != nil {
 		return ModProfile{}, err
 	}
 	name, err := nextProfileNameTx(ctx, tx)
@@ -1132,7 +1140,7 @@ func (s *Store) CreatePlayProfile(ctx context.Context, collectionIDs []string) (
 	if _, err := tx.ExecContext(ctx, `INSERT INTO play_profiles(id,name,created_at,updated_at) VALUES(?,?,?,?)`, profileID, name, now, now); err != nil {
 		return ModProfile{}, organizationUniqueNameError(err, "profile", name)
 	}
-	if err := insertProfileCollectionsTx(ctx, tx, profileID, ids); err != nil {
+	if err := insertProfileCollectionsTx(ctx, tx, profileID, ids, excludedIDs); err != nil {
 		return ModProfile{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1198,7 +1206,7 @@ func (s *Store) SeedDefaultPlayProfile(ctx context.Context, collectionName, desc
 	if _, err := tx.ExecContext(ctx, `INSERT INTO play_profiles(id,name,created_at,updated_at) VALUES(?,?,?,?)`, profileID, profile, now, now); err != nil {
 		return ModProfile{}, "", organizationUniqueNameError(err, "profile", profile)
 	}
-	if err := insertProfileCollectionsTx(ctx, tx, profileID, []string{collectionID}); err != nil {
+	if err := insertProfileCollectionsTx(ctx, tx, profileID, []string{collectionID}, nil); err != nil {
 		return ModProfile{}, "", err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1211,12 +1219,16 @@ func (s *Store) SeedDefaultPlayProfile(ctx context.Context, collectionName, desc
 	return seeded, collectionID, nil
 }
 
-func (s *Store) UpdatePlayProfile(ctx context.Context, profileID string, collectionIDs []string) (ModProfile, error) {
+func (s *Store) UpdatePlayProfile(ctx context.Context, profileID string, collectionIDs, excludedCollectionIDs []string) (ModProfile, error) {
 	profileID = strings.TrimSpace(profileID)
 	if profileID == "" {
 		return ModProfile{}, errors.New("profile ID is required")
 	}
 	ids, err := normalizeProfileCollectionIDs(collectionIDs)
+	if err != nil {
+		return ModProfile{}, err
+	}
+	excludedIDs, err := normalizeProfileCollectionIDs(excludedCollectionIDs)
 	if err != nil {
 		return ModProfile{}, err
 	}
@@ -1230,13 +1242,16 @@ func (s *Store) UpdatePlayProfile(ctx context.Context, profileID string, collect
 	if err := requireProfileExistsTx(ctx, tx, profileID); err != nil {
 		return ModProfile{}, err
 	}
-	if err := requireCollectionsExistTx(ctx, tx, ids); err != nil {
+	if err := requireCollectionsOrSentinelExistTx(ctx, tx, ids); err != nil {
+		return ModProfile{}, err
+	}
+	if err := requireCollectionsOrSentinelExistTx(ctx, tx, excludedIDs); err != nil {
 		return ModProfile{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM play_profile_collections WHERE profile_id=?`, profileID); err != nil {
 		return ModProfile{}, err
 	}
-	if err := insertProfileCollectionsTx(ctx, tx, profileID, ids); err != nil {
+	if err := insertProfileCollectionsTx(ctx, tx, profileID, ids, excludedIDs); err != nil {
 		return ModProfile{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE play_profiles SET updated_at=? WHERE id=?`, nowUTC(), profileID); err != nil {
@@ -1322,13 +1337,14 @@ func (s *Store) playProfile(ctx context.Context, profileID string) (ModProfile, 
 	if err := tx.QueryRowContext(ctx, `SELECT id,name,updated_at FROM play_profiles WHERE id=?`, profileID).Scan(&profile.ID, &profile.Name, &profile.UpdatedAt); err != nil {
 		return ModProfile{}, err
 	}
-	ids, err := profileCollectionIDsTx(ctx, tx, profileID)
+	ids, excludedIDs, err := profileCollectionIDsTx(ctx, tx, profileID)
 	if err != nil {
 		return ModProfile{}, err
 	}
 	profile.CollectionIDs = ids
+	profile.ExcludedCollectionIDs = excludedIDs
 	profile.CollectionCount = len(ids)
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, excludedIDs, true)
 	if err != nil {
 		return ModProfile{}, err
 	}
@@ -1339,8 +1355,12 @@ func (s *Store) playProfile(ctx context.Context, profileID string) (ModProfile, 
 	return profile, nil
 }
 
-func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs []string) (PlaySelection, error) {
+func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs, excludedCollectionIDs []string) (PlaySelection, error) {
 	ids, err := normalizeProfileCollectionIDs(collectionIDs)
+	if err != nil {
+		return PlaySelection{}, err
+	}
+	excludedIDs, err := normalizeProfileCollectionIDs(excludedCollectionIDs)
 	if err != nil {
 		return PlaySelection{}, err
 	}
@@ -1353,7 +1373,7 @@ func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs []string
 	if err != nil {
 		return PlaySelection{}, err
 	}
-	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, true)
+	selection, err := resolveCollectionSelectionGraphTx(ctx, tx, graph, ids, excludedIDs, true)
 	if err != nil {
 		return PlaySelection{}, err
 	}
@@ -1363,14 +1383,29 @@ func (s *Store) ResolvePlaySelection(ctx context.Context, collectionIDs []string
 	return selection, nil
 }
 
-func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGraph, roots []string, excludeArchived bool) (PlaySelection, error) {
+func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGraph, roots, excludedRoots []string, excludeArchived bool) (PlaySelection, error) {
 	rootIDs, err := normalizeProfileCollectionIDs(roots)
 	if err != nil {
 		return PlaySelection{}, err
 	}
+	excludedRootIDs, err := normalizeProfileCollectionIDs(excludedRoots)
+	if err != nil {
+		return PlaySelection{}, err
+	}
+	// "all-mods" is a mod-level source, not shorthand for every collection.
+	// Expanding it to collections would drop any mod that belongs to none -
+	// which is exactly how Adam lost the 79 mods an in-game downloader added:
+	// they were indexed and in no collection he had selected.
+	rootIDs, includeAllMods := takeAllModsSentinel(rootIDs)
+	excludedRootIDs, excludeAllMods := takeAllModsSentinel(excludedRootIDs)
 	for _, rootID := range rootIDs {
 		if _, ok := graph[rootID]; !ok {
 			return PlaySelection{}, fmt.Errorf("collection %q was not found", rootID)
+		}
+	}
+	for _, rootID := range excludedRootIDs {
+		if _, ok := graph[rootID]; !ok {
+			return PlaySelection{}, fmt.Errorf("excluded collection %q was not found", rootID)
 		}
 	}
 	included := make([]string, 0)
@@ -1447,6 +1482,83 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			return PlaySelection{}, err
 		}
 	}
+	if includeAllMods {
+		everyMod, err := indexedModEntityIDsTx(ctx, tx)
+		if err != nil {
+			return PlaySelection{}, err
+		}
+		for _, entityID := range everyMod {
+			entry := provenance[entityID]
+			if entry == nil {
+				entry = &collectionModProvenance{collections: map[string]struct{}{}, roots: map[string]struct{}{}}
+				provenance[entityID] = entry
+			}
+			if _, exists := entry.roots[AllModsCollectionID]; !exists {
+				entry.roots[AllModsCollectionID] = struct{}{}
+				entry.rootIDs = append(entry.rootIDs, AllModsCollectionID)
+			}
+		}
+	}
+
+	// Build the excluded entity set by walking excluded roots with the same
+	// traversal logic. Exclusion beats inclusion: any mod reachable from both
+	// an included and excluded collection is out.
+	excludedEntities := map[string]struct{}{}
+	if excludeAllMods {
+		everyMod, err := indexedModEntityIDsTx(ctx, tx)
+		if err != nil {
+			return PlaySelection{}, err
+		}
+		for _, entityID := range everyMod {
+			excludedEntities[entityID] = struct{}{}
+		}
+	}
+	if len(excludedRootIDs) > 0 {
+		excludedSeenByRoot := map[string]map[string]struct{}{}
+		excludedVisiting := map[string]struct{}{}
+		var excludeWalk func(rootID, collectionID string, path []string) error
+		excludeWalk = func(rootID, collectionID string, path []string) error {
+			if _, active := excludedVisiting[collectionID]; active {
+				return nil // cycles silently stop in exclusion
+			}
+			seen := excludedSeenByRoot[rootID]
+			if seen == nil {
+				seen = map[string]struct{}{}
+				excludedSeenByRoot[rootID] = seen
+			}
+			if _, done := seen[collectionID]; done {
+				return nil
+			}
+			node, ok := graph[collectionID]
+			if !ok {
+				return fmt.Errorf("excluded collection %q was not found", collectionID)
+			}
+			excludedVisiting[collectionID] = struct{}{}
+			for _, member := range node.members {
+				if !member.Enabled && !member.DisabledByArchive {
+					continue
+				}
+				excludedEntities[member.EntityID] = struct{}{}
+			}
+			for _, child := range node.children {
+				if !child.Enabled {
+					continue
+				}
+				if err := excludeWalk(rootID, child.CollectionID, append(path, collectionID)); err != nil {
+					return err
+				}
+			}
+			delete(excludedVisiting, collectionID)
+			seen[collectionID] = struct{}{}
+			return nil
+		}
+		for _, rootID := range excludedRootIDs {
+			if err := excludeWalk(rootID, rootID, nil); err != nil {
+				return PlaySelection{}, err
+			}
+		}
+	}
+
 	entityIDs := make([]string, 0, len(provenance))
 	for entityID := range provenance {
 		entityIDs = append(entityIDs, entityID)
@@ -1457,6 +1569,7 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 	}
 	mods := make([]CollectionMod, 0, len(provenance))
 	archivedCount := 0
+	excludedModCount := 0
 	for entityID, entry := range provenance {
 		meta, ok := metadata[entityID]
 		if !ok {
@@ -1467,6 +1580,11 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			if excludeArchived {
 				continue
 			}
+		}
+		// Exclusion beats inclusion: a mod reachable from both is out.
+		if _, excluded := excludedEntities[entityID]; excluded {
+			excludedModCount++
+			continue
 		}
 		sort.SliceStable(entry.collectionIDs, func(i, j int) bool {
 			return includedOrder[entry.collectionIDs[i]] < includedOrder[entry.collectionIDs[j]]
@@ -1520,11 +1638,17 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 			warnings = append(warnings, fmt.Sprintf("Archive unavailable for %s", name))
 		}
 	}
+	// The sentinel was taken out before graph validation, so it goes back into
+	// what this selection reports: the caller asked for "all mods", the
+	// fingerprint has to cover that, and a launch prepared from it must be
+	// rejected if the request no longer says the same thing.
 	selection := PlaySelection{
-		CollectionIDs:         append([]string(nil), rootIDs...),
+		CollectionIDs:         restoreAllModsSentinel(rootIDs, includeAllMods),
+		ExcludedCollectionIDs: restoreAllModsSentinel(excludedRootIDs, excludeAllMods),
 		IncludedCollectionIDs: included,
 		Mods:                  mods,
 		ModCount:              len(mods),
+		ExcludedModCount:      excludedModCount,
 		MissingCount:          missingCount,
 		ArchivedCount:         archivedCount,
 		Warnings:              warnings,
@@ -1532,6 +1656,9 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 	selection.Fingerprint = collectionSelectionFingerprint(selection)
 	if selection.CollectionIDs == nil {
 		selection.CollectionIDs = []string{}
+	}
+	if selection.ExcludedCollectionIDs == nil {
+		selection.ExcludedCollectionIDs = []string{}
 	}
 	if selection.IncludedCollectionIDs == nil {
 		selection.IncludedCollectionIDs = []string{}
@@ -1543,6 +1670,55 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 		selection.Warnings = []string{}
 	}
 	return selection, nil
+}
+
+// takeAllModsSentinel splits the sentinel out of a collection id list so the
+// remaining ids can be validated against the graph.
+func takeAllModsSentinel(ids []string) ([]string, bool) {
+	found := false
+	kept := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == AllModsCollectionID {
+			found = true
+			continue
+		}
+		kept = append(kept, id)
+	}
+	return kept, found
+}
+
+// restoreAllModsSentinel puts it back in front, where the caller wrote it.
+func restoreAllModsSentinel(ids []string, present bool) []string {
+	if !present {
+		return append([]string(nil), ids...)
+	}
+	return append([]string{AllModsCollectionID}, ids...)
+}
+
+// indexedModEntityIDsTx lists every mod in the library that has an archive to
+// launch. Archived mods are included here on purpose: the resolver counts them
+// and drops them, which is what keeps the promise that archived mods never
+// reach the game while the selection still says how many it left out. Read at
+// resolve time, so a mod indexed after a selection was saved is picked up
+// without the user editing anything - the case an in-game downloader creates.
+func indexedModEntityIDsTx(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT e.id FROM entities e
+		JOIN archive_links al ON al.entity_id = e.id AND al.active = 1
+		GROUP BY e.id
+		ORDER BY e.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entityIDs := make([]string, 0, 512)
+	for rows.Next() {
+		var entityID string
+		if err := rows.Scan(&entityID); err != nil {
+			return nil, err
+		}
+		entityIDs = append(entityIDs, entityID)
+	}
+	return entityIDs, rows.Err()
 }
 
 func collectionSelectionFingerprint(selection PlaySelection) string {
@@ -1559,10 +1735,11 @@ func collectionSelectionFingerprint(selection PlaySelection) string {
 		mods = append(mods, fingerprintMod{EntityID: mod.EntityID, ArchivePath: mod.ArchivePath, SHA256: mod.SHA256, Available: mod.Available, CollectionIDs: mod.CollectionIDs, RootIDs: mod.RootIDs})
 	}
 	payload, _ := json.Marshal(struct {
-		CollectionIDs []string         `json:"collectionIds"`
-		ArchivedCount int              `json:"archivedCount"`
-		Mods          []fingerprintMod `json:"mods"`
-	}{selection.CollectionIDs, selection.ArchivedCount, mods})
+		CollectionIDs         []string         `json:"collectionIds"`
+		ExcludedCollectionIDs []string         `json:"excludedCollectionIds"`
+		ArchivedCount         int              `json:"archivedCount"`
+		Mods                  []fingerprintMod `json:"mods"`
+	}{selection.CollectionIDs, selection.ExcludedCollectionIDs, selection.ArchivedCount, mods})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
@@ -1701,13 +1878,13 @@ func collectionUsageGraphTx(ctx context.Context, tx *sql.Tx, graph collectionGra
 			_ = rows.Close()
 			return CollectionUsage{}, err
 		}
-		profileIDs, err := profileCollectionIDsTx(ctx, tx, profileID)
+		profileIDs, profileExcluded, err := profileCollectionIDsTx(ctx, tx, profileID)
 		if err != nil {
 			_ = rows.Close()
 			return CollectionUsage{}, err
 		}
 		used := false
-		for _, rootID := range profileIDs {
+		for _, rootID := range append(profileIDs, profileExcluded...) {
 			if _, direct := targets[rootID]; direct {
 				used = true
 				break
@@ -1751,28 +1928,63 @@ func collectionReachesAny(graph collectionGraph, rootID string, targets, seen ma
 	return false
 }
 
-func profileCollectionIDsTx(ctx context.Context, tx *sql.Tx, profileID string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT collection_id FROM play_profile_collections WHERE profile_id=? ORDER BY position,collection_id`, profileID)
+func profileCollectionIDsTx(ctx context.Context, tx *sql.Tx, profileID string) ([]string, []string, error) {
+	// Read sentinel flags from the profile row.
+	var includesAllMods, excludesAllMods int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(includes_all_mods,0), COALESCE(excludes_all_mods,0) FROM play_profiles WHERE id=?`, profileID).Scan(&includesAllMods, &excludesAllMods); err != nil {
+		return nil, nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT collection_id, excluded FROM play_profile_collections WHERE profile_id=? ORDER BY excluded, position, collection_id`, profileID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	ids := []string{}
+	excludedIDs := []string{}
+	if includesAllMods != 0 {
+		ids = append(ids, AllModsCollectionID)
+	}
+	if excludesAllMods != 0 {
+		excludedIDs = append(excludedIDs, AllModsCollectionID)
+	}
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+		var excluded int
+		if err := rows.Scan(&id, &excluded); err != nil {
+			return nil, nil, err
 		}
-		ids = append(ids, id)
+		if excluded != 0 {
+			excludedIDs = append(excludedIDs, id)
+		} else {
+			ids = append(ids, id)
+		}
 	}
-	return ids, rows.Err()
+	return ids, excludedIDs, rows.Err()
 }
 
-func insertProfileCollectionsTx(ctx context.Context, tx *sql.Tx, profileID string, collectionIDs []string) error {
+func insertProfileCollectionsTx(ctx context.Context, tx *sql.Tx, profileID string, collectionIDs, excludedCollectionIDs []string) error {
+	includesAllMods := 0
+	excludesAllMods := 0
 	for position, collectionID := range collectionIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO play_profile_collections(profile_id,collection_id,position) VALUES(?,?,?)`, profileID, collectionID, position); err != nil {
+		if collectionID == AllModsCollectionID {
+			includesAllMods = 1
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO play_profile_collections(profile_id,collection_id,position,excluded) VALUES(?,?,?,0)`, profileID, collectionID, position); err != nil {
 			return err
 		}
+	}
+	for position, collectionID := range excludedCollectionIDs {
+		if collectionID == AllModsCollectionID {
+			excludesAllMods = 1
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO play_profile_collections(profile_id,collection_id,position,excluded) VALUES(?,?,?,1)`, profileID, collectionID, position); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE play_profiles SET includes_all_mods=?, excludes_all_mods=? WHERE id=?`, includesAllMods, excludesAllMods, profileID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1790,6 +2002,20 @@ func requireCollectionExistsTx(ctx context.Context, tx *sql.Tx, collectionID str
 
 func requireCollectionsExistTx(ctx context.Context, tx *sql.Tx, collectionIDs []string) error {
 	for _, id := range collectionIDs {
+		if err := requireCollectionExistsTx(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireCollectionsOrSentinelExistTx validates that every ID is either the
+// all-mods sentinel or an existing collection.
+func requireCollectionsOrSentinelExistTx(ctx context.Context, tx *sql.Tx, collectionIDs []string) error {
+	for _, id := range collectionIDs {
+		if id == AllModsCollectionID {
+			continue
+		}
 		if err := requireCollectionExistsTx(ctx, tx, id); err != nil {
 			return err
 		}

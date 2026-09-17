@@ -72,7 +72,7 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	if _, err := service.SetCollectionChildren(c.Collection.ID, []string{a.Collection.ID}, true); err == nil {
 		t.Fatal("long collection cycle was accepted")
 	}
-	selection, err := service.ResolvePlaySelection([]string{a.Collection.ID})
+	selection, err := service.ResolvePlaySelection([]string{a.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,14 +88,14 @@ func TestOrganizationMigrationAndMembershipContracts(t *testing.T) {
 	if secondMod.EntityID == "" || len(secondMod.CollectionIDs) != 2 || !slices.Contains(secondMod.RootIDs, a.Collection.ID) {
 		t.Fatalf("shared mod provenance = %#v", secondMod)
 	}
-	profile, err := service.CreatePlayProfile([]string{a.Collection.ID})
+	profile, err := service.CreatePlayProfile([]string{a.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if profile.Name != "Profile 1" || profile.ModCount != 3 || len(profile.CollectionIDs) != 1 {
 		t.Fatalf("created Play profile = %#v", profile)
 	}
-	profile, err = service.UpdatePlayProfile(profile.ID, []string{a.Collection.ID, c.Collection.ID})
+	profile, err = service.UpdatePlayProfile(profile.ID, []string{a.Collection.ID, c.Collection.ID}, nil)
 	if err != nil || profile.CollectionCount != 2 || profile.ModCount != 3 {
 		t.Fatalf("updated Play profile = %#v, err %v", profile, err)
 	}
@@ -503,7 +503,7 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 	// invalidate the fingerprint the person just reviewed.
 	review := func() PlaySelection {
 		t.Helper()
-		selection, err := service.ResolvePlaySelection(roots)
+		selection, err := service.ResolvePlaySelection(roots, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

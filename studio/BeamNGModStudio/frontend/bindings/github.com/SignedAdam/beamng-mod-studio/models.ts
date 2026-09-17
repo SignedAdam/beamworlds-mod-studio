@@ -889,6 +889,7 @@ export interface ModProfile {
     "name": string;
     "updatedAt": string;
     "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
     "collectionCount": number;
     "modCount": number;
 }
@@ -958,6 +959,7 @@ export interface PlayActivation {
     "modsPath": string;
     "activatedAt": string;
     "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
     "fingerprint": string;
 }
 
@@ -975,6 +977,7 @@ export interface PlayProgress {
 
 export interface PlayRequest {
     "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
     "fingerprint": string;
 }
 
@@ -996,9 +999,11 @@ export interface PlayRuntimeState {
 
 export interface PlaySelection {
     "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
     "includedCollectionIds": string[] | null;
     "mods": CollectionMod[] | null;
     "modCount": number;
+    "excludedModCount": number;
     "missingCount": number;
     "archivedCount": number;
     "fingerprint": string;
@@ -1008,7 +1013,9 @@ export interface PlaySelection {
 export interface PlayState {
     "profileId": string;
     "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
     "defaultCollectionIds": string[] | null;
+    "defaultExcludedCollectionIds": string[] | null;
     "notices": string[] | null;
 }
 

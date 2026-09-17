@@ -190,7 +190,7 @@ func TestResolvePlaySelectionOmitsArchivedMembers(t *testing.T) {
 	if detail.Collection.ModCount != 1 || detail.Collection.ArchivedModCount != 1 {
 		t.Fatalf("collection counts = %#v, want total 1 and archived 1", detail.Collection)
 	}
-	selection, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	selection, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestPlaySelectionFingerprintChangesWhenMemberArchived(t *testing.T) {
 	if _, err := service.SetCollectionMods(collection.Collection.ID, []string{items[0].EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	before, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	before, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestPlaySelectionFingerprintChangesWhenMemberArchived(t *testing.T) {
 	if _, err := service.ArchiveMods([]string{items[0].EntityID}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	after, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func TestPlaySelectionExcludesArchivedMemberAndCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	selection, err := service.ResolvePlaySelection([]string{col.Collection.ID})
+	selection, err := service.ResolvePlaySelection([]string{col.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

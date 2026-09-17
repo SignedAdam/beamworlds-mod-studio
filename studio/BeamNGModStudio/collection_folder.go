@@ -70,7 +70,7 @@ func (service *AppService) syncCollectionFolder(ctx context.Context, collectionI
 	}
 	// The Play resolver is the authority on what a collection ships: it walks
 	// enabled child edges and drops archived mods.
-	selection, err := service.store.ResolvePlaySelection(ctx, []string{id})
+	selection, err := service.store.ResolvePlaySelection(ctx, []string{id}, nil)
 	if err != nil {
 		return CollectionFolder{}, err
 	}

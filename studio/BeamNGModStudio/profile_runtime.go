@@ -190,6 +190,7 @@ func (service *AppService) activatePlaySelection(ctx context.Context, request Pl
 		return PlayActivation{}, err
 	}
 	ids := normalizePlayCollectionIDs(request.CollectionIDs)
+	excludedIDs := normalizePlayCollectionIDs(request.ExcludedCollectionIDs)
 	operationID, err := modkit.NewID()
 	if err != nil {
 		return PlayActivation{}, err
@@ -205,11 +206,11 @@ func (service *AppService) activatePlaySelection(ctx context.Context, request Pl
 		}
 	}()
 
-	selection, err := service.store.ResolvePlaySelection(ctx, ids)
+	selection, err := service.store.ResolvePlaySelection(ctx, ids, excludedIDs)
 	if err != nil {
 		return PlayActivation{}, err
 	}
-	if err := service.validateRuntimePlaySelection(PlayRequest{CollectionIDs: ids, Fingerprint: request.Fingerprint}, selection); err != nil {
+	if err := service.validateRuntimePlaySelection(PlayRequest{CollectionIDs: ids, ExcludedCollectionIDs: excludedIDs, Fingerprint: request.Fingerprint}, selection); err != nil {
 		return PlayActivation{}, err
 	}
 	progress.Phase = "preparing"
@@ -330,11 +331,11 @@ func (service *AppService) activatePlaySelection(ctx context.Context, request Pl
 	progress.Phase = "reviewing"
 	progress.Current = ""
 	service.emitPlayProgress(progress)
-	finalSelection, err := service.store.ResolvePlaySelection(ctx, ids)
+	finalSelection, err := service.store.ResolvePlaySelection(ctx, ids, excludedIDs)
 	if err != nil {
 		return PlayActivation{}, err
 	}
-	if err := service.validateRuntimePlaySelection(PlayRequest{CollectionIDs: ids, Fingerprint: request.Fingerprint}, finalSelection); err != nil {
+	if err := service.validateRuntimePlaySelection(PlayRequest{CollectionIDs: ids, ExcludedCollectionIDs: excludedIDs, Fingerprint: request.Fingerprint}, finalSelection); err != nil {
 		return PlayActivation{}, err
 	}
 	if !strings.EqualFold(strings.TrimSpace(finalSelection.Fingerprint), strings.TrimSpace(selection.Fingerprint)) {
@@ -377,13 +378,14 @@ func (service *AppService) activatePlaySelection(ctx context.Context, request Pl
 	}
 	activatedAt := nowUTC()
 	activation = PlayActivation{
-		OperationID:   operationID,
-		ModCount:      len(selection.Mods),
-		UserPath:      service.config.BeamNGRoot,
-		ModsPath:      managedRoot,
-		ActivatedAt:   activatedAt,
-		CollectionIDs: append([]string(nil), ids...),
-		Fingerprint:   strings.TrimSpace(selection.Fingerprint),
+		OperationID:           operationID,
+		ModCount:              len(selection.Mods),
+		UserPath:              service.config.BeamNGRoot,
+		ModsPath:              managedRoot,
+		ActivatedAt:           activatedAt,
+		CollectionIDs:         append([]string(nil), ids...),
+		ExcludedCollectionIDs: append([]string(nil), excludedIDs...),
+		Fingerprint:           strings.TrimSpace(selection.Fingerprint),
 	}
 	if err := service.writePlayRuntimeMarker(activation); err != nil {
 		rollbackErr := rollback()

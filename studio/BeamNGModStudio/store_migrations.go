@@ -1126,6 +1126,19 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if err := ensureColumnTx(ctx, tx, "mod_tags", "grouped", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("mod tag grouped column: %w", err)
 	}
+	// Play profile collections carry an excluded flag so saved profiles can
+	// remember both included and excluded collection lists.
+	if err := ensureColumnTx(ctx, tx, "play_profile_collections", "excluded", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("play profile collection excluded column: %w", err)
+	}
+	// Sentinel flags on the profile row itself (not the FK-constrained junction
+	// table) so the all-mods virtual collection survives a round-trip.
+	if err := ensureColumnTx(ctx, tx, "play_profiles", "includes_all_mods", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("play profile includes_all_mods column: %w", err)
+	}
+	if err := ensureColumnTx(ctx, tx, "play_profiles", "excludes_all_mods", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("play profile excludes_all_mods column: %w", err)
+	}
 	var seeded string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
 	if err == nil {
@@ -1921,6 +1934,9 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"mod_audits", "final_json", `TEXT NOT NULL DEFAULT '{}'`},
 		{"mod_audits", "follow_up_json", `TEXT NOT NULL DEFAULT '[]'`},
 		{"mod_audit_files", "pre_scan_json", `TEXT NOT NULL DEFAULT '{}'`},
+		{"play_profile_collections", "excluded", `INTEGER NOT NULL DEFAULT 0`},
+		{"play_profiles", "includes_all_mods", `INTEGER NOT NULL DEFAULT 0`},
+		{"play_profiles", "excludes_all_mods", `INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, column := range columns {
 		if err := ensureColumnTx(ctx, tx, column.table, column.column, column.definition); err != nil {

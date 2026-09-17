@@ -72,7 +72,7 @@ func (s *Store) SavePlayState(ctx context.Context, state PlayState) (PlayState, 
 }
 
 func emptyPlayState() PlayState {
-	return PlayState{CollectionIDs: []string{}, DefaultCollectionIDs: []string{}, Notices: []string{}}
+	return PlayState{CollectionIDs: []string{}, ExcludedCollectionIDs: []string{}, DefaultCollectionIDs: []string{}, DefaultExcludedCollectionIDs: []string{}, Notices: []string{}}
 }
 
 func readPlayStateTx(ctx context.Context, tx *sql.Tx) (PlayState, bool, error) {
@@ -110,7 +110,13 @@ func normalizePlayStateTx(ctx context.Context, tx *sql.Tx, input PlayState) (Pla
 	if state.CollectionIDs, err = normalizePlayStateReferences(ctx, tx, state.CollectionIDs, &state.Notices); err != nil {
 		return PlayState{}, err
 	}
+	if state.ExcludedCollectionIDs, err = normalizePlayStateReferences(ctx, tx, state.ExcludedCollectionIDs, &state.Notices); err != nil {
+		return PlayState{}, err
+	}
 	if state.DefaultCollectionIDs, err = normalizePlayStateReferences(ctx, tx, state.DefaultCollectionIDs, &state.Notices); err != nil {
+		return PlayState{}, err
+	}
+	if state.DefaultExcludedCollectionIDs, err = normalizePlayStateReferences(ctx, tx, state.DefaultExcludedCollectionIDs, &state.Notices); err != nil {
 		return PlayState{}, err
 	}
 	state.ProfileID = strings.TrimSpace(state.ProfileID)
@@ -128,8 +134,14 @@ func normalizePlayStateTx(ctx context.Context, tx *sql.Tx, input PlayState) (Pla
 	if state.CollectionIDs == nil {
 		state.CollectionIDs = []string{}
 	}
+	if state.ExcludedCollectionIDs == nil {
+		state.ExcludedCollectionIDs = []string{}
+	}
 	if state.DefaultCollectionIDs == nil {
 		state.DefaultCollectionIDs = []string{}
+	}
+	if state.DefaultExcludedCollectionIDs == nil {
+		state.DefaultExcludedCollectionIDs = []string{}
 	}
 	if state.Notices == nil {
 		state.Notices = []string{}
@@ -149,6 +161,11 @@ func normalizePlayStateReferences(ctx context.Context, tx *sql.Tx, values []stri
 			continue
 		}
 		seen[value] = struct{}{}
+		// The all-mods sentinel is valid without a real collection row.
+		if value == AllModsCollectionID {
+			normalized = append(normalized, value)
+			continue
+		}
 		var exists int
 		err := tx.QueryRowContext(ctx, `SELECT 1 FROM collections WHERE id=? LIMIT 1`, value).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {

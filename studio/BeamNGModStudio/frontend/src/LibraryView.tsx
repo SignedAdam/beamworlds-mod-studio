@@ -12,6 +12,7 @@ import { LibrarySearch } from './LibrarySearch'
 import { useFileManagerLabel } from './fileManager'
 import { ModTable, sortLibraryItems, type ModFamilyBadge, type ModTableSort } from './ModTable'
 import { Button, Page, formatBytes, type PageActionSpec } from './ui'
+import { SelectionCollections } from './SelectionCollections'
 
 type LibraryViewMode = 'table' | 'preview'
 
@@ -788,6 +789,13 @@ export function LibraryView(props: LibraryViewProps) {
         ><Icon name="close" size={15}/></button>
       </div>}
     </div>
+    {selectedEntityIDs.size > 0 && <SelectionCollections
+      selectedEntityIDs={selectedEntityIDs}
+      catalogItems={props.catalogItems}
+      collections={props.collections}
+      onSelectionChange={setSelectedEntityIDs}
+      onCollectionChange={props.onCollectionChange}
+    />}
     <div className="library-workarea">
       {viewMode === 'preview' ? (
         <LibraryPreviewGrid

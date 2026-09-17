@@ -58,12 +58,12 @@ func (service *AppService) ReorderCollectionMembers(collectionID string, entityI
 	return service.store.ReorderCollectionMembers(context.Background(), collectionID, entityIDs, childIDs)
 }
 
-func (service *AppService) CreatePlayProfile(collectionIDs []string) (ModProfile, error) {
-	return service.store.CreatePlayProfile(context.Background(), collectionIDs)
+func (service *AppService) CreatePlayProfile(collectionIDs, excludedCollectionIDs []string) (ModProfile, error) {
+	return service.store.CreatePlayProfile(context.Background(), collectionIDs, excludedCollectionIDs)
 }
 
-func (service *AppService) UpdatePlayProfile(profileID string, collectionIDs []string) (ModProfile, error) {
-	return service.store.UpdatePlayProfile(context.Background(), profileID, collectionIDs)
+func (service *AppService) UpdatePlayProfile(profileID string, collectionIDs, excludedCollectionIDs []string) (ModProfile, error) {
+	return service.store.UpdatePlayProfile(context.Background(), profileID, collectionIDs, excludedCollectionIDs)
 }
 
 func (service *AppService) RenamePlayProfile(profileID, name string) (ModProfile, error) {
@@ -74,8 +74,8 @@ func (service *AppService) DeletePlayProfile(profileID string) (OrganizationStat
 	return service.store.DeletePlayProfile(context.Background(), profileID)
 }
 
-func (service *AppService) ResolvePlaySelection(collectionIDs []string) (PlaySelection, error) {
-	return service.store.ResolvePlaySelection(context.Background(), collectionIDs)
+func (service *AppService) ResolvePlaySelection(collectionIDs, excludedCollectionIDs []string) (PlaySelection, error) {
+	return service.store.ResolvePlaySelection(context.Background(), collectionIDs, excludedCollectionIDs)
 }
 
 // cleanOrganizationName is shared by tags and the collection/profile APIs.

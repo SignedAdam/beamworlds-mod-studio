@@ -12,7 +12,7 @@ import (
 
 func selectionEntityIDs(t *testing.T, service *AppService, roots ...string) []string {
 	t.Helper()
-	selection, err := service.ResolvePlaySelection(roots)
+	selection, err := service.ResolvePlaySelection(roots, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestDisabledMembershipStopsShippingButKeepsMembership(t *testing.T) {
 	if detail.Collection.DirectEnabledCount != 2 || detail.Collection.ModCount != 2 {
 		t.Fatalf("counts before disabling = %#v", detail.Collection)
 	}
-	before, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	before, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestDisabledMembershipStopsShippingButKeepsMembership(t *testing.T) {
 	if got := selectionEntityIDs(t, service, collection.Collection.ID); len(got) != 1 || got[0] != kept.Entity.EntityID {
 		t.Fatalf("disabled mod still ships: %#v", got)
 	}
-	after, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	after, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestDisabledMembershipStopsShippingButKeepsMembership(t *testing.T) {
 	if _, err := service.SetCollectionModsEnabled(collection.Collection.ID, []string{parked.Entity.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	restored, err := service.ResolvePlaySelection([]string{collection.Collection.ID})
+	restored, err := service.ResolvePlaySelection([]string{collection.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestEnabledMembershipWinsAcrossCollections(t *testing.T) {
 	if _, err := service.SetCollectionModsEnabled(disabledIn.Collection.ID, []string{shared.Entity.EntityID}, false); err != nil {
 		t.Fatal(err)
 	}
-	selection, err := service.ResolvePlaySelection([]string{enabledIn.Collection.ID, disabledIn.Collection.ID})
+	selection, err := service.ResolvePlaySelection([]string{enabledIn.Collection.ID, disabledIn.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestFirstScanSeedsDefaultProfileFromEnabledMods(t *testing.T) {
 	if strings.Contains(state.Notices[0], "modstudio-test") {
 		t.Fatalf("a BeamWorlds test install was reported to the user: %q", state.Notices[0])
 	}
-	selection, err := service.ResolvePlaySelection(state.CollectionIDs)
+	selection, err := service.ResolvePlaySelection(state.CollectionIDs, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

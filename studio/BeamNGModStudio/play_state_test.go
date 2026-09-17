@@ -11,7 +11,7 @@ func TestPlayStateNormalizesDeletedReferencesWithoutOverwritingProfile(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := service.CreatePlayProfile([]string{created.Collection.ID})
+	profile, err := service.CreatePlayProfile([]string{created.Collection.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

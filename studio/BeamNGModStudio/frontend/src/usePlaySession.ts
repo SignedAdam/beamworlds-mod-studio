@@ -23,6 +23,7 @@ export type PlayBusyState =
 
 export interface PlaySession {
   selection: string[];
+  excludedSelection: string[];
   defaultSelection: string[];
   profileId: string;
   preview: PlaySelection | null;
@@ -38,6 +39,7 @@ export interface PlaySession {
   hydrationReady: boolean;
   setSelection: (ids: string[]) => Promise<void>;
   toggleCollection: (id: string) => Promise<void>;
+  toggleExclusion: (id: string) => Promise<void>;
   addCollections: (ids: string[]) => Promise<void>;
   clearSelection: () => Promise<void>;
   switchProfile: (profileId: string) => Promise<void>;
@@ -82,16 +84,23 @@ function collectionIDs(organization: OrganizationState | null): Set<string> {
   return new Set((organization?.collections ?? []).map((collection) => collection.id));
 }
 
+/** Baseline for dirty-checking a profile: what it contained when loaded. */
+type ProfileBaseline = { included: string[]; excluded: string[] };
+
 function statePayload(
   profileId: string,
   selection: readonly string[],
+  excludedSelection: readonly string[],
   defaultSelection: readonly string[],
+  defaultExcludedSelection: readonly string[],
   notices: readonly string[],
 ): PlayState {
   return {
     profileId,
     collectionIds: uniqueIDs(selection),
+    excludedCollectionIds: uniqueIDs(excludedSelection),
     defaultCollectionIds: uniqueIDs(defaultSelection),
+    defaultExcludedCollectionIds: uniqueIDs(defaultExcludedSelection),
     notices: [...notices],
   };
 }
@@ -115,7 +124,9 @@ export function usePlaySession(
   organizationRef.current = organization;
 
   const [selection, setSelectionState] = useState<string[]>([]);
+  const [excludedSelection, setExcludedSelectionState] = useState<string[]>([]);
   const [defaultSelection, setDefaultSelectionState] = useState<string[]>([]);
+  const [, setDefaultExcludedSelectionState] = useState<string[]>([]);
   const [profileId, setProfileIdState] = useState("");
   const [preview, setPreviewState] = useState<PlaySelection | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -128,10 +139,12 @@ export function usePlaySession(
   const [result, setResult] = useState<PlayResult | null>(null);
   const [hydrationReady, setHydrationReady] = useState(false);
   const [hydrationApplied, setHydrationApplied] = useState(false);
-  const [baselineOverrides, setBaselineOverrides] = useState<Record<string, string[]>>({});
+  const [baselineOverrides, setBaselineOverrides] = useState<Record<string, ProfileBaseline>>({});
 
   const selectionRef = useRef<string[]>([]);
+  const excludedSelectionRef = useRef<string[]>([]);
   const defaultSelectionRef = useRef<string[]>([]);
+  const defaultExcludedSelectionRef = useRef<string[]>([]);
   const profileIdRef = useRef("");
   const previewRef = useRef<PlaySelection | null>(null);
   const noticesRef = useRef<string[]>([]);
@@ -166,7 +179,9 @@ export function usePlaySession(
     const payload = statePayload(
       profileIdRef.current,
       selectionRef.current,
+      excludedSelectionRef.current,
       defaultSelectionRef.current,
+      defaultExcludedSelectionRef.current,
       noticesRef.current,
     );
     const write = persistTailRef.current
@@ -181,13 +196,17 @@ export function usePlaySession(
     }
   }, []);
 
-  const refreshPreviewFor = useCallback(async (ids: readonly string[]) => {
+  const refreshPreviewFor = useCallback(async (
+    ids: readonly string[],
+    excludedIds: readonly string[],
+  ) => {
     const requested = uniqueIDs(ids);
+    const requestedExcluded = uniqueIDs(excludedIds);
     const version = ++resolveVersionRef.current;
     setPreviewLoading(true);
     setPreviewError("");
     try {
-      const resolved = await API.ResolvePlaySelection(requested);
+      const resolved = await API.ResolvePlaySelection(requested, requestedExcluded);
       if (
         !mountedRef.current ||
         version !== resolveVersionRef.current ||
@@ -230,44 +249,85 @@ export function usePlaySession(
     return true;
   }, []);
 
+  /** Replace the entire draft (included + excluded). Pass `undefined` for
+   *  excludedIds to keep the current excluded set unchanged. */
   const setDraft = useCallback(async (
     ids: readonly string[],
+    excludedIds: readonly string[] | undefined,
     options: { userEdit?: boolean } = {},
   ) => {
     const next = uniqueIDs(ids);
+    const nextExcluded = excludedIds !== undefined
+      ? uniqueIDs(excludedIds)
+      : excludedSelectionRef.current;
     if (options.userEdit !== false) userEditVersionRef.current += 1;
     selectionRef.current = next;
     setSelectionState(next);
+    excludedSelectionRef.current = nextExcluded;
+    setExcludedSelectionState(nextExcluded);
     if (!profileIdRef.current) {
       defaultSelectionRef.current = next;
       setDefaultSelectionState(next);
+      defaultExcludedSelectionRef.current = nextExcluded;
+      setDefaultExcludedSelectionState(nextExcluded);
     }
     resultRef.current = null;
     setResult(null);
-    await Promise.all([persistState(), refreshPreviewFor(next)]);
+    await Promise.all([persistState(), refreshPreviewFor(next, nextExcluded)]);
   }, [persistState, refreshPreviewFor]);
 
   const setSelection = useCallback(async (ids: string[]) => {
     if (operationBusyRef.current) return;
-    await setDraft(ids);
+    await setDraft(ids, undefined);
   }, [setDraft]);
 
   const toggleCollection = useCallback(async (id: string) => {
     if (operationBusyRef.current || !id) return;
     const current = new Set(selectionRef.current);
-    if (current.has(id)) current.delete(id);
-    else current.add(id);
-    await setDraft(Array.from(current));
+    let nextExcluded: string[] | undefined;
+    if (current.has(id)) {
+      current.delete(id);
+    } else {
+      current.add(id);
+      // Including a collection removes it from exclusions.
+      if (excludedSelectionRef.current.includes(id)) {
+        nextExcluded = excludedSelectionRef.current.filter((eid) => eid !== id);
+      }
+    }
+    await setDraft(Array.from(current), nextExcluded);
+  }, [setDraft]);
+
+  const toggleExclusion = useCallback(async (id: string) => {
+    if (operationBusyRef.current || !id) return;
+    const current = new Set(excludedSelectionRef.current);
+    let nextSelection: readonly string[] | undefined;
+    if (current.has(id)) {
+      current.delete(id);
+    } else {
+      current.add(id);
+      // Excluding a collection removes it from inclusion.
+      if (selectionRef.current.includes(id)) {
+        nextSelection = selectionRef.current.filter((sid) => sid !== id);
+      }
+    }
+    await setDraft(
+      nextSelection ?? selectionRef.current,
+      Array.from(current),
+    );
   }, [setDraft]);
 
   const addCollections = useCallback(async (ids: string[]) => {
     if (operationBusyRef.current) return;
-    await setDraft([...selectionRef.current, ...ids]);
+    // Adding also clears these from exclusions.
+    const adding = new Set(ids);
+    const nextExcluded = excludedSelectionRef.current.filter((id) => !adding.has(id));
+    const excludedChanged = nextExcluded.length !== excludedSelectionRef.current.length;
+    await setDraft([...selectionRef.current, ...ids], excludedChanged ? nextExcluded : undefined);
   }, [setDraft]);
 
   const clearSelection = useCallback(async () => {
     if (operationBusyRef.current) return;
-    await setDraft([]);
+    await setDraft([], []);
   }, [setDraft]);
 
   const selectedProfile = useMemo(() => {
@@ -275,14 +335,13 @@ export function usePlaySession(
     return (organization.profiles ?? []).find((profile) => profile.id === profileId) ?? null;
   }, [organization, profileId]);
 
-  const dirty = Boolean(
-    profileId &&
-    selectedProfile &&
-    !sameSet(
-      selection,
-      baselineOverrides[profileId] ?? uniqueIDs(selectedProfile.collectionIds),
-    ),
-  );
+  const dirty = useMemo(() => {
+    if (!profileId || !selectedProfile) return false;
+    const baseline = baselineOverrides[profileId];
+    const baseIncluded = baseline?.included ?? uniqueIDs(selectedProfile.collectionIds);
+    const baseExcluded = baseline?.excluded ?? uniqueIDs(selectedProfile.excludedCollectionIds);
+    return !sameSet(selection, baseIncluded) || !sameSet(excludedSelection, baseExcluded);
+  }, [baselineOverrides, excludedSelection, profileId, selectedProfile, selection]);
 
   const switchProfile = useCallback(async (nextProfileId: string) => {
     if (operationBusyRef.current) return;
@@ -295,13 +354,22 @@ export function usePlaySession(
       if (!profileIdRef.current) {
         defaultSelectionRef.current = [...selectionRef.current];
         setDefaultSelectionState([...selectionRef.current]);
+        defaultExcludedSelectionRef.current = [...excludedSelectionRef.current];
+        setDefaultExcludedSelectionState([...excludedSelectionRef.current]);
       }
       profileIdRef.current = nextProfileId;
       setProfileIdState(nextProfileId);
       const nextSelection = target ? uniqueIDs(target.collectionIds) : [...defaultSelectionRef.current];
-      await setDraft(nextSelection, { userEdit: false });
+      const nextExcluded = target ? uniqueIDs(target.excludedCollectionIds) : [...defaultExcludedSelectionRef.current];
+      await setDraft(nextSelection, nextExcluded, { userEdit: false });
       if (target) {
-        setBaselineOverrides((current) => ({ ...current, [target.id]: uniqueIDs(target.collectionIds) }));
+        setBaselineOverrides((current) => ({
+          ...current,
+          [target.id]: {
+            included: uniqueIDs(target.collectionIds),
+            excluded: uniqueIDs(target.excludedCollectionIds),
+          },
+        }));
       }
     } finally {
       finishBusy();
@@ -311,10 +379,19 @@ export function usePlaySession(
   const createProfile = useCallback(async () => {
     if (!beginBusy("profile-create")) throw new Error("Another Play change is still being saved.");
     try {
-      const created = await API.CreatePlayProfile([...selectionRef.current]);
+      const created = await API.CreatePlayProfile(
+        [...selectionRef.current],
+        [...excludedSelectionRef.current],
+      );
       profileIdRef.current = created.id;
       setProfileIdState(created.id);
-      setBaselineOverrides((current) => ({ ...current, [created.id]: uniqueIDs(created.collectionIds) }));
+      setBaselineOverrides((current) => ({
+        ...current,
+        [created.id]: {
+          included: uniqueIDs(created.collectionIds),
+          excluded: uniqueIDs(created.excludedCollectionIds),
+        },
+      }));
       await refreshOrganization();
       await persistState();
       return created;
@@ -326,10 +403,19 @@ export function usePlaySession(
   const saveAsNew = useCallback(async () => {
     if (!beginBusy("profile-save-as-new")) throw new Error("Another Play change is still being saved.");
     try {
-      const created = await API.CreatePlayProfile([...selectionRef.current]);
+      const created = await API.CreatePlayProfile(
+        [...selectionRef.current],
+        [...excludedSelectionRef.current],
+      );
       profileIdRef.current = created.id;
       setProfileIdState(created.id);
-      setBaselineOverrides((current) => ({ ...current, [created.id]: uniqueIDs(created.collectionIds) }));
+      setBaselineOverrides((current) => ({
+        ...current,
+        [created.id]: {
+          included: uniqueIDs(created.collectionIds),
+          excluded: uniqueIDs(created.excludedCollectionIds),
+        },
+      }));
       await refreshOrganization();
       await persistState();
       return created;
@@ -343,8 +429,18 @@ export function usePlaySession(
     if (!currentProfileId) throw new Error("Default is an unnamed working selection and cannot be updated.");
     if (!beginBusy("profile-update")) throw new Error("Another Play change is still being saved.");
     try {
-      const updated = await API.UpdatePlayProfile(currentProfileId, [...selectionRef.current]);
-      setBaselineOverrides((current) => ({ ...current, [updated.id]: uniqueIDs(updated.collectionIds) }));
+      const updated = await API.UpdatePlayProfile(
+        currentProfileId,
+        [...selectionRef.current],
+        [...excludedSelectionRef.current],
+      );
+      setBaselineOverrides((current) => ({
+        ...current,
+        [updated.id]: {
+          included: uniqueIDs(updated.collectionIds),
+          excluded: uniqueIDs(updated.excludedCollectionIds),
+        },
+      }));
       await refreshOrganization();
       await persistState();
       return updated;
@@ -357,7 +453,11 @@ export function usePlaySession(
     const currentProfileId = profileIdRef.current;
     const target = (organizationRef.current?.profiles ?? []).find((profile) => profile.id === currentProfileId);
     if (!currentProfileId || !target) throw new Error("The saved profile is no longer available.");
-    await setDraft(uniqueIDs(target.collectionIds), { userEdit: false });
+    await setDraft(
+      uniqueIDs(target.collectionIds),
+      uniqueIDs(target.excludedCollectionIds),
+      { userEdit: false },
+    );
   }, [setDraft]);
 
   const renameProfile = useCallback(async (targetProfileId: string, name: string) => {
@@ -381,10 +481,13 @@ export function usePlaySession(
       if (mountedRef.current) onOrganizationRef.current(nextOrganization);
       if (wasActive) {
         const preserved = [...selectionRef.current];
+        const preservedExcluded = [...excludedSelectionRef.current];
         profileIdRef.current = "";
         setProfileIdState("");
         defaultSelectionRef.current = preserved;
         setDefaultSelectionState(preserved);
+        defaultExcludedSelectionRef.current = preservedExcluded;
+        setDefaultExcludedSelectionState(preservedExcluded);
         setBaselineOverrides((current) => {
           const next = { ...current };
           delete next[targetProfileId];
@@ -400,15 +503,23 @@ export function usePlaySession(
   const runPlayOperation = useCallback(async () => {
     if (operationBusyRef.current || busyRef.current) throw new Error("Another Play operation is already in progress.");
     const capturedSelection = [...selectionRef.current];
+    const capturedExcluded = [...excludedSelectionRef.current];
     operationBusyRef.current = "launch";
     setOperationBusy("launch");
     setResult(null);
     resultRef.current = null;
     try {
       let resolved = previewRef.current;
-      if (!resolved || !sameSet(resolved.collectionIds ?? [], capturedSelection)) {
-        resolved = await API.ResolvePlaySelection(capturedSelection);
-        if (!sameSet(capturedSelection, selectionRef.current)) {
+      if (
+        !resolved ||
+        !sameSet(resolved.collectionIds ?? [], capturedSelection) ||
+        !sameSet(resolved.excludedCollectionIds ?? [], capturedExcluded)
+      ) {
+        resolved = await API.ResolvePlaySelection(capturedSelection, capturedExcluded);
+        if (
+          !sameSet(capturedSelection, selectionRef.current) ||
+          !sameSet(capturedExcluded, excludedSelectionRef.current)
+        ) {
           throw new Error("The Play selection changed while it was being resolved. Review it and try again.");
         }
         previewRef.current = resolved;
@@ -417,6 +528,7 @@ export function usePlaySession(
       }
       const request: PlayRequest = {
         collectionIds: capturedSelection,
+        excludedCollectionIds: capturedExcluded,
         fingerprint: resolved.fingerprint,
       };
       const nextResult = await API.LaunchPlaySelection(request);
@@ -436,7 +548,7 @@ export function usePlaySession(
       // the reviewed preview. Refresh the preview here and make the user press
       // Play again, so an unreviewed selection is never activated silently.
       if (/changed since it was reviewed/i.test(message)) {
-        const refreshed = await API.ResolvePlaySelection(capturedSelection).catch(() => null);
+        const refreshed = await API.ResolvePlaySelection(capturedSelection, capturedExcluded).catch(() => null);
         if (refreshed && mountedRef.current && sameSet(capturedSelection, selectionRef.current)) {
           previewRef.current = refreshed;
           setPreviewState(refreshed);
@@ -458,7 +570,7 @@ export function usePlaySession(
   const launchSelection = useCallback(() => runPlayOperation(), [runPlayOperation]);
 
   const refreshPreview = useCallback(async () => {
-    await refreshPreviewFor(selectionRef.current);
+    await refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
   }, [refreshPreviewFor]);
 
   useEffect(() => {
@@ -519,17 +631,24 @@ export function usePlaySession(
     if (userEditVersionRef.current !== hydrationEditVersionRef.current) {
       appendNotice("A saved Play draft was not loaded because it changed before restore completed.");
       setHydrationApplied(true);
-      void refreshPreviewFor(selectionRef.current);
+      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
       return;
     }
     const state = hydrationStateRef.current;
     const known = collectionIDs(organization);
-    const validate = (ids: readonly string[]) => uniqueIDs(ids).filter((id) => known.has(id));
+    const isValid = (id: string) => id === "all-mods" || known.has(id);
+    const validate = (ids: readonly string[]) => uniqueIDs(ids).filter(isValid);
     const rawDefault = state?.defaultCollectionIds ?? [];
     const rawCurrent = state?.profileId ? state.collectionIds ?? [] : rawDefault.length ? rawDefault : state?.collectionIds ?? [];
+    const rawDefaultExcluded = state?.defaultExcludedCollectionIds ?? [];
+    const rawCurrentExcluded = state?.profileId
+      ? state.excludedCollectionIds ?? []
+      : rawDefaultExcluded.length ? rawDefaultExcluded : state?.excludedCollectionIds ?? [];
     const validDefault = validate(rawDefault);
     const validCurrent = validate(rawCurrent);
-    const missing = uniqueIDs([...rawDefault, ...rawCurrent]).filter((id) => !known.has(id));
+    const validDefaultExcluded = validate(rawDefaultExcluded);
+    const validCurrentExcluded = validate(rawCurrentExcluded);
+    const missing = uniqueIDs([...rawDefault, ...rawCurrent]).filter((id) => !isValid(id));
     const savedProfile = state?.profileId
       ? (organization.profiles ?? []).find((profile) => profile.id === state.profileId)
       : null;
@@ -546,10 +665,14 @@ export function usePlaySession(
     setProfileIdState(nextProfileId);
     defaultSelectionRef.current = validDefault;
     setDefaultSelectionState(validDefault);
+    defaultExcludedSelectionRef.current = validDefaultExcluded;
+    setDefaultExcludedSelectionState(validDefaultExcluded);
     selectionRef.current = validCurrent;
     setSelectionState(validCurrent);
+    excludedSelectionRef.current = validCurrentExcluded;
+    setExcludedSelectionState(validCurrentExcluded);
     setHydrationApplied(true);
-    void refreshPreviewFor(validCurrent);
+    void refreshPreviewFor(validCurrent, validCurrentExcluded);
     void persistState();
   }, [appendNotice, hydrationApplied, hydrationReady, organization, persistState, refreshPreviewFor, setNotices]);
 
@@ -557,31 +680,48 @@ export function usePlaySession(
     if (!organization) return;
     const profiles = organization.profiles ?? [];
     setBaselineOverrides((current) => {
-      const next: Record<string, string[]> = {};
+      const next: Record<string, ProfileBaseline> = {};
       let changed = false;
       for (const profile of profiles) {
-        const ids = uniqueIDs(profile.collectionIds);
-        next[profile.id] = ids;
-        if (!sameList(current[profile.id] ?? [], ids)) changed = true;
+        const included = uniqueIDs(profile.collectionIds);
+        const excluded = uniqueIDs(profile.excludedCollectionIds);
+        next[profile.id] = { included, excluded };
+        const prev = current[profile.id];
+        if (!prev || !sameList(prev.included, included) || !sameList(prev.excluded, excluded)) changed = true;
       }
       if (Object.keys(current).length !== Object.keys(next).length) changed = true;
       return changed ? next : current;
     });
     if (!hydrationApplied) return;
     const known = collectionIDs(organization);
-    const nextSelection = selectionRef.current.filter((id) => known.has(id));
-    const nextDefault = defaultSelectionRef.current.filter((id) => known.has(id));
+    const isValid = (id: string) => id === "all-mods" || known.has(id);
+    const nextSelection = selectionRef.current.filter(isValid);
+    const nextDefault = defaultSelectionRef.current.filter(isValid);
+    const nextExcluded = excludedSelectionRef.current.filter(isValid);
+    const nextDefaultExcluded = defaultExcludedSelectionRef.current.filter(isValid);
+    let needsRefresh = false;
     if (!sameList(nextSelection, selectionRef.current)) {
-      const removed = selectionRef.current.filter((id) => !known.has(id));
+      const removed = selectionRef.current.filter((id) => !isValid(id));
       selectionRef.current = nextSelection;
       setSelectionState(nextSelection);
       appendNotice(`${removed.length} selected collection${removed.length === 1 ? " was" : "s were"} removed from Play because it no longer exists.`);
       void persistState();
-      void refreshPreviewFor(nextSelection);
+      needsRefresh = true;
+    }
+    if (!sameList(nextExcluded, excludedSelectionRef.current)) {
+      excludedSelectionRef.current = nextExcluded;
+      setExcludedSelectionState(nextExcluded);
+      void persistState();
+      needsRefresh = true;
     }
     if (!sameList(nextDefault, defaultSelectionRef.current)) {
       defaultSelectionRef.current = nextDefault;
       setDefaultSelectionState(nextDefault);
+      void persistState();
+    }
+    if (!sameList(nextDefaultExcluded, defaultExcludedSelectionRef.current)) {
+      defaultExcludedSelectionRef.current = nextDefaultExcluded;
+      setDefaultExcludedSelectionState(nextDefaultExcluded);
       void persistState();
     }
     if (profileIdRef.current && !profiles.some((profile) => profile.id === profileIdRef.current)) {
@@ -589,14 +729,22 @@ export function usePlaySession(
       setProfileIdState("");
       defaultSelectionRef.current = [...selectionRef.current];
       setDefaultSelectionState([...selectionRef.current]);
+      defaultExcludedSelectionRef.current = [...excludedSelectionRef.current];
+      setDefaultExcludedSelectionState([...excludedSelectionRef.current]);
       appendNotice("The active profile was removed; the current selection is now Default.");
       void persistState();
+      needsRefresh = true;
     }
-    void refreshPreviewFor(selectionRef.current);
+    if (needsRefresh) {
+      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
+    } else {
+      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
+    }
   }, [appendNotice, hydrationApplied, organization, persistState, refreshPreviewFor]);
 
   const session = useMemo<PlaySession>(() => ({
     selection,
+    excludedSelection,
     defaultSelection,
     profileId,
     preview,
@@ -612,6 +760,7 @@ export function usePlaySession(
     hydrationReady,
     setSelection,
     toggleCollection,
+    toggleExclusion,
     addCollections,
     clearSelection,
     switchProfile,
@@ -632,6 +781,7 @@ export function usePlaySession(
     defaultSelection,
     deleteProfile,
     dirty,
+    excludedSelection,
     hydrationReady,
     launchSelection,
     notices,
@@ -651,6 +801,7 @@ export function usePlaySession(
     setSelection,
     switchProfile,
     toggleCollection,
+    toggleExclusion,
     updateProfile,
     progress,
   ]);

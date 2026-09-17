@@ -67,7 +67,7 @@ func scanAndCreateCollection(t *testing.T, service *AppService, name string, cou
 // the current fingerprint, ready for launch.
 func resolveAndFingerprint(t *testing.T, service *AppService, collectionID string) PlayRequest {
 	t.Helper()
-	selection, err := service.ResolvePlaySelection([]string{collectionID})
+	selection, err := service.ResolvePlaySelection([]string{collectionID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestMaterializeSelectedKeysOrderAndProgressMonotonic(t *testing.T) {
 	}
 
 	request := resolveAndFingerprint(t, service, collectionID)
-	selection, _ := service.ResolvePlaySelection([]string{collectionID})
+	selection, _ := service.ResolvePlaySelection([]string{collectionID}, nil)
 	activation := activateAndCheck(t, service, request)
 
 	if activation.ModCount != len(selection.Mods) {

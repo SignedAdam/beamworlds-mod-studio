@@ -2,6 +2,11 @@ package main
 
 import modkit "github.com/SignedAdam/beamworlds-modkit"
 
+// AllModsCollectionID is accepted anywhere a collection id is accepted in a
+// Play selection. It expands at resolve time to every indexed mod that is not
+// archived, so a selection stays correct as the library grows.
+const AllModsCollectionID = "all-mods"
+
 type CollectionCoverImage struct {
 	AssetID string  `json:"assetId"`
 	FocalX  float64 `json:"focalX"`
@@ -88,12 +93,13 @@ type CollectionDetail struct {
 }
 
 type ModProfile struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	UpdatedAt       string   `json:"updatedAt"`
-	CollectionIDs   []string `json:"collectionIds"`
-	CollectionCount int      `json:"collectionCount"`
-	ModCount        int      `json:"modCount"`
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	UpdatedAt             string   `json:"updatedAt"`
+	CollectionIDs         []string `json:"collectionIds"`
+	ExcludedCollectionIDs []string `json:"excludedCollectionIds"`
+	CollectionCount       int      `json:"collectionCount"`
+	ModCount              int      `json:"modCount"`
 }
 
 type OrganizationState struct {
@@ -104,9 +110,11 @@ type OrganizationState struct {
 
 type PlaySelection struct {
 	CollectionIDs         []string        `json:"collectionIds"`
+	ExcludedCollectionIDs []string        `json:"excludedCollectionIds"`
 	IncludedCollectionIDs []string        `json:"includedCollectionIds"`
 	Mods                  []CollectionMod `json:"mods"`
 	ModCount              int             `json:"modCount"`
+	ExcludedModCount      int             `json:"excludedModCount"`
 	MissingCount          int             `json:"missingCount"`
 	ArchivedCount         int             `json:"archivedCount"`
 	Fingerprint           string          `json:"fingerprint"`
@@ -114,15 +122,18 @@ type PlaySelection struct {
 }
 
 type PlayState struct {
-	ProfileID            string   `json:"profileId"`
-	CollectionIDs        []string `json:"collectionIds"`
-	DefaultCollectionIDs []string `json:"defaultCollectionIds"`
-	Notices              []string `json:"notices"`
+	ProfileID                    string   `json:"profileId"`
+	CollectionIDs                []string `json:"collectionIds"`
+	ExcludedCollectionIDs        []string `json:"excludedCollectionIds"`
+	DefaultCollectionIDs         []string `json:"defaultCollectionIds"`
+	DefaultExcludedCollectionIDs []string `json:"defaultExcludedCollectionIds"`
+	Notices                      []string `json:"notices"`
 }
 
 type PlayRequest struct {
-	CollectionIDs []string `json:"collectionIds"`
-	Fingerprint   string   `json:"fingerprint"`
+	CollectionIDs         []string `json:"collectionIds"`
+	ExcludedCollectionIDs []string `json:"excludedCollectionIds"`
+	Fingerprint           string   `json:"fingerprint"`
 }
 
 type PlayProgress struct {
@@ -138,13 +149,14 @@ type PlayProgress struct {
 }
 
 type PlayActivation struct {
-	OperationID   string   `json:"operationId"`
-	ModCount      int      `json:"modCount"`
-	UserPath      string   `json:"userPath"`
-	ModsPath      string   `json:"modsPath"`
-	ActivatedAt   string   `json:"activatedAt"`
-	CollectionIDs []string `json:"collectionIds"`
-	Fingerprint   string   `json:"fingerprint"`
+	OperationID           string   `json:"operationId"`
+	ModCount              int      `json:"modCount"`
+	UserPath              string   `json:"userPath"`
+	ModsPath              string   `json:"modsPath"`
+	ActivatedAt           string   `json:"activatedAt"`
+	CollectionIDs         []string `json:"collectionIds"`
+	ExcludedCollectionIDs []string `json:"excludedCollectionIds"`
+	Fingerprint           string   `json:"fingerprint"`
 }
 
 type PlayResult struct {

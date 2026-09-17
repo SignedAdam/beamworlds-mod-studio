@@ -465,6 +465,39 @@
 .play-manager-empty > svg { color: var(--text-3); }
 .play-manager-empty strong { color: var(--text); font-size: var(--font-control); }
 
+/* ---------- All mods card ---------- */
+.play-all-mods-card .collection-card__fallback {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 14%, var(--surface-raised)), var(--bg-deep));
+}
+.play-all-mods-card__icon { color: var(--orange); }
+.play-all-mods-card.is-selected .play-all-mods-card__icon { color: var(--text); }
+
+/* ---------- Excluded card ---------- */
+.play-card-excluded .collection-card {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--col-line));
+  opacity: .55;
+}
+.play-card-excluded .collection-card:hover { opacity: .75; }
+
+/* Override the selection checkbox to show a minus for excluded cards. */
+.play-card-excluded .collection-card__check {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.play-card-excluded .collection-card__check::after {
+  content: "\2212";
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+html[data-theme="light"] .play-all-mods-card .collection-card__fallback {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 10%, #fff), var(--bg));
+}
+
 @media (max-width: 900px) {
   .play-launch-controls { flex-wrap: wrap; padding: 12px 16px; gap: 12px; min-height: 0; }
   .play-launch-actions { margin: 0; padding-left: 0; border-left: 0; }

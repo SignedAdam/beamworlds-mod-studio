@@ -17,6 +17,7 @@ import type {
   ModTag,
 } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
 import type { Variant } from '../bindings/github.com/SignedAdam/beamworlds-modkit/models.js'
+import { confirmAction } from './AppDialogs'
 import { Icon } from './icons'
 import { IndexCardTabs, type IndexCardTabItem } from './IndexCardTabs'
 import InlineEditableField from './InlineEditableField'
@@ -591,8 +592,13 @@ function Variants({
     for (const field of dirtyFieldsRef.current) reportDirty(field, false)
     dirtyFieldsRef.current.clear()
   }
-  const guardedSelect = (next: Variant | null) => {
-    if (dirtyFieldsRef.current.size > 0 && !window.confirm('Discard unsaved variant changes?')) return
+  const guardedSelect = async (next: Variant | null) => {
+    if (dirtyFieldsRef.current.size > 0 && !(await confirmAction({
+      title: 'Discard unsaved changes?',
+      message: 'Your edits to this variant have not been saved.',
+      confirmLabel: 'Discard changes',
+      cancelLabel: 'Keep editing',
+    }))) return
     const returnFocusKey = next === null ? activeKey : ''
     discardDirty()
     onSelect(next)
@@ -628,7 +634,7 @@ function Variants({
         }}
         className={`variant-card${active?.configPath === variant.configPath ? ' is-selected' : ''}`}
         aria-pressed={active?.configPath === variant.configPath}
-        onClick={() => guardedSelect(active?.configPath === variant.configPath ? null : variant)}
+        onClick={() => void guardedSelect(active?.configPath === variant.configPath ? null : variant)}
       >
         <VariantThumbnail variant={variant} onPreviewMember={onPreviewMember} className="variant-card__thumb"/>
         <span className="variant-card__name">{variant.configuration || variant.baseName || 'Unnamed variant'}</span>
@@ -670,7 +676,7 @@ function Variants({
             />
             <span className="variant-identity-row__parent">Parent: {active.namespace || active.baseName || 'Vehicle configuration'}</span>
           </div>
-          <button type="button" className="inspector-button inspector-button--quiet icon-button" onClick={() => guardedSelect(null)} aria-label="Close variant details" title="Close variant details"><Icon name="close" size={16}/></button>
+          <button type="button" className="inspector-button inspector-button--quiet icon-button" onClick={() => void guardedSelect(null)} aria-label="Close variant details" title="Close variant details"><Icon name="close" size={16}/></button>
         </div>
         <div className="variant-fields">
           {variantFields.map(field => <InlineEditableField<string>

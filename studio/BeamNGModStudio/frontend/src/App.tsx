@@ -36,6 +36,7 @@ import { SetupWizard } from "./SetupWizard";
 import { BeamWorldsMark, Icon } from "./icons";
 import { formatBytes, formatDate } from "./ui";
 import { TooltipLayer } from "./Tooltip";
+import { DialogHost, confirmAction } from "./AppDialogs";
 import "./AppArt.css";
 
 type View =
@@ -292,9 +293,14 @@ function App() {
     },
     [notify],
   );
-  const confirmInspectorLeave = useCallback(() => {
+  const confirmInspectorLeave = useCallback(async () => {
     if (!inspectorDirtyRef.current) return true;
-    return window.confirm("Discard unsaved inspector changes?");
+    return confirmAction({
+      title: "Discard unsaved changes?",
+      message: "Your edits to this mod's details have not been saved.",
+      confirmLabel: "Discard changes",
+      cancelLabel: "Keep editing",
+    });
   }, []);
 
   useEffect(() => {
@@ -843,7 +849,7 @@ function App() {
     )
       return;
     if (selectedItemRef.current?.entityId !== item.entityId) {
-      if (!confirmInspectorLeave()) return;
+      if (!(await confirmInspectorLeave())) return;
       inspectorDirtyRef.current = false;
     }
     inspectorBaselineRef.current = {
@@ -897,7 +903,7 @@ function App() {
   const createWorkspace = async () => {
     if (writeBlockedRef.current || !selectedItem || inspectorStaleRef.current)
       return;
-    if (!confirmInspectorLeave()) return;
+    if (!(await confirmInspectorLeave())) return;
     const entityID = selectedItem.entityId;
     setCreatingWorkspace(true);
     try {
@@ -940,14 +946,14 @@ function App() {
       setCreatingWorkspace(false);
     }
   };
-  const openVirusScanner = (item: LibraryItem) => {
+  const openVirusScanner = async (item: LibraryItem) => {
     if (writeBlockedRef.current) return;
     if (
       inspectorStaleRef.current &&
       selectedItemRef.current?.entityId === item.entityId
     )
       return;
-    if (!confirmInspectorLeave()) return;
+    if (!(await confirmInspectorLeave())) return;
     inspectorDirtyRef.current = false;
     setVirusScanRequest({
       entityIDs: [item.entityId],
@@ -1378,9 +1384,9 @@ function App() {
       handleError(error);
     }
   };
-  const changeView = (next: View) => {
+  const changeView = async (next: View) => {
     if (next === view) return true;
-    if (view === "library" && next !== "library" && !confirmInspectorLeave())
+    if (view === "library" && next !== "library" && !(await confirmInspectorLeave()))
       return false;
     inspectorDirtyRef.current = false;
     setView(next);
@@ -1394,11 +1400,11 @@ function App() {
     if (next === "scanner") setVirusScanRequest(null);
     return true;
   };
-  const openCollection = (id: string) => {
-    if (changeView("collections")) setOpenedCollectionID(id);
+  const openCollection = async (id: string) => {
+    if (await changeView("collections")) setOpenedCollectionID(id);
   };
-  const inspectCollectionMod = (entityID: string) => {
-    if (!changeView("library")) return;
+  const inspectCollectionMod = async (entityID: string) => {
+    if (!(await changeView("library"))) return;
     const item = allItems.find((candidate) => candidate.entityId === entityID);
     if (item) void selectItem(item);
     else
@@ -1475,7 +1481,7 @@ function App() {
         <nav className="main-nav" aria-label="Primary navigation">
           <button
             className={view === "library" ? "is-active" : ""}
-            onClick={() => changeView("library")}
+            onClick={() => void changeView("library")}
             aria-label="Mod Library"
           >
             <Icon name="library" />
@@ -1484,7 +1490,7 @@ function App() {
           </button>
           <button
             className={view === "collections" ? "is-active" : ""}
-            onClick={() => changeView("collections")}
+            onClick={() => void changeView("collections")}
             aria-label="Collections"
           >
             <Icon name="mixed" />
@@ -1493,7 +1499,7 @@ function App() {
           </button>
           <button
             className={view === "workspaces" ? "is-active" : ""}
-            onClick={() => changeView("workspaces")}
+            onClick={() => void changeView("workspaces")}
             aria-label="ModMaker"
           >
             <Icon name="workspace" />
@@ -1502,7 +1508,7 @@ function App() {
           </button>
           <button
             className={view === "scanner" ? "is-active" : ""}
-            onClick={() => changeView("scanner")}
+            onClick={() => void changeView("scanner")}
             aria-label="Virus Scanner"
           >
             <Icon name="shield" />
@@ -1511,7 +1517,7 @@ function App() {
           </button>
           <button
             className={`play-nav${view === "play" ? " is-active" : ""}`}
-            onClick={() => changeView("play")}
+            onClick={() => void changeView("play")}
             aria-label="Play"
           >
             <Icon name="play" />
@@ -1520,7 +1526,7 @@ function App() {
           </button>
           <button
             className={view === "activity" ? "is-active" : ""}
-            onClick={() => changeView("activity")}
+            onClick={() => void changeView("activity")}
             aria-label="Activity"
           >
             <Icon name="activity" />
@@ -1547,7 +1553,7 @@ function App() {
           </button>
           <button
             className={`sidebar-settings ${view === "settings" ? "is-active" : ""}`}
-            onClick={() => changeView("settings")}
+            onClick={() => void changeView("settings")}
             aria-label="Settings"
           >
             <Icon name="settings" size={17} />
@@ -1625,7 +1631,7 @@ function App() {
                     );
                   } catch {}
                 }}
-                onManageCollections={() => openCollection("")}
+                onManageCollections={() => void openCollection("")}
                 onOrganization={handleOrganizationChange}
                 onError={handleError}
                 onSelect={(item) => void selectItem(item)}
@@ -1746,8 +1752,8 @@ function App() {
           onDirtyChange={(dirty) => {
             inspectorDirtyRef.current = dirty;
           }}
-          onClose={() => {
-            if (!confirmInspectorLeave()) return;
+          onClose={async () => {
+            if (!(await confirmInspectorLeave())) return;
             inspectorDirtyRef.current = false;
             selectedItemRef.current = null;
             inspectorBaselineRef.current = null;
@@ -1856,6 +1862,7 @@ function App() {
         </button>
       </div>
       <TooltipLayer />
+      <DialogHost />
     </div>
   );
 }

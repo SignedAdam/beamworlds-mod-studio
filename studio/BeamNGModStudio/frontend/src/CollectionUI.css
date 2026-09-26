@@ -256,6 +256,13 @@ html {
   padding: 14px;
 }
 
+.collection-dialog__copy {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-control);
+  line-height: 1.5;
+}
+
 .collection-dialog__footer {
   display: flex;
   align-items: center;

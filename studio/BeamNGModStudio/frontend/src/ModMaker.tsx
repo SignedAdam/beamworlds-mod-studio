@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Events } from "@wailsio/runtime";
 import { CollectionDialog } from "./CollectionUI";
+import { confirmAction, requestText } from "./AppDialogs";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
   AgentActivity,
@@ -1869,12 +1870,14 @@ export function ModMaker({
 
     let writePath = targetPath;
     if (targetDocument.untitled) {
-      const requestedPath = window
-        .prompt(
-          "Save new workspace-relative file as",
-          `${editorDocumentLabel(targetDocument)}.txt`,
-        )
-        ?.trim();
+      const requestedPath = (
+        await requestText({
+          title: "Save new file",
+          label: "Workspace-relative path",
+          initialValue: `${editorDocumentLabel(targetDocument)}.txt`,
+          confirmLabel: "Save",
+        })
+      )?.trim();
       if (!requestedPath) return;
       writePath = requestedPath.replace(/\\/g, "/").replace(/^\.\/+/, "");
       if (!writePath) return;
@@ -1952,12 +1955,13 @@ export function ModMaker({
             : latest.savedSHA256;
         if (mutationBlocked()) return;
         if (latest.externalContent !== undefined) {
-          if (
-            !window.confirm(
-              `The file ${writePath} changed on disk. Save your version and overwrite the external version?`,
-            )
-          )
-            return;
+          const overwrite = await confirmAction({
+            title: "File changed on disk",
+            message: `${writePath} was changed outside ModMaker since you opened it. Saving replaces that version with yours.`,
+            confirmLabel: "Overwrite with my version",
+            cancelLabel: "Don't save",
+          });
+          if (!overwrite) return;
           await yieldToQueuedWork();
           if (mutationBlocked()) return;
         }
@@ -2089,23 +2093,28 @@ export function ModMaker({
     }
   };
 
-  const reloadExternalChange = () => {
+  const reloadExternalChange = async () => {
     if (!activeDocument || activeDocument.externalContent === undefined) return;
+    const path = activeDocument.path;
     if (
       activeDocument.content !== activeDocument.savedContent &&
-      !window.confirm(
-        `Discard your unsaved changes to ${activeDocument.path} and load the external version?`,
-      )
+      !(await confirmAction({
+        title: "Load the version on disk?",
+        message: `Your unsaved changes to ${path} will be discarded.`,
+        confirmLabel: "Discard and load",
+        cancelLabel: "Keep my changes",
+      }))
     )
       return;
-    const externalContent = activeDocument.externalContent;
-    const externalSHA256 =
-      activeDocument.externalSHA256 ?? activeDocument.savedSHA256;
+    const current = documentsRef.current.find((document) => document.path === path);
+    if (!current || current.externalContent === undefined) return;
+    const externalContent = current.externalContent;
+    const externalSHA256 = current.externalSHA256 ?? current.savedSHA256;
     cancelFormatTasks();
-    bumpDocumentRevision(activeDocument.path);
+    bumpDocumentRevision(path);
     setDocuments((current) =>
       current.map((document) =>
-        document.path === activeDocument.path
+        document.path === path
           ? {
               ...document,
               content: externalContent,
@@ -2118,18 +2127,24 @@ export function ModMaker({
           : document,
       ),
     );
-    onNotify(`Loaded the external version of ${activeDocument.path}`, "info");
+    onNotify(`Loaded the external version of ${path}`, "info");
   };
 
-  const closeDocument = (path: string) => {
-    const document = documentsRef.current.find((item) => item.path === path);
-    if (!document) return;
+  const closeDocument = async (path: string) => {
+    const pending = documentsRef.current.find((item) => item.path === path);
+    if (!pending) return;
     if (
-      document.untitled &&
-      document.content.length > 0 &&
-      !window.confirm(`Discard changes to ${editorDocumentLabel(document)}?`)
+      pending.untitled &&
+      pending.content.length > 0 &&
+      !(await confirmAction({
+        title: `Discard ${editorDocumentLabel(pending)}?`,
+        message: "This file has never been saved.",
+        confirmLabel: "Discard file",
+      }))
     )
       return;
+    const document = documentsRef.current.find((item) => item.path === path);
+    if (!document) return;
 
     clearFormatTimer(path);
     formatGeneration.current += 1;
@@ -2246,9 +2261,14 @@ export function ModMaker({
     if (!workspace) return;
     const base = parentDirectory();
     const suggested = base ? `${base}/new-file.lua` : "new-file.lua";
-    const path = window
-      .prompt("New workspace-relative file path", suggested)
-      ?.trim();
+    const path = (
+      await requestText({
+        title: "New file",
+        label: "Workspace-relative path",
+        initialValue: suggested,
+        confirmLabel: "Create file",
+      })
+    )?.trim();
     if (!path) return;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
@@ -2269,12 +2289,14 @@ export function ModMaker({
     if (mutationBlocked()) return;
     if (!workspace) return;
     const base = parentDirectory();
-    const path = window
-      .prompt(
-        "New workspace-relative folder",
-        base ? `${base}/new-folder` : "new-folder",
-      )
-      ?.trim();
+    const path = (
+      await requestText({
+        title: "New folder",
+        label: "Workspace-relative path",
+        initialValue: base ? `${base}/new-folder` : "new-folder",
+        confirmLabel: "Create folder",
+      })
+    )?.trim();
     if (!path) return;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
@@ -2345,9 +2367,14 @@ export function ModMaker({
 
   const renamePath = async (selection: TreeSelection) => {
     if (mutationBlocked()) return;
-    const nextPath = window
-      .prompt(`Rename workspace ${selection.kind}`, selection.path)
-      ?.trim();
+    const nextPath = (
+      await requestText({
+        title: `Rename ${selection.kind}`,
+        label: "Workspace-relative path",
+        initialValue: selection.path,
+        confirmLabel: "Rename",
+      })
+    )?.trim();
     if (!nextPath) return;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
@@ -2360,7 +2387,12 @@ export function ModMaker({
     const scope =
       selection.kind === "directory" ? " and every path inside it" : "";
     if (
-      !window.confirm(`Delete ${selection.path} from this workspace${scope}?`)
+      !(await confirmAction({
+        title: `Delete ${selection.path}?`,
+        message: `It will be removed from this workspace${scope}.`,
+        confirmLabel: selection.kind === "directory" ? "Delete folder" : "Delete file",
+        icon: "trash",
+      }))
     )
       return;
     await yieldToQueuedWork();
@@ -2788,14 +2820,25 @@ export function ModMaker({
   const cloneSelectedVariant = async () => {
     if (mutationBlocked()) return;
     if (!workspace || !activePath.toLowerCase().endsWith(".pc")) return;
-    const baseName = window
-      .prompt("New variant basename (without .pc)")
-      ?.trim();
+    const baseName = (
+      await requestText({
+        title: "New variant",
+        label: "Basename (without .pc)",
+        confirmLabel: "Next",
+      })
+    )?.trim();
     if (!baseName) return;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
     const displayName =
-      window.prompt("New variant display name", baseName)?.trim() ?? baseName;
+      (
+        await requestText({
+          title: "New variant",
+          label: "Display name",
+          initialValue: baseName,
+          confirmLabel: "Create variant",
+        })
+      )?.trim() ?? baseName;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
 
@@ -2987,9 +3030,12 @@ export function ModMaker({
     const workspaceID = tab.record.workspaceId;
     if (
       !tab.transient &&
-      !window.confirm(
-        `Forget Virgil session "${tab.record.title || "Virgil session"}"?`,
-      )
+      !(await confirmAction({
+        title: `Forget “${tab.record.title || "Virgil session"}”?`,
+        message: "The session and its conversation history will be removed from this project.",
+        confirmLabel: "Forget session",
+        icon: "trash",
+      }))
     )
       return;
     await yieldToQueuedWork();
@@ -3018,12 +3064,14 @@ export function ModMaker({
     if (mutationBlocked()) return;
     const tab = sessionTabsRef.current.find((item) => item.record.id === id);
     if (!tab || (tab.transient && tab.busy)) return;
-    const title = window
-      .prompt(
-        "Rename Virgil session",
-        tab.record.userTitle || tab.record.title || "Virgil session",
-      )
-      ?.trim();
+    const title = (
+      await requestText({
+        title: "Rename Virgil session",
+        label: "Title",
+        initialValue: tab.record.userTitle || tab.record.title || "Virgil session",
+        confirmLabel: "Rename",
+      })
+    )?.trim();
     if (!title) return;
     await yieldToQueuedWork();
     if (mutationBlocked()) return;
@@ -3326,7 +3374,7 @@ export function ModMaker({
       statusLabel,
       icon: <Icon name={document.untitled ? "filePlus" : "files"} size={14} />,
       panel: null,
-      onClose: () => closeDocument(document.path),
+      onClose: () => void closeDocument(document.path),
       closeLabel: `Close ${editorDocumentLabel(document)}`,
       title: document.untitled
         ? `${editorDocumentLabel(document)} (unsaved)`
@@ -3399,7 +3447,7 @@ export function ModMaker({
               icon="refresh"
               className="modmaker-editor-action--contextual modmaker-editor-action--reload"
               disabled={busy !== ""}
-              onClick={reloadExternalChange}
+              onClick={() => void reloadExternalChange()}
             />
           )}
         </>

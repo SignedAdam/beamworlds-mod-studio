@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import type { ModTag } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { confirmAction } from './AppDialogs'
 import { Icon } from './icons'
 import { TAG_ICONS, safeTagIcon, tagColor, type TagIconName } from './tagIcons'
 import './TagEditor.css'
@@ -189,6 +190,8 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     const menu = menuRef.current
     if (menu) focusInitialMenuControl(menu)
     const onKeyDown = (event: KeyboardEvent) => {
+      // A confirmation opened from this menu owns the keyboard until it closes.
+      if (event.target instanceof Element && event.target.closest('dialog[open]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         closeContextMenu()
@@ -406,12 +409,15 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     const menu = contextMenuRef.current
     if (!menu || lockedRef.current || menu.busy) return
     const count = Math.max(0, Number.isFinite(menu.tag.modCount) ? menu.tag.modCount : 0)
-    const message = count === 0
-      ? 'Delete this tag?'
-      : count === 1
-        ? 'Are you sure? This tag is used on 1 mod. It will be removed from that mod.'
-        : `Are you sure? This tag is used on ${String(count)} mods. It will be removed from each one.`
-    if (!window.confirm(message)) return
+    const confirmed = await confirmAction({
+      title: `Delete tag “${menu.tag.name}”?`,
+      message: count === 0
+        ? 'No mods use this tag.'
+        : `It will be removed from ${count === 1 ? '1 mod' : `${count.toLocaleString()} mods`}.`,
+      confirmLabel: 'Delete tag',
+      icon: 'trash',
+    })
+    if (!confirmed) return
 
     const tagID = menu.tag.id
     updateMenu({ busy: 'delete' })

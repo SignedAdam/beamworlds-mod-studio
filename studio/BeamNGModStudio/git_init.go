@@ -178,7 +178,7 @@ func initializeWorkspaceGit(ctx context.Context, filesRoot string) GitInitializa
 	}
 
 	if _, _, err := resolveGitIdentity(ctx, executable, root); err != nil {
-		return gitFailureResult(GitInitializationStageIdentity, root, err, "Configure user.name and user.email, without Mod Maker changing them, then retry Git setup.")
+		return gitFailureResult(GitInitializationStageIdentity, root, err, "Configure user.name and user.email, without ModMaker changing them, then retry Git setup.")
 	}
 
 	if _, err := gitRunCommand(ctx, executable, root, "add", "--all", "--", "."); err != nil {
@@ -284,7 +284,7 @@ func ensureProjectGitIgnore(ctx context.Context, executable, root string) error 
 		return fmt.Errorf("read %s: %w", ignorePath, err)
 	}
 	if string(content) != projectGitIgnore {
-		return fmt.Errorf("%s does not contain the conservative Mod Maker ignore rules; refusing to stage an unsafe ignore file", ignorePath)
+		return fmt.Errorf("%s does not contain the conservative ModMaker ignore rules; refusing to stage an unsafe ignore file", ignorePath)
 	}
 	if err := validateProjectGitIgnore(ctx, executable, root); err != nil {
 		return fmt.Errorf("validate %s: %w", ignorePath, err)

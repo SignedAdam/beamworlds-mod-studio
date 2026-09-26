@@ -407,7 +407,7 @@ export function ProjectBrowser({
               },
               onContextMenu: openTableContextMenu,
             }}
-            ariaLabel="Mod Maker workspaces"
+            ariaLabel="ModMaker workspaces"
             surface="mod-maker"
             className="project-browser__table"
             emptyTitle="No matching mods"

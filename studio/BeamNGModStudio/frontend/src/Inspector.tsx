@@ -219,7 +219,7 @@ export function Inspector({
           aria-busy={creatingWorkspace}
           onClick={onCreateWorkspace}
         >
-          {creatingWorkspace ? <><Spinner small/>Creating…</> : 'Edit in Mod Maker'}
+          {creatingWorkspace ? <><Spinner small/>Creating…</> : 'Edit in ModMaker'}
         </Button>
       </div>
       <div className="inspector-action-region inspector-action-region--security">
@@ -229,7 +229,7 @@ export function Inspector({
           disabled={stale || writeBlocked || !item.linked}
           onClick={() => onVirusScan(item)}
         >
-          <Icon name="shield" size={16}/><strong>Scan mod</strong>
+          <Icon name="shield" size={16}/><strong>Scan for threats</strong>
         </button>
         <div className="inspector-scan-status" role="status" aria-live="polite"><Icon name={scanStatusIcon(scanState)} size={16}/><span title={scanLabel}>{scanLabel}</span></div>
       </div>

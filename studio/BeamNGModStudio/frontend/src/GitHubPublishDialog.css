@@ -83,7 +83,7 @@
 }
 
 .github-publish-dialog__eyebrow {
-  color: var(--active-tab, var(--orange));
+  color: var(--active-tab, var(--emphasis));
   font-size: 10px;
   font-weight: 760;
   letter-spacing: .09em;
@@ -126,7 +126,7 @@
   min-width: 0;
   padding: var(--space-3, 12px);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--active-tab, var(--orange));
+  border-left: 3px solid var(--active-tab, var(--emphasis));
   border-radius: 5px;
   background: var(--surface-soft);
   color: var(--text-2);
@@ -137,7 +137,7 @@
 .github-publish-dialog__notice > svg {
   flex: none;
   margin-top: 1px;
-  color: var(--active-tab, var(--orange));
+  color: var(--active-tab, var(--emphasis));
 }
 
 .github-publish-dialog__notice > div {
@@ -296,9 +296,9 @@
   gap: var(--space-3, 12px);
   min-height: 58px;
   padding: var(--space-3, 12px) var(--space-4, 16px);
-  border: 1px solid color-mix(in srgb, var(--active-tab, var(--orange)) 55%, var(--line-strong));
+  border: 1px solid color-mix(in srgb, var(--active-tab, var(--emphasis)) 55%, var(--line-strong));
   border-radius: 5px;
-  background: color-mix(in srgb, var(--active-tab, var(--orange)) 9%, var(--surface-solid));
+  background: color-mix(in srgb, var(--active-tab, var(--emphasis)) 9%, var(--surface-solid));
 }
 
 .github-publish-dialog__device-code span {
@@ -515,7 +515,7 @@
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
-  accent-color: var(--active-tab, var(--orange));
+  accent-color: var(--active-tab, var(--emphasis));
 }
 
 .github-publish-dialog__visibility-option input:focus-visible {

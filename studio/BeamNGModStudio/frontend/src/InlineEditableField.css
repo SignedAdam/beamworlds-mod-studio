@@ -7,7 +7,7 @@
   --inline-editable-field-message-size: var(--font-caption, 12px);
   --inline-editable-field-value-height: var(--inline-editable-field-control-height);
   --inline-editable-field-value-padding: max(6px, calc(8px * var(--interface-scale, 1)));
-  --inline-editable-field-accent: var(--inspector-accent, var(--active-tab, var(--orange, #e8e4d8)));
+  --inline-editable-field-accent: var(--inspector-accent, var(--active-tab, var(--emphasis, #e8e4d8)));
   --inline-editable-field-border: var(--line, rgba(255, 255, 255, 0.15));
   --inline-editable-field-border-strong: var(--line-strong, rgba(255, 255, 255, 0.3));
   --inline-editable-field-surface: var(--field, rgba(0, 0, 0, 0.62));

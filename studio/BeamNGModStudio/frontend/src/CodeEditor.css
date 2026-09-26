@@ -23,9 +23,9 @@
   --cm-gutter-fg: #6e7681;
   --cm-gutter-border: #30363d;
   --cm-panel-bg: #161b22;
-  --cm-focus-emphasis: var(--user-emphasis, var(--orange, #f26522));
+  --cm-focus-emphasis: var(--user-emphasis, var(--emphasis, #f26522));
   --cm-focus-active-tab: var(--active-tab, var(--user-active-tab, #e8e4d8));
-  --cm-focus-scrollbar: var(--scrollbar-color, var(--orange, #f26522));
+  --cm-focus-scrollbar: var(--scrollbar-color, var(--emphasis, #f26522));
   position: relative;
   min-width: 0;
   min-height: 0;

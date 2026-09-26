@@ -29,9 +29,9 @@
   --index-card-tabs-text: var(--text);
   --index-card-tabs-text-muted: var(--text-2);
   --index-card-tabs-text-subtle: var(--text-3);
-  --index-card-tabs-accent: var(--active-tab, var(--blue, #3f93c5));
-  --index-card-tabs-focus: var(--active-tab, var(--blue, #3f93c5));
-  --index-card-tabs-status-accent: var(--active-tab, var(--blue, #3f93c5));
+  --index-card-tabs-accent: var(--active-tab, var(--accent-neutral, #3f93c5));
+  --index-card-tabs-focus: var(--active-tab, var(--accent-neutral, #3f93c5));
+  --index-card-tabs-status-accent: var(--active-tab, var(--accent-neutral, #3f93c5));
   --index-card-tabs-status-success: var(--success, #47bd75);
   --index-card-tabs-status-warning: var(--warning, #ffb12c);
   --index-card-tabs-status-danger: var(--danger, #ed4d45);

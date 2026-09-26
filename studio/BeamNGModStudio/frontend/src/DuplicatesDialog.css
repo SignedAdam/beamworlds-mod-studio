@@ -128,7 +128,7 @@
 
 .dup-shell.is-highlighted,
 .dup-shell:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--emphasis);
   outline-offset: 2px;
 }
 
@@ -244,14 +244,14 @@
 
 .dup-member.is-keeper {
   background: var(--surface-soft);
-  box-shadow: inset 2px 0 var(--orange);
+  box-shadow: inset 2px 0 var(--emphasis);
 }
 
 .dup-member input[type="radio"] {
   width: 15px;
   height: 15px;
   margin: 1px 0 0;
-  accent-color: var(--orange);
+  accent-color: var(--emphasis);
 }
 
 .dup-member__body {
@@ -334,7 +334,7 @@
 }
 
 .dup-member.is-keeper .dup-member__fate {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 
 .dup-member__fate--delete {
@@ -388,24 +388,24 @@
 }
 
 .dup-chip--collections {
-  border-color: color-mix(in srgb, var(--blue) 55%, var(--line-strong));
+  border-color: color-mix(in srgb, var(--accent-neutral) 55%, var(--line-strong));
 }
 
 .dup-chip--collections svg {
-  color: var(--blue);
+  color: var(--accent-neutral);
 }
 
 .dup-chip--groups {
-  border-color: color-mix(in srgb, var(--orange) 45%, var(--line-strong));
+  border-color: color-mix(in srgb, var(--emphasis) 45%, var(--line-strong));
 }
 
 .dup-chip--groups svg {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 
 .dup-chip--gained {
   border-style: dashed;
-  background: var(--orange-soft);
+  background: var(--selected-tint);
   color: var(--text);
   font-weight: 600;
 }
@@ -441,7 +441,7 @@
 }
 
 .dup-decision button.is-active.dup-decision--keep {
-  box-shadow: inset 0 -2px var(--blue);
+  box-shadow: inset 0 -2px var(--accent-neutral);
 }
 
 .dup-outcome {

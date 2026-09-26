@@ -235,11 +235,11 @@
 }
 
 .modmaker-editor-action--new-session {
-  color: var(--orange-hot);
+  color: var(--emphasis);
 }
 
 .modmaker-editor-action--new-session:hover:not(:disabled) {
-  color: color-mix(in srgb, var(--orange-hot) 78%, white);
+  color: color-mix(in srgb, var(--emphasis) 78%, white);
 }
 
 .modmaker-editor-action-tooltip {

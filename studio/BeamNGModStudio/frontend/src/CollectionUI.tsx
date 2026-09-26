@@ -46,13 +46,15 @@ export function CollectionDialog({ title, onClose, children, footer, wide = fals
   );
 }
 
-export function CollectionCard({ collection, selected = false, inherited, primaryAction = "toggle", onOpen, onToggle, onContextMenu, onMenu }: {
+export function CollectionCard({ collection, selected = false, inherited, primaryAction = "toggle", toggleLabel, onOpen, onToggle, onContextMenu, onMenu }: {
   collection: ModCollection;
   selected?: boolean;
   inherited?: string;
   /** What a click on the card body does. Play toggles the selection; the
    *  Collections page opens the collection so it can be edited. */
   primaryAction?: "open" | "toggle";
+  /** Names what the toggle does when it isn't plain select/deselect, e.g. "Leave out X". */
+  toggleLabel?: string;
   onOpen?: () => void;
   onToggle?: () => void;
   onContextMenu?: (event: MouseEvent<HTMLElement>) => void;
@@ -64,14 +66,15 @@ export function CollectionCard({ collection, selected = false, inherited, primar
   const included = selected || Boolean(inherited);
   const inheritedOnly = Boolean(inherited) && !selected;
   const opens = primaryAction === "open" && Boolean(onOpen);
-  const bodyAction = inheritedOnly ? onOpen : opens ? onOpen : onToggle ?? onOpen;
+  const bodyAction = opens ? onOpen : onToggle ?? onOpen;
   return (
     <article className={`collection-card${selected ? " is-selected" : ""}${inheritedOnly ? " is-inherited" : ""}`} onContextMenu={onContextMenu}>
       {onToggle && (
         <button
           type="button"
           className={`collection-card__check${included ? " is-checked" : ""}`}
-          aria-label={`${included ? "Deselect" : "Select"} ${collection.name}`}
+          aria-label={toggleLabel ?? `${included ? "Deselect" : "Select"} ${collection.name}`}
+          title={toggleLabel}
           aria-pressed={included}
           onClick={onToggle}
         >
@@ -81,8 +84,9 @@ export function CollectionCard({ collection, selected = false, inherited, primar
       <button
         type="button"
         className="collection-card__main"
-        aria-label={`${opens ? "Open " : ""}${collection.name}, ${collection.modCount} mods${inheritedOnly ? `, included via ${inherited}` : ""}`}
+        aria-label={`${opens ? "Open " : ""}${collection.name}, ${collection.modCount} mods${inheritedOnly ? `, included via ${inherited}` : ""}${toggleLabel ? `. ${toggleLabel}` : ""}`}
         aria-pressed={onToggle && !opens ? included : undefined}
+        title={toggleLabel}
         onClick={bodyAction}
         onKeyDown={(event) => {
           if (event.shiftKey && event.key === "F10" && onContextMenu) {

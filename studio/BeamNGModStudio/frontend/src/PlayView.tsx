@@ -408,23 +408,26 @@ export function PlayView({
               {filteredCollections.map((collection) => {
                 const excluded = excludedIDs.has(collection.id);
                 const explicit = selectedIDs.has(collection.id);
-                // When "All mods" is selected, every non-excluded, non-directly-selected
-                // collection is implicitly included.
+                // Under "All mods" every collection is already in, so a click
+                // leaves it out: "everything except these".
+                const underAllMods = allModsSelected && !explicit && !excluded;
                 const inherited = excluded
                   ? undefined
-                  : (allModsSelected && !explicit)
+                  : underAllMods
                     ? "All mods"
                     : byID[inheritedParentIDByID[collection.id] ?? ""]?.name;
+                const toggleExclusion = () => void session.toggleExclusion(collection.id).catch(onError);
                 return (
                   <div key={collection.id} className={excluded ? "play-card-excluded" : undefined}>
                     <CollectionCard
                       collection={collection}
                       selected={excluded ? false : explicit}
                       inherited={excluded ? undefined : inherited}
+                      toggleLabel={excluded ? `Include ${collection.name} again` : underAllMods ? `Leave out ${collection.name}` : undefined}
                       onOpen={() => onOpenCollection(collection.id)}
                       onToggle={
                         selectionBusy ? undefined
-                        : excluded ? () => void session.toggleExclusion(collection.id).catch(onError)
+                        : excluded || underAllMods ? toggleExclusion
                         : inherited ? undefined
                         : () => void session.toggleCollection(collection.id).catch(onError)
                       }

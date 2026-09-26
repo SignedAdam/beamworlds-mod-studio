@@ -569,7 +569,6 @@ export function ModTable({
     if (event.detail > 1) return;
     event.currentTarget.closest("tr")?.focus({ preventScroll: true });
     setFocusedID(item.entityId);
-    selectItem(item, event, toggle);
     if (
       interaction.kind === "browse" &&
       !toggle &&
@@ -577,7 +576,11 @@ export function ModTable({
       !event.ctrlKey &&
       !event.metaKey
     ) {
+      // Library inspection is independent of the bulk selection, as in previews.
+      if (surface !== "library") selectItem(item, event, toggle);
       interaction.onActivate(item);
+    } else {
+      selectItem(item, event, toggle);
     }
   };
 
@@ -899,7 +902,10 @@ export function ModTable({
   return (
     <div className={rootClassName} aria-busy={loading}>
       <span id={selectionHelpID} className="sr-only">
-        Click to select a row. Ctrl or Command-click toggles a row. Shift-click
+        {surface === "library" && interaction.kind === "browse"
+          ? "Opening a mod does not change selection. Use checkboxes to select rows."
+          : "Click to select a row."}{" "}
+        Ctrl or Command-click toggles a row. Shift-click
         selects a range. Use Up and Down, Home and End, or Page Up and Page Down
         to move; hold Shift to extend the selection, or Ctrl or Command to move
         focus only. Space toggles the focused row. Ctrl or Command+A selects all

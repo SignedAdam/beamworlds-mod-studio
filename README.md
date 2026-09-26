@@ -29,7 +29,8 @@ Adding mods does not enable them in BeamNG or add them to a collection. If some 
 
 The Mod Library, collection members, Virus Scanner, and ModMaker tables share row-selection controls:
 
-- Click a row to select it; Ctrl-click (Command-click on macOS) toggles an individual row without clearing the others.
+- In the Mod Library, click a row or preview to open details without changing the checked mods; this also applies to grouped rows. In the other tables, clicking a row selects it.
+- Ctrl-click (Command-click on macOS) toggles an individual table row without clearing the others.
 - Shift-click selects the inclusive range from the last selection anchor. Ctrl/Command+Shift-click adds a range to an existing selection. Ranges follow the current sort and filter, including across pages.
 - Checkboxes toggle rows without modifier keys; Shift-clicking a checkbox adds a range.
 - Up/Down, Home/End, and Page Up/Page Down move selection. Hold Shift to extend or shrink a range, or Ctrl/Command to move focus without changing selection. Space toggles the focused row.

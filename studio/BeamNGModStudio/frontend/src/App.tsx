@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Events } from "@wailsio/runtime";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
   AIUsage,
   AgentActivity,
-  AppConfig,
   AppSettings,
   ArchiveMemberPreview,
-  Dashboard,
   EntityDetail,
   LibraryItem,
   LibraryItemDetailsUpdate,
@@ -37,7 +36,29 @@ import { BeamWorldsMark, Icon } from "./icons";
 import { formatBytes, formatDate } from "./ui";
 import { TooltipLayer } from "./Tooltip";
 import { DialogHost, confirmAction } from "./AppDialogs";
+import {
+  catalogFilter,
+  configQuery,
+  dashboardQuery,
+  familiesQuery,
+  libraryListQuery,
+  organizationQuery,
+  queryClient,
+  queryKeys,
+  replaceCachedLibraryItem,
+  setCachedOrganization,
+  setQueryErrorReporter,
+  updateCachedLibraryItems,
+  workspacesQuery,
+  type LibraryFilter,
+} from "./queries";
 import "./AppArt.css";
+
+// Stable empty results, so views memoizing on these arrays don't recompute
+// on every render before the first fetch lands.
+const NO_ITEMS: LibraryItem[] = [];
+const NO_WORKSPACES: WorkspaceRecord[] = [];
+const NO_FAMILIES: ModFamily[] = [];
 
 type View =
   | "library"
@@ -122,7 +143,6 @@ function App() {
   // Bumped on every accepted view change so the incoming page animates in
   // without remounting it: the two classes alternate, restarting the keyframes.
   const [viewSwap, setViewSwap] = useState(0);
-  const [config, setConfig] = useState<AppConfig | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [usage, setUsage] = useState<AIUsage | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
@@ -134,16 +154,6 @@ function App() {
     useState(readInspectorWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [lastSuccessfulScanAt, setLastSuccessfulScanAt] = useState("");
-  const [items, setItems] = useState<LibraryItem[]>([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
-  const [allItems, setAllItems] = useState<LibraryItem[]>([]);
-  const [families, setFamilies] = useState<ModFamily[]>([]);
-  const [organization, setOrganization] = useState<OrganizationState | null>(
-    null,
-  );
   const [collectionID, setCollectionID] = useState("all");
   const [openedCollectionID, setOpenedCollectionID] = useState("");
   const [libraryScope, setLibraryScope] = useState<"active" | "archived">(
@@ -176,17 +186,15 @@ function App() {
     entityIDs: string[];
     nonce: number;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Setup state, settings and usage; the library itself loads through queries.
+  const [bootstrapping, setBootstrapping] = useState(true);
   const [toast, setToast] = useState<ToastState>({
     message: "",
     tone: "info",
     visible: false,
   });
   const toastTimer = useRef<number>();
-  const autoScanStarted = useRef(false);
-  const libraryLoadVersion = useRef(0);
-  const [libraryRevision, setLibraryRevision] = useState(0);
-  const organizationLoadVersion = useRef(0);
+  const startupDashboardChecked = useRef(false);
   const virusScanRequestVersion = useRef(0);
   const workspaceDetailLoadVersion = useRef(0);
   const agentListRefreshTimer = useRef<number>();
@@ -324,62 +332,47 @@ function App() {
   useEffect(() => {
     selectedWorkspaceIDRef.current = selectedWorkspaceID;
   }, [selectedWorkspaceID]);
-  const loadShell = useCallback(async (updateLastSuccessful = true) => {
-    const [nextConfig, nextDashboard, workspaceResult] = await Promise.all([
-      API.Config(),
-      API.Dashboard(),
-      API.ListWorkspaces(),
-    ]);
-    const nextWorkspaces = workspaceResult ?? [];
-    setConfig(nextConfig);
-    setDashboard(nextDashboard);
-    if (updateLastSuccessful && nextDashboard.lastSuccessfulScanAt)
-      setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
-    setWorkspaces(nextWorkspaces);
-    return nextDashboard;
+  useEffect(() => setQueryErrorReporter(handleError), [handleError]);
+  const shellEnabled = setupState !== null && !setupState.required;
+  const libraryFilter: LibraryFilter = { query, collectionID, scope: libraryScope };
+  // Scan events patch the list the user is looking at; the handler is
+  // registered once, so it reads the filter from here.
+  const libraryFilterRef = useRef(libraryFilter);
+  libraryFilterRef.current = libraryFilter;
+  const configResult = useQuery({ ...configQuery, enabled: shellEnabled });
+  const dashboardResult = useQuery({ ...dashboardQuery, enabled: shellEnabled });
+  const workspacesResult = useQuery({ ...workspacesQuery, enabled: shellEnabled });
+  const catalogResult = useQuery({ ...libraryListQuery(catalogFilter), enabled: shellEnabled });
+  const libraryResult = useQuery({
+    ...libraryListQuery(libraryFilter),
+    enabled: shellEnabled,
+    placeholderData: keepPreviousData,
+  });
+  const organizationResult = useQuery({ ...organizationQuery, enabled: shellEnabled });
+  const familiesResult = useQuery({ ...familiesQuery, enabled: shellEnabled });
+  const config = configResult.data ?? null;
+  const dashboard = dashboardResult.data ?? null;
+  const lastSuccessfulScanAt = dashboard?.lastSuccessfulScanAt ?? "";
+  const workspaces = workspacesResult.data ?? NO_WORKSPACES;
+  const items = libraryResult.data ?? NO_ITEMS;
+  const allItems = catalogResult.data ?? NO_ITEMS;
+  const organization = organizationResult.data ?? null;
+  const families = familiesResult.data ?? NO_FAMILIES;
+  const trimmedSearch = searchInput.trim();
+  // The search box debounces into `query`; until it lands the list is stale.
+  const searchSettled =
+    (trimmedSearch ? searchInput : "") === query || /^(?:tag|tags):$/i.test(trimmedSearch);
+  const libraryLoading = libraryResult.isFetching || !searchSettled;
+  const loading =
+    bootstrapping ||
+    (shellEnabled &&
+      [configResult, dashboardResult, workspacesResult, catalogResult, libraryResult, organizationResult, familiesResult].some(
+        (result) => result.isPending,
+      ));
+  const handleOrganizationChange = useCallback((state: OrganizationState) => {
+    setCachedOrganization(state);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.library });
   }, []);
-  const loadLibrary = useCallback(
-    async (
-      requestedQuery = query,
-      requestedCollectionID = collectionID,
-      requestedScope: "active" | "archived" = libraryScope,
-      requestVersion = libraryLoadVersion.current,
-    ) => {
-      const nextItems =
-        (await API.ListLibrary(
-          "all",
-          "all",
-          requestedQuery,
-          requestedCollectionID,
-          requestedScope,
-        )) ?? [];
-      if (requestVersion !== libraryLoadVersion.current) return;
-      setItems(nextItems);
-    },
-    [collectionID, libraryScope, query],
-  );
-  const loadOrganization = useCallback(async () => {
-    const version = ++organizationLoadVersion.current;
-    const [nextOrganization, nextItems] = await Promise.all([
-      API.Organization(),
-      API.ListLibrary("all", "all", "", "all", "active"),
-    ]);
-    if (version !== organizationLoadVersion.current) return;
-    setOrganization(nextOrganization);
-    setAllItems(nextItems ?? []);
-  }, []);
-  const loadFamilies = useCallback(async () => {
-    const nextFamilies = (await API.ModFamilies()) ?? [];
-    setFamilies(nextFamilies);
-    return nextFamilies;
-  }, []);
-  const handleOrganizationChange = useCallback(
-    (state: OrganizationState) => {
-      setOrganization(state);
-      void Promise.all([loadOrganization(), loadLibrary()]).catch(handleError);
-    },
-    [loadOrganization, loadLibrary, handleError],
-  );
   const playSession = usePlaySession(
     organization,
     handleOrganizationChange,
@@ -437,10 +430,10 @@ function App() {
     const workspaceID = selectedWorkspaceIDRef.current || selectedWorkspaceID;
     if (!workspaceID) return;
     const requestVersion = ++workspaceDetailLoadVersion.current;
-    const [nextDetail, workspaceResult, nextDashboard] = await Promise.all([
+    const [nextDetail] = await Promise.all([
       API.GetWorkspace(workspaceID),
-      API.ListWorkspaces(),
-      API.Dashboard(),
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard }),
     ]);
     if (
       requestVersion === workspaceDetailLoadVersion.current &&
@@ -449,10 +442,6 @@ function App() {
     ) {
       setWorkspaceDetail(nextDetail);
     }
-    setWorkspaces(workspaceResult ?? []);
-    setDashboard(nextDashboard);
-    if (nextDashboard.lastSuccessfulScanAt)
-      setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
   }, [selectedWorkspaceID]);
 
   const startScan = useCallback(async () => {
@@ -485,16 +474,13 @@ function App() {
       if (successful) {
         writeBlockedRef.current = true;
         setWriteBlocked(true);
-        try {
-          const committedItems =
-            (await API.ListLibrary("all", "all", "", "all", "active")) ?? [];
-          markOpenEntitiesStale(committedItems);
-        } catch (error) {
-          handleError(error);
-        } finally {
-          writeBlockedRef.current = false;
-          setWriteBlocked(false);
-        }
+        // A failed read is reported by the query cache; the lock still lifts.
+        const committedItems = await queryClient
+          .fetchQuery({ ...libraryListQuery(catalogFilter), staleTime: 0 })
+          .catch(() => null);
+        if (committedItems) markOpenEntitiesStale(committedItems);
+        writeBlockedRef.current = false;
+        setWriteBlocked(false);
       }
       notify(
         `Processed ${summary.analyzed.toLocaleString()} archives${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} cached` : ""}`,
@@ -511,41 +497,19 @@ function App() {
     }
 
     try {
-      const [libraryResult, shellResult, organizationResult, familiesResult] =
-        await Promise.allSettled([
-          loadLibrary(),
-          loadShell(successful),
-          loadOrganization(),
-          loadFamilies(),
-        ]);
-      if (libraryResult.status === "rejected")
-        handleError(libraryResult.reason);
-      if (shellResult.status === "rejected") handleError(shellResult.reason);
-      if (organizationResult.status === "rejected")
-        handleError(organizationResult.reason);
-      if (familiesResult.status === "rejected")
-        handleError(familiesResult.reason);
+      // A scan can change every mod, tag, collection, family and count.
+      await queryClient.invalidateQueries();
       // The first indexed library may have seeded a collection and profile on
       // the backend; pick that up instead of leaving the pre-scan empty state.
       if (successful)
         await playSessionRef.current?.reloadState().catch(handleError);
-    } catch (error) {
-      handleError(error);
     } finally {
       if (scanRunVersionRef.current === scanRunVersion) {
         scanInFlightRef.current = false;
         setScanning(false);
       }
     }
-  }, [
-    handleError,
-    loadFamilies,
-    loadLibrary,
-    loadOrganization,
-    loadShell,
-    markOpenEntitiesStale,
-    notify,
-  ]);
+  }, [handleError, markOpenEntitiesStale, notify]);
 
   useEffect(() => {
     let active = true;
@@ -554,52 +518,18 @@ function App() {
         const nextSetup = await API.GetSetupState();
         if (!active) return;
         setSetupState(nextSetup);
-        if (nextSetup.required) {
-          setLoading(false);
-          return;
-        }
-        const nextDashboard = await API.Dashboard();
-        if (!active) return;
-        setDashboard(nextDashboard);
-        if (nextDashboard.lastSuccessfulScanAt)
-          setLastSuccessfulScanAt(nextDashboard.lastSuccessfulScanAt);
-        const [
-          nextConfig,
-          workspaceResult,
-          itemResult,
-          nextOrganization,
-          nextSettings,
-          nextUsage,
-          familyResult,
-        ] = await Promise.all([
-          API.Config(),
-          API.ListWorkspaces(),
-          API.ListLibrary("all", "all", "", "all", "active"),
-          API.Organization(),
+        if (nextSetup.required) return;
+        const [nextSettings, nextUsage] = await Promise.all([
           API.Settings(),
           API.AIUsage(),
-          API.ModFamilies(),
         ]);
         if (!active) return;
-        const nextWorkspaces = workspaceResult ?? [];
-        setConfig(nextConfig);
-        setWorkspaces(nextWorkspaces);
-        setItems(itemResult ?? []);
-        setAllItems(itemResult ?? []);
-        setOrganization(nextOrganization);
         setSettings(nextSettings);
-        setFamilies(familyResult ?? []);
         setUsage(nextUsage);
-        setLoading(false);
-        if (nextDashboard.entities === 0 && !autoScanStarted.current) {
-          autoScanStarted.current = true;
-          void startScan();
-        }
       } catch (error) {
-        if (active) {
-          setLoading(false);
-          handleError(error);
-        }
+        if (active) handleError(error);
+      } finally {
+        if (active) setBootstrapping(false);
       }
     })();
     return () => {
@@ -607,37 +537,24 @@ function App() {
     };
   }, []);
 
+  // An empty library at startup has never been scanned; index it once.
   useEffect(() => {
-    if (!setupState || setupState.required) return;
+    if (!dashboard || startupDashboardChecked.current) return;
+    startupDashboardChecked.current = true;
+    if (dashboard.entities === 0) void startScan();
+  }, [dashboard, startScan]);
+
+  useEffect(() => {
+    if (!shellEnabled) return;
     const trimmedInput = searchInput.trim();
     if (/^(?:tag|tags):$/i.test(trimmedInput)) return;
-    const requestVersion = ++libraryLoadVersion.current;
-    setLibraryLoading(true);
     if (!trimmedInput) {
       setQuery("");
-      void loadLibrary("", collectionID, libraryScope, requestVersion)
-        .catch((error) => {
-          if (requestVersion === libraryLoadVersion.current) handleError(error);
-        })
-        .finally(() => {
-          if (requestVersion === libraryLoadVersion.current)
-            setLibraryLoading(false);
-        });
       return;
     }
-    const timer = window.setTimeout(() => {
-      setQuery(searchInput);
-      void loadLibrary(searchInput, collectionID, libraryScope, requestVersion)
-        .catch((error) => {
-          if (requestVersion === libraryLoadVersion.current) handleError(error);
-        })
-        .finally(() => {
-          if (requestVersion === libraryLoadVersion.current)
-            setLibraryLoading(false);
-        });
-    }, 250);
+    const timer = window.setTimeout(() => setQuery(searchInput), 250);
     return () => window.clearTimeout(timer);
-  }, [collectionID, libraryScope, searchInput, setupState?.required]);
+  }, [searchInput, shellEnabled]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -671,15 +588,18 @@ function App() {
       else if (event.data.error) setScanning(false);
     });
     const stopItem = Events.On("library:item", (event) => {
-      setItems((current) => {
-        const index = current.findIndex(
-          (item) => item.entityId === event.data.entityId,
-        );
-        if (index < 0) return [event.data, ...current];
-        const next = [...current];
-        next[index] = event.data;
-        return next;
-      });
+      const next = event.data;
+      queryClient.setQueryData(
+        libraryListQuery(libraryFilterRef.current).queryKey,
+        (current) => {
+          if (!current) return current;
+          const index = current.findIndex((item) => item.entityId === next.entityId);
+          if (index < 0) return [next, ...current];
+          const updated = [...current];
+          updated[index] = next;
+          return updated;
+        },
+      );
     });
     return () => {
       stopScan();
@@ -690,14 +610,8 @@ function App() {
 
   useEffect(() => {
     let active = true;
-    const refreshWorkspaceList = async () => {
-      try {
-        const next = await API.ListWorkspaces();
-        if (active) setWorkspaces(next ?? []);
-      } catch (error) {
-        if (active) handleError(error);
-      }
-    };
+    const refreshWorkspaceList = () =>
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
     const refreshSelectedWorkspace = async () => {
       if (workspaceStaleRef.current) return;
       const workspaceID = selectedWorkspaceIDRef.current;
@@ -913,7 +827,7 @@ function App() {
         selectedItemRef.current?.entityId !== entityID
       )
         return;
-      const nextWorkspaces = await API.ListWorkspaces();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
       if (
         inspectorStaleRef.current ||
         selectedItemRef.current?.entityId !== entityID
@@ -930,7 +844,6 @@ function App() {
       selectedWorkspaceIDRef.current = detail.workspace.id;
       setWorkspaceDetail(detail);
       setSelectedWorkspaceID(detail.workspace.id);
-      setWorkspaces(nextWorkspaces ?? []);
       selectedItemRef.current = null;
       inspectorBaselineRef.current = null;
       inspectorStaleRef.current = false;
@@ -969,31 +882,27 @@ function App() {
   };
 
   const refreshAfterVirusScan = async () => {
-    await Promise.all([loadLibrary(), loadOrganization(), loadShell()]);
-    setLibraryRevision((current) => current + 1);
+    await Promise.all(
+      [queryKeys.library, queryKeys.organization, queryKeys.dashboard, queryKeys.workspaces].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
+    );
   };
 
   // Archiving, restoring and deleting rewrite which mods belong in the
-  // current scope, so the grouped table has to refetch the rows the server
-  // built for it. Reloading the item list alone left the mod on screen
-  // until the next app start.
+  // current scope and which families they form.
   const refreshAfterModRemoval = useCallback(async () => {
-    const [, , , nextWorkspaces, nextDashboard] = await Promise.all([
-      loadLibrary(),
-      loadOrganization(),
-      loadFamilies(),
-      API.ListWorkspaces(),
-      API.Dashboard(),
+    const [openWorkspaces] = await Promise.all([
+      queryClient.fetchQuery({ ...workspacesQuery, staleTime: 0 }),
+      ...[queryKeys.library, queryKeys.organization, queryKeys.families, queryKeys.dashboard].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
     ]);
-    setDashboard(nextDashboard);
-    setLibraryRevision((current) => current + 1);
 
     // Deleting a mod can take its ModMaker project with it.  The editor holds
     // the workspace in state, so without this it keeps rendering a project
     // whose files are already in the Recycle Bin - a file tree where every
     // action fails.
-    const openWorkspaces = nextWorkspaces ?? [];
-    setWorkspaces(openWorkspaces);
     const openID = selectedWorkspaceIDRef.current;
     if (
       openID &&
@@ -1004,7 +913,7 @@ function App() {
       setSelectedWorkspaceID("");
       setWorkspaceDetail(null);
     }
-  }, [loadFamilies, loadLibrary, loadOrganization]);
+  }, []);
 
   const createNewMod = async (
     request: NewModRequest,
@@ -1087,30 +996,14 @@ function App() {
       notify(`${detail.entity.displayName} mod created`, "success");
     }
 
-    const [
-      workspaceResult,
-      dashboardResult,
-      settingsResult,
-      organizationResult,
-    ] = await Promise.allSettled([
-      API.ListWorkspaces(),
-      API.Dashboard(),
-      API.Settings(),
-      loadOrganization(),
-    ]);
-    if (workspaceResult.status === "fulfilled")
-      setWorkspaces(workspaceResult.value ?? []);
-    else handleError(workspaceResult.reason);
-    if (dashboardResult.status === "fulfilled") {
-      setDashboard(dashboardResult.value);
-      if (dashboardResult.value.lastSuccessfulScanAt)
-        setLastSuccessfulScanAt(dashboardResult.value.lastSuccessfulScanAt);
-    } else handleError(dashboardResult.reason);
-    if (settingsResult.status === "fulfilled")
-      setSettings(settingsResult.value);
-    else handleError(settingsResult.reason);
-    if (organizationResult.status === "rejected")
-      handleError(organizationResult.reason);
+    // The new mod joins the library and may be filed into a collection.
+    for (const queryKey of [queryKeys.workspaces, queryKeys.dashboard, queryKeys.organization, queryKeys.library])
+      void queryClient.invalidateQueries({ queryKey });
+    try {
+      setSettings(await API.Settings());
+    } catch (error) {
+      handleError(error);
+    }
   };
 
   const saveSettings = async (update: SettingsUpdate) => {
@@ -1144,16 +1037,10 @@ function App() {
           0,
       ) ?? null;
     if (writeBlockedRef.current || inspectorStaleRef.current) return createdTag;
-    setOrganization(next);
+    setCachedOrganization(next);
     notify(`Created tag ${name}`, "success");
     return createdTag;
   };
-  // The grouped library renders rows the server built, so an edit made here has
-  // to tell that view to refetch. Without it a tag assignment only showed up
-  // after a restart.
-  const bumpLibraryRevision = useCallback(() => {
-    setLibraryRevision((current) => current + 1);
-  }, []);
   const updateSelectedTag = (tagID: string, replacement: ModTag | null) => {
     if (inspectorStaleRef.current) return;
     const current = selectedItemRef.current;
@@ -1167,15 +1054,8 @@ function App() {
     const nextItem = updateItem(current);
     selectedItemRef.current = nextItem;
     setSelectedItem(nextItem);
-    setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === nextItem.entityId ? updateItem(item) : item,
-      ),
-    );
-    setAllItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === nextItem.entityId ? updateItem(item) : item,
-      ),
+    updateCachedLibraryItems((item) =>
+      item.entityId === nextItem.entityId ? updateItem(item) : item,
     );
     setEntityDetail((currentDetail) =>
       currentDetail?.item.entityId === nextItem.entityId
@@ -1183,7 +1063,6 @@ function App() {
         : currentDetail,
     );
     advanceInspectorBaseline(nextItem);
-    bumpLibraryRevision();
   };
   const updateTagVisual = async (
     tagID: string,
@@ -1198,7 +1077,7 @@ function App() {
     const entityID = selectedItemRef.current.entityId;
     const next = await API.UpdateModTagVisual(tagID, color, icon);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
-    setOrganization(next);
+    setCachedOrganization(next);
     if (selectedItemRef.current?.entityId !== entityID)
       throw new Error(
         "Inspector selection changed before the tag update completed.",
@@ -1231,21 +1110,12 @@ function App() {
     if (!selectedItemRef.current) return;
     const next = await API.DeleteModTag(tagID);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
-    setOrganization(next);
-    setItems((currentItems) =>
-      currentItems.map((item) => ({
-        ...item,
-        tags: (item.tags ?? []).filter((tag) => tag.id !== tagID),
-      })),
-    );
-    setAllItems((currentItems) =>
-      currentItems.map((item) => ({
-        ...item,
-        tags: (item.tags ?? []).filter((tag) => tag.id !== tagID),
-      })),
-    );
+    setCachedOrganization(next);
+    updateCachedLibraryItems((item) => ({
+      ...item,
+      tags: (item.tags ?? []).filter((tag) => tag.id !== tagID),
+    }));
     updateSelectedTag(tagID, null);
-    bumpLibraryRevision();
     notify("Tag deleted", "success");
   };
   const setSelectedTags = async (tagIDs: string[]): Promise<ModTag[]> => {
@@ -1265,12 +1135,7 @@ function App() {
     advanceInspectorBaseline(next);
     selectedItemRef.current = next;
     setSelectedItem(next);
-    setItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next : item)),
-    );
-    setAllItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next : item)),
-    );
+    replaceCachedLibraryItem(next);
     setEntityDetail((currentDetail) =>
       currentDetail?.item.entityId === entityID
         ? { ...currentDetail, item: next }
@@ -1278,8 +1143,7 @@ function App() {
     );
     const previousTagIDs = new Set((current.tags ?? []).map((tag) => tag.id));
     const assignedTagIDs = new Set(assignedTags.map((tag) => tag.id));
-    setOrganization((currentOrganization) => {
-      if (!currentOrganization) return currentOrganization;
+    setCachedOrganization((currentOrganization) => {
       const assignedByID = new Map(assignedTags.map((tag) => [tag.id, tag]));
       return {
         ...currentOrganization,
@@ -1297,7 +1161,6 @@ function App() {
         }),
       };
     });
-    bumpLibraryRevision();
     return assignedTags;
   };
   const saveDetails = async (
@@ -1316,18 +1179,8 @@ function App() {
     advanceInspectorBaseline(next.item);
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
-    setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === entityID ? next.item : item,
-      ),
-    );
-    setAllItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === entityID ? next.item : item,
-      ),
-    );
+    replaceCachedLibraryItem(next.item);
     setEntityDetail(next);
-    bumpLibraryRevision();
   };
   const saveVariant = async (update: LibraryVariantUpdate): Promise<void> => {
     const current = selectedItemRef.current;
@@ -1343,16 +1196,7 @@ function App() {
     advanceInspectorBaseline(next.item);
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
-    setItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === entityID ? next.item : item,
-      ),
-    );
-    setAllItems((currentItems) =>
-      currentItems.map((item) =>
-        item.entityId === entityID ? next.item : item,
-      ),
-    );
+    replaceCachedLibraryItem(next.item);
     setEntityDetail(next);
   };
 
@@ -1619,7 +1463,6 @@ function App() {
                 collectionID={collectionID}
                 selectedID={selectedItem?.entityId ?? ""}
                 scope={libraryScope}
-                libraryRevision={libraryRevision}
                 onQueryChange={setSearchInput}
                 onCollectionChange={setCollectionID}
                 onScopeChange={(next) => {
@@ -1642,15 +1485,14 @@ function App() {
                 onImported={async () => {
                   setSearchInput("");
                   setCollectionID("all");
-                  await Promise.all([
-                    loadLibrary("", "all", libraryScope),
-                    loadOrganization(),
-                    loadFamilies(),
-                    loadShell(false),
-                  ]);
+                  await Promise.all(
+                    [queryKeys.library, queryKeys.organization, queryKeys.families, queryKeys.dashboard, queryKeys.workspaces].map(
+                      (queryKey) => queryClient.invalidateQueries({ queryKey }),
+                    ),
+                  );
                 }}
                 onRefreshFamilies={refreshAfterModRemoval}
-                onFamiliesChange={setFamilies}
+                onFamiliesChange={(next) => queryClient.setQueryData(queryKeys.families, next)}
                 onNotify={notify}
               />
             )}

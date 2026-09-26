@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { CancelError, type CancellablePromise } from "@wailsio/runtime";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
-  LibraryGroupPage as GroupPage,
   LibraryItem,
   ModCollection,
   ModFamily,
@@ -36,6 +35,7 @@ import {
 } from "./ModTable";
 import { Button, Page, formatBytes, type PageActionSpec } from "./ui";
 import { SelectionCollections } from "./SelectionCollections";
+import { libraryGroupPageQuery, queryClient, queryKeys } from "./queries";
 
 type LibraryViewMode = "table" | "preview";
 
@@ -82,9 +82,6 @@ export interface LibraryViewProps {
   collectionID: string;
   selectedID: string;
   scope: "active" | "archived";
-  // Bumped by the app whenever a mod's own data changes outside this view, so
-  // the server-rendered grouped rows are refetched instead of going stale.
-  libraryRevision: number;
   onQueryChange: (value: string) => void;
   onCollectionChange: (value: string) => void;
   onScopeChange: (scope: "active" | "archived") => void;
@@ -155,7 +152,6 @@ export function LibraryView(props: LibraryViewProps) {
   const [grouped, setGrouped] = useState(
     () => window.localStorage.getItem(GROUPING_KEY) === "true",
   );
-  const [groupData, setGroupData] = useState<GroupPage | null>(null);
   const [groupPage, setGroupPage] = useState(0);
   const [groupPageSize, setGroupPageSize] = useState(() => {
     const stored = window.localStorage.getItem(PAGE_SIZE_KEY);
@@ -163,17 +159,16 @@ export function LibraryView(props: LibraryViewProps) {
     const n = Number(stored);
     return n > 0 ? n : 50;
   });
-  const [groupLoading, setGroupLoading] = useState(false);
-  const groupLoadVersion = useRef(0);
-  const streamKeyRef = useRef("");
   const filterKey = `${props.query}\0${props.collectionID}\0${props.scope}`;
-  const previousFilterKeyRef = useRef(filterKey);
-  const [groupRevision, setGroupRevision] = useState(0);
+  // A new filter starts at the first page. Adjusting during render keeps the
+  // old page number from ever being requested for the new filter.
+  const [pagerFilterKey, setPagerFilterKey] = useState(filterKey);
+  if (pagerFilterKey !== filterKey) {
+    setPagerFilterKey(filterKey);
+    setGroupPage(0);
+  }
   const groupedTableVisible = grouped && viewMode === "table";
   const [sortingColumn, setSortingColumn] = useState<ModTableSortKey | null>(
-    null,
-  );
-  const pendingGroupRequestRef = useRef<CancellablePromise<GroupPage> | null>(
     null,
   );
   const [groupNameDraft, setGroupNameDraft] = useState("");
@@ -192,107 +187,36 @@ export function LibraryView(props: LibraryViewProps) {
     [props.tags],
   );
 
-  // Page rows are inexpensive summaries now. Keep their ordering authoritative
-  // on the server rather than caching partial group pages across mutations.
-  const streamKey = `${filterKey}\0${props.libraryRevision}\0${groupRevision}\0${librarySort.key}\0${librarySort.direction}\0${groupPageSize}\0${groupedTableVisible}`;
-  if (streamKeyRef.current !== streamKey) {
-    streamKeyRef.current = streamKey;
-    groupLoadVersion.current++;
-  }
-  const cancelGroupRequest = useCallback(() => {
-    groupLoadVersion.current++;
-    const request = pendingGroupRequestRef.current;
-    pendingGroupRequestRef.current = null;
-    if (request) void request.cancel();
-  }, []);
-
-  const loadGroupPage = useCallback(
-    async (pageNum: number, pageSize?: number, silent = false) => {
-      if (!groupedTableVisible || streamKeyRef.current !== streamKey) return;
-      cancelGroupRequest();
-      const version = groupLoadVersion.current;
-      if (!silent) setGroupLoading(true);
-      try {
-        const ps = pageSize ?? groupPageSize;
-        const promise = API.LibraryGroupPage(
-          "all",
-          "all",
-          props.query,
-          props.collectionID,
-          props.scope,
-          pageNum,
-          ps,
-          librarySort.key,
-          librarySort.direction,
-        );
-        pendingGroupRequestRef.current = promise;
-        const result = await promise;
-        if (version !== groupLoadVersion.current) return;
-        setGroupData(result);
-      } catch (error) {
-        if (version !== groupLoadVersion.current) return;
-        // Cancelled requests are not failures — swallow silently.
-        if (error instanceof CancelError) return;
-        if (!silent) props.onError(error);
-      } finally {
-        if (version === groupLoadVersion.current) {
-          setGroupLoading(false);
-          setSortingColumn(null);
-          pendingGroupRequestRef.current = null;
-        }
-      }
-    },
-    [
-      streamKey,
-      groupedTableVisible,
-      cancelGroupRequest,
-      props.query,
-      props.collectionID,
-      props.scope,
-      props.onError,
-      groupPageSize,
-      librarySort.key,
-      librarySort.direction,
-    ],
-  );
-
-  useEffect(() => {
-    const filtersChanged = previousFilterKeyRef.current !== filterKey;
-    previousFilterKeyRef.current = filterKey;
-    if (!groupedTableVisible) {
-      cancelGroupRequest();
-      setSortingColumn(null);
-      setGroupLoading(false);
-      return;
-    }
-    if (filtersChanged) {
-      setSortingColumn(null);
-      if (groupPage !== 0) {
-        setGroupPage(0);
-        return;
-      }
-    }
-    void loadGroupPage(groupPage);
-    return cancelGroupRequest;
-  }, [
-    filterKey,
-    groupedTableVisible,
-    groupPage,
-    loadGroupPage,
-    cancelGroupRequest,
-  ]);
+  // Group pages are built on the server, so any edit to a mod, tag or group
+  // invalidates ["library"] in the app and these refetch.
+  const groupQuery = useQuery({
+    ...libraryGroupPageQuery({
+      query: props.query,
+      collectionID: props.collectionID,
+      scope: props.scope,
+      page: groupPage,
+      pageSize: groupPageSize,
+      sortKey: librarySort.key,
+      sortDirection: librarySort.direction,
+    }),
+    enabled: groupedTableVisible,
+    placeholderData: keepPreviousData,
+  });
+  const groupData = groupQuery.data ?? null;
+  const groupLoading = groupedTableVisible && groupQuery.isFetching;
+  // The column spinner shows while the previous order stands in for the new one.
+  const groupSortingColumn = groupQuery.isPlaceholderData ? sortingColumn : null;
+  const cancelGroupRequest = () =>
+    void queryClient.cancelQueries({ queryKey: queryKeys.libraryGroups });
 
   const handleSortChange = useCallback(
     (nextSort: ModTableSort) => {
-      cancelGroupRequest();
+      void queryClient.cancelQueries({ queryKey: queryKeys.libraryGroups });
       setGroupPage(0);
       setLibrarySort(nextSort);
-      if (groupedTableVisible) {
-        setSortingColumn(nextSort.key);
-        setGroupLoading(true);
-      }
+      setSortingColumn(nextSort.key);
     },
-    [groupedTableVisible, cancelGroupRequest],
+    [],
   );
 
   const toggleGrouped = (on: boolean) => {
@@ -300,28 +224,18 @@ export function LibraryView(props: LibraryViewProps) {
     try {
       window.localStorage.setItem(GROUPING_KEY, String(on));
     } catch {}
-    if (on) {
-      setGroupPage(0);
-    } else {
+    if (on) setGroupPage(0);
+    else {
       cancelGroupRequest();
       setSortingColumn(null);
-      setGroupLoading(false);
     }
   };
 
   const handleToggleGroupCollapsed = (groupId: string, collapsed: boolean) => {
     cancelGroupRequest();
-    const version = groupLoadVersion.current;
-    setGroupLoading(true);
     void API.SetGroupCollapsed(groupId, collapsed)
-      .then(() => setGroupRevision((revision) => revision + 1))
-      .catch((error) => {
-        if (version === groupLoadVersion.current) {
-          setGroupLoading(false);
-          setSortingColumn(null);
-        }
-        props.onError(error);
-      });
+      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.libraryGroups }))
+      .catch(props.onError);
   };
 
   const handleGroupPageChange = (page: number) => {
@@ -336,17 +250,17 @@ export function LibraryView(props: LibraryViewProps) {
     const next =
       stored === "all" ? 0 : Number(stored) > 0 ? Number(stored) : 50;
     if (next === groupPageSize && groupPage === 0) return;
-    cancelGroupRequest();
+    void queryClient.cancelQueries({ queryKey: queryKeys.libraryGroups });
     setSortingColumn(null);
     setGroupPageSize(next);
     setGroupPage(0);
-  }, [groupPage, groupPageSize, cancelGroupRequest]);
+  }, [groupPage, groupPageSize]);
 
+  // Each of these returns the new organization; handing it to the app
+  // refreshes the library lists and group pages.
   const addModsToGroup = async (tagID: string, entityIDs: string[]) => {
     try {
-      const result = await API.AddModsToGroup(tagID, entityIDs);
-      props.onOrganization(result);
-      if (grouped) void loadGroupPage(groupPage);
+      props.onOrganization(await API.AddModsToGroup(tagID, entityIDs));
     } catch (error) {
       props.onError(error);
     }
@@ -354,9 +268,7 @@ export function LibraryView(props: LibraryViewProps) {
 
   const removeModsFromGroup = async (tagID: string, entityIDs: string[]) => {
     try {
-      const result = await API.RemoveModsFromGroup(tagID, entityIDs);
-      props.onOrganization(result);
-      if (grouped) void loadGroupPage(groupPage);
+      props.onOrganization(await API.RemoveModsFromGroup(tagID, entityIDs));
     } catch (error) {
       props.onError(error);
     }
@@ -367,9 +279,7 @@ export function LibraryView(props: LibraryViewProps) {
     entityIDs: string[],
   ) => {
     try {
-      const result = await API.CreateGroupFromSelection(name, entityIDs);
-      props.onOrganization(result);
-      if (grouped) void loadGroupPage(groupPage);
+      props.onOrganization(await API.CreateGroupFromSelection(name, entityIDs));
     } catch (error) {
       props.onError(error);
     }
@@ -378,9 +288,7 @@ export function LibraryView(props: LibraryViewProps) {
   const toggleTagGrouped = async (tagID: string, on: boolean) => {
     setPromotionBusy(tagID);
     try {
-      const result = await API.SetTagGrouped(tagID, on);
-      props.onOrganization(result);
-      if (grouped) void loadGroupPage(groupPage);
+      props.onOrganization(await API.SetTagGrouped(tagID, on));
     } catch (error) {
       props.onError(error);
     } finally {
@@ -1104,7 +1012,7 @@ export function LibraryView(props: LibraryViewProps) {
             }
             hasActiveSearch={grouped ? Boolean(props.query.trim()) : false}
             onPageSizeChange={grouped ? handlePageSizeChange : undefined}
-            sortingColumn={grouped ? sortingColumn : null}
+            sortingColumn={grouped ? groupSortingColumn : null}
           />
         )}
       </div>

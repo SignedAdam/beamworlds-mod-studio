@@ -191,7 +191,7 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 		plan.Impact.Tags = append(plan.Impact.Tags, name)
 	}
 	for _, names := range [][]string{plan.Impact.Collections, plan.Impact.Groups, plan.Impact.Tags, plan.Impact.Workspaces, plan.Impact.Refusals} {
-		slices.SortFunc(names, func(left, right string) int { return strings.Compare(strings.ToLower(left), strings.ToLower(right)) })
+		slices.SortFunc(names, compareLibrarySortText)
 	}
 	payload, err := json.Marshal(plan.Entities)
 	if err != nil {

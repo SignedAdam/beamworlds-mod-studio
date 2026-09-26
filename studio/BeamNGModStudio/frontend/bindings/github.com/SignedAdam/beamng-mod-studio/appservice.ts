@@ -316,8 +316,8 @@ export function LaunchPlaySelection(request: $models.PlayRequest): $CancellableP
     return $Call.ByID(3098743839, request);
 }
 
-export function LibraryGroupPage(health: string, kind: string, query: string, collectionID: string, scope: string, page: number, pageSize: number): $CancellablePromise<$models.LibraryGroupPage> {
-    return $Call.ByID(1282785871, health, kind, query, collectionID, scope, page, pageSize);
+export function LibraryGroupPage(health: string, kind: string, query: string, collectionID: string, scope: string, page: number, pageSize: number, sortKey: string, sortDirection: number): $CancellablePromise<$models.LibraryGroupPage> {
+    return $Call.ByID(1282785871, health, kind, query, collectionID, scope, page, pageSize, sortKey, sortDirection);
 }
 
 export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[] | null> {

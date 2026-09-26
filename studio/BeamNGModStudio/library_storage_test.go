@@ -105,6 +105,52 @@ func applyLibraryArchives(tb testing.TB, store *Store, root string, archives []S
 	return items
 }
 
+func TestMissingArchiveReconciliationPreservesOtherSourcesAndFailedScans(t *testing.T) {
+	store, root := openLibraryStorage(t)
+	ctx := context.Background()
+	archives := libraryFixtureArchives(root, 1, 0)
+	items := applyLibraryArchives(t, store, root, archives)
+	collection, err := store.CreateCollection(ctx, "Multiple sources", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionID := collection.Collection.ID
+	if _, err := store.SetCollectionMods(ctx, collectionID, []string{items[0].EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	otherRoot := filepath.Join(t.TempDir(), "other-mods")
+	other := archives[0]
+	other.Root = otherRoot
+	other.ArchivePath = filepath.Join(otherRoot, filepath.Base(other.ArchivePath))
+	other.Manifest.ArchivePath = other.ArchivePath
+	linked := applyLibraryArchives(t, store, otherRoot, []ScanArchive{other})
+	if len(linked) != 1 || linked[0].EntityID != items[0].EntityID {
+		t.Fatal("fixture did not link two sources to the same mod")
+	}
+	assertSelected := func() {
+		t.Helper()
+		selection, err := store.ResolvePlaySelection(ctx, []string{collectionID}, nil)
+		if err != nil || len(selection.Mods) != 1 || !selection.Mods[0].Available {
+			t.Fatalf("usable mod was disabled: %#v, %v", selection, err)
+		}
+	}
+	applyLibraryArchives(t, store, root, nil)
+	assertSelected()
+	scanID, err := store.BeginScan(ctx, []string{otherRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishScan(ctx, scanID, []string{otherRoot}, 0, 0, 0, context.Canceled); err != nil {
+		t.Fatal(err)
+	}
+	assertSelected()
+	applyLibraryArchives(t, store, otherRoot, nil)
+	selection, err := store.ResolvePlaySelection(ctx, []string{collectionID}, nil)
+	if err != nil || len(selection.Mods) != 0 || selection.MissingCount != 0 {
+		t.Fatalf("last source removal still blocks Play: %#v, %v", selection, err)
+	}
+}
+
 func libraryItemByPath(items []LibraryItem, path string) (LibraryItem, bool) {
 	for _, item := range items {
 		if strings.EqualFold(item.ArchivePath, path) {

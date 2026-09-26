@@ -731,7 +731,7 @@ export interface LibraryGroupRow {
     "matchCount": number;
 
     /**
-     * mod rows only
+     * mod rows carry summary metadata; GetEntity returns full inspection details
      */
     "item": LibraryItem | null;
 }

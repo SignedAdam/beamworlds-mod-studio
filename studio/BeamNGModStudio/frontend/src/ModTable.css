@@ -1060,7 +1060,10 @@ html[data-theme="light"] .mod-table-panel--library .group-row__cell {
   border-bottom-color: var(--library-table-divider);
 }
 
-html[data-theme="light"] .mod-table-panel--library .group-row:hover .group-row__cell {
+html[data-theme="light"]
+  .mod-table-panel--library
+  .group-row:hover
+  .group-row__cell {
   background: var(--library-table-hover);
 }
 
@@ -1080,15 +1083,14 @@ html[data-theme="light"] .mod-table-panel--library .group-row__match {
   color: var(--library-table-info);
 }
 
-/* Per-group column labels: lightweight orientation aid, not interactive chrome. */
+/* Per-group column labels: repeated headings double as sort controls. */
 .group-section-header {
-  pointer-events: none;
   user-select: none;
 }
 
 .group-section-header td {
   height: 26px;
-  padding: 0 9px;
+  padding: 0;
   border-bottom: 1px solid var(--line);
   color: var(--text-3);
   font-size: var(--font-caption, 10px);
@@ -1100,7 +1102,82 @@ html[data-theme="light"] .mod-table-panel--library .group-row__match {
   text-overflow: ellipsis;
 }
 
+.group-section-header td button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.group-section-header td button:hover {
+  background: var(--surface-soft);
+  color: var(--text-2);
+}
+
+.group-section-header td button:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: -2px;
+}
+
 html[data-theme="light"] .mod-table-panel--library .group-section-header td {
   border-bottom-color: var(--library-table-divider);
   color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .group-section-header
+  td
+  button:hover {
+  background: var(--library-table-hover);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .group-section-header
+  td
+  button:focus-visible {
+  outline-color: var(--library-table-focus);
+}
+
+/* Inline sort-pending spinner: appears inside the clicked column header
+   beside the direction arrow, matching the product's existing Spinner ring
+   at a size that fits header text. flex:none keeps it from stretching. */
+.sort-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 4px;
+  border: 1.5px solid var(--line-strong);
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+  vertical-align: middle;
+}
+
+html[data-theme="light"] .mod-table-panel--library .sort-spinner {
+  border-color: color-mix(
+    in srgb,
+    var(--library-table-secondary-text) 30%,
+    transparent
+  );
+  border-top-color: var(--library-table-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sort-spinner {
+    animation: none;
+  }
 }

@@ -10,6 +10,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	golang.org/x/image v0.41.0
 	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.39.0
 	modernc.org/sqlite v1.57.0
 )
 

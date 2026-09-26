@@ -17,9 +17,10 @@ import (
 )
 
 type Store struct {
-	db      *sql.DB
-	dbPath  string
-	writeMu sync.Mutex
+	db            *sql.DB
+	dbPath        string
+	writeMu       sync.Mutex
+	manifestCache *artifactManifestCache
 }
 
 // libraryQueryer is the smallest common read surface implemented by *sql.DB
@@ -189,7 +190,7 @@ func OpenStore(filename string, legacyCatalogPath ...string) (*Store, error) {
 	// external writer failure to its caller.
 	db.SetMaxOpenConns(8)
 	db.SetMaxIdleConns(8)
-	store := &Store{db: db, dbPath: filename}
+	store := &Store{db: db, dbPath: filename, manifestCache: newArtifactManifestCache(2048)}
 	fail := func(err error) (*Store, error) {
 		_ = db.Close()
 		return nil, err
@@ -213,13 +214,30 @@ func OpenStore(filename string, legacyCatalogPath ...string) (*Store, error) {
 			}
 		}
 	}
+	// Older scans unlinked removed archives without disabling their saved
+	// selections. Repair those memberships before exposing the library.
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fail(err)
+	}
+	if err := store.disableMissingCollectionModsTx(context.Background(), tx); err != nil {
+		_ = tx.Rollback()
+		return fail(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fail(err)
+	}
 	if err := store.RecoverInterruptedAgentRuns(context.Background()); err != nil {
 		return fail(err)
 	}
 	return store, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	s.manifestCache.clear()
+	return err
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	s.writeMu.Lock()
@@ -509,6 +527,9 @@ func (s *Store) FinishScan(ctx context.Context, scanID string, roots []string, d
 				removedEntities[link.entityID] = struct{}{}
 			}
 		}
+		if err := s.disableMissingCollectionModsTx(ctx, tx); err != nil {
+			return err
+		}
 	}
 	if len(removedEntities) > 0 {
 		revisionAt := nowUTC()
@@ -760,6 +781,9 @@ func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []str
 			removedEntities[link.entityID] = struct{}{}
 		}
 	}
+	if err := s.disableMissingCollectionModsTx(ctx, tx); err != nil {
+		return nil, err
+	}
 	if len(removedEntities) > 0 {
 		revisionAt := nowUTC()
 		for entityID := range removedEntities {
@@ -811,6 +835,62 @@ func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []str
 		return nil, err
 	}
 	return items, nil
+}
+
+// disableMissingCollectionModsTx reconciles saved selections only after the
+// archive index has committed to a removal. Keep membership and ordering so
+// the user can re-enable a restored mod; never disable a mod with another
+// active source, or treat an entity that never had an archive as a removal.
+func (s *Store) disableMissingCollectionModsTx(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT cm.entity_id, cm.collection_id
+		FROM collection_mods cm
+		WHERE cm.enabled=1
+			AND EXISTS (SELECT 1 FROM archive_links al WHERE al.entity_id=cm.entity_id)
+			AND NOT EXISTS (SELECT 1 FROM archive_links al WHERE al.entity_id=cm.entity_id AND al.active=1)`)
+	if err != nil {
+		return err
+	}
+	type membership struct{ entityID, collectionID string }
+	var missing []membership
+	for rows.Next() {
+		var member membership
+		if err := rows.Scan(&member.entityID, &member.collectionID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		missing = append(missing, member)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	now := nowUTC()
+	for _, member := range missing {
+		if _, err := tx.ExecContext(ctx, `UPDATE collection_mods SET enabled=0 WHERE collection_id=? AND entity_id=?`, member.collectionID, member.entityID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE collections SET updated_at=? WHERE id=?`, now, member.collectionID); err != nil {
+			return err
+		}
+		if err := touchEntityUpdatedAtTx(ctx, tx, member.entityID, now); err != nil {
+			return err
+		}
+		if err := s.refreshLibrarySearchEntryTx(ctx, tx, member.entityID); err != nil {
+			return err
+		}
+		if err := appendEventTx(ctx, tx, member.entityID, "collection_mod_disabled", map[string]any{
+			"collectionId": member.collectionID, "reason": "archive_removed",
+		}); err != nil {
+			return err
+		}
+	}
+	if len(missing) > 0 {
+		return markLibraryIndexFreshTx(ctx, tx)
+	}
+	return nil
 }
 
 type reusedScanArchiveKey struct {
@@ -1460,6 +1540,18 @@ func (s *Store) listItemsByIDsQuery(ctx context.Context, queryer libraryQueryer,
 	return items, nil
 }
 func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQueryer, entityIDs []string) ([]LibraryItem, error) {
+	if db, ok := queryer.(*sql.DB); ok {
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback() }()
+		items, err := s.queryLibraryItemsQuery(ctx, tx, entityIDs)
+		if err != nil {
+			return nil, err
+		}
+		return items, tx.Commit()
+	}
 	query := `SELECT e.id, e.updated_at, COALESCE(e.archived_at,''), e.display_name, e.kind,
 		COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'),
 		CASE lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))
@@ -1469,8 +1561,9 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		END,
 		COALESCE(l.id,''), COALESCE(l.artifact_id,''), COALESCE(l.path,''), COALESCE(l.root_path,''),
 		COALESCE(l.active,0), COALESCE(l.size_bytes,0), COALESCE(l.modified_at,''), COALESCE(l.last_seen_at,''),
-		COALESCE(a.central_fingerprint,''), COALESCE(a.sha256,''), COALESCE(a.manifest_json,'{}'),
-		COALESCE(ast.sha256,'')
+		COALESCE(a.central_fingerprint,''), COALESCE(a.sha256,''),
+		COALESCE(ast.sha256,''),
+		COALESCE(sm.revision,'')
 	FROM entities e
 	LEFT JOIN archive_links l ON l.id = (
 		SELECT l2.id FROM archive_links l2
@@ -1479,6 +1572,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	)
 	LEFT JOIN source_classifications sc ON sc.id = COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added')
 	LEFT JOIN artifacts a ON a.id=l.artifact_id
+	LEFT JOIN artifact_summaries sm ON sm.artifact_id=a.id
 	LEFT JOIN entity_assets ea ON ea.entity_id=e.id AND ea.role='thumbnail' AND ea.ordinal=0
 	LEFT JOIN assets ast ON ast.sha256=ea.asset_sha256`
 	args := make([]any, 0, len(entityIDs))
@@ -1496,23 +1590,24 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	}
 	defer rows.Close()
 	items := make([]LibraryItem, 0, len(entityIDs))
+	missing := map[string][]int{}
+	revisions := map[string]string{}
 	for rows.Next() {
 		var item LibraryItem
-		var kind, manifestJSON, assetSHA string
+		var kind, assetSHA, summaryRevision string
 		if err := rows.Scan(&item.EntityID, &item.Revision, &item.ArchivedAt, &item.DisplayName, &kind, &item.SourceID, &item.Source,
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
-			&item.Fingerprint, &item.SHA256, &manifestJSON, &assetSHA); err != nil {
+			&item.Fingerprint, &item.SHA256, &assetSHA, &summaryRevision); err != nil {
 			return nil, err
 		}
 		item.Kind = modkit.Kind(kind)
-		if err := json.Unmarshal([]byte(manifestJSON), &item.Manifest); err != nil {
-			return nil, err
+		if cached, ok := s.manifestCache.get(item.ArtifactID, summaryRevision); ok && item.ArtifactID != "" {
+			item.Manifest = cached
+		} else if item.ArtifactID != "" {
+			missing[item.ArtifactID] = append(missing[item.ArtifactID], len(items))
+			revisions[item.ArtifactID] = summaryRevision
 		}
-		item.MemberCount = len(item.Manifest.Members)
-		item.NamespaceCount = len(item.Manifest.Namespaces)
-		item.VariantCount = len(item.Manifest.Variants)
-		item.IssueCount = len(item.Manifest.Issues)
 		item.CollectionIDs = []string{}
 		if assetSHA != "" {
 			item.ThumbnailURL = "/cache/" + assetSHA
@@ -1524,6 +1619,16 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
+	}
+	if err := s.hydrateMissingManifests(ctx, queryer, items, missing, revisions); err != nil {
+		return nil, err
+	}
+	for index := range items {
+		item := &items[index]
+		item.MemberCount = len(item.Manifest.Members)
+		item.NamespaceCount = len(item.Manifest.Namespaces)
+		item.VariantCount = len(item.Manifest.Variants)
+		item.IssueCount = len(item.Manifest.Issues)
 	}
 	if err := attachLibraryItemCollectionsQuery(ctx, queryer, items); err != nil {
 		return nil, err
@@ -1681,91 +1786,6 @@ func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, ite
 		}
 	}
 	return rows.Err()
-}
-
-func attachLibraryItemHealthQuery(ctx context.Context, queryer libraryQueryer, items []LibraryItem) error {
-	for index := range items {
-		items[index].HealthStatus = "unscanned"
-		if libraryItemBroken(items[index]) {
-			items[index].HealthStatus = "broken"
-		}
-		items[index].HealthLabel = virusHealthLabel(items[index].HealthStatus)
-		items[index].LastSecurityScanAt = ""
-		items[index].LastSecurityScanVerdict = ""
-		items[index].LastSecurityScanSHA256 = ""
-		items[index].SecurityScanChanged = false
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	type healthRecord struct {
-		artifactID, status, verdict, updatedAt, sha256 string
-	}
-	currentHealth := map[string]healthRecord{}
-	latestHealth := map[string]healthRecord{}
-	rows, err := queryer.QueryContext(ctx, `SELECT entity_id,artifact_id,status,verdict,updated_at,artifact_sha256,current_ordinal,entity_ordinal FROM (
-		SELECT v.entity_id,v.artifact_id,v.status,v.verdict,v.updated_at,COALESCE(NULLIF(v.file_sha256,''),a.sha256,'') AS artifact_sha256,
-			ROW_NUMBER() OVER(PARTITION BY v.entity_id,v.artifact_id ORDER BY v.updated_at DESC,v.id DESC) AS current_ordinal,
-			ROW_NUMBER() OVER(PARTITION BY v.entity_id ORDER BY v.updated_at DESC,v.id DESC) AS entity_ordinal
-		FROM virus_scans v LEFT JOIN artifacts a ON a.id=v.artifact_id
-	) WHERE current_ordinal=1 OR entity_ordinal=1`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var entityID, artifactID string
-		var record healthRecord
-		var currentOrdinal, entityOrdinal int
-		if err := rows.Scan(&entityID, &artifactID, &record.status, &record.verdict, &record.updatedAt, &record.sha256, &currentOrdinal, &entityOrdinal); err != nil {
-			return err
-		}
-		record.artifactID = artifactID
-		if currentOrdinal == 1 {
-			currentHealth[entityID+"\x00"+artifactID] = record
-		}
-		if entityOrdinal == 1 {
-			latestHealth[entityID] = record
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	scanStatus := func(record healthRecord) string {
-		status := record.verdict
-		if record.status == "running" {
-			status = "scanning"
-		} else if record.status == "failed" {
-			status = "scan_failed"
-		}
-		if status == "" {
-			status = "unscanned"
-		}
-		return status
-	}
-	for index := range items {
-		item := &items[index]
-		if record, ok := latestHealth[item.EntityID]; ok {
-			item.LastSecurityScanAt = record.updatedAt
-			item.LastSecurityScanVerdict = record.verdict
-			item.LastSecurityScanSHA256 = record.sha256
-			item.SecurityScanChanged = record.artifactID != item.ArtifactID
-			if !item.SecurityScanChanged && record.sha256 != "" && item.SHA256 != "" {
-				item.SecurityScanChanged = !strings.EqualFold(record.sha256, item.SHA256)
-			}
-		}
-		record, ok := currentHealth[item.EntityID+"\x00"+item.ArtifactID]
-		if !ok {
-			continue
-		}
-		status := scanStatus(record)
-		if status != "threat" && libraryItemBroken(*item) {
-			status = "broken"
-		}
-		item.HealthStatus = status
-		item.HealthLabel = virusHealthLabel(status)
-	}
-	return nil
 }
 
 func (s *Store) GetEntityDetail(ctx context.Context, entityID string) (EntityDetail, error) {

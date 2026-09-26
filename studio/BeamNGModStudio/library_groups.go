@@ -7,9 +7,32 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
+	"modernc.org/sqlite"
 
 	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
+
+// Match the table's case/accent-insensitive, numeric string ordering in both
+// SQL pagination and hydrated filtering. Collators have mutable buffers.
+var librarySortCollators = sync.Pool{New: func() any {
+	return collate.New(language.Und, collate.Loose, collate.Numeric)
+}}
+
+func compareLibrarySortText(left, right string) int {
+	comparator := librarySortCollators.Get().(*collate.Collator)
+	result := comparator.CompareString(left, right)
+	librarySortCollators.Put(comparator)
+	return result
+}
+
+func init() {
+	sqlite.MustRegisterCollationUtf8("library_sort", compareLibrarySortText)
+}
 
 // Reserved group ID for mods not in any promoted group.
 const ungroupedGroupID = "__ungrouped__"
@@ -32,7 +55,7 @@ type LibraryGroupRow struct {
 	SizeBytes  int64        `json:"sizeBytes"`  // group rows only
 	Collapsed  bool         `json:"collapsed"`  // group rows only
 	MatchCount int          `json:"matchCount"` // group rows only, while a search is active
-	Item       *LibraryItem `json:"item"`       // mod rows only
+	Item       *LibraryItem `json:"item"`       // mod rows carry summary metadata; GetEntity returns full inspection details
 }
 
 // LibraryGroupPage is the paged result returned by LibraryGroupPage.
@@ -48,8 +71,8 @@ type LibraryGroupPage struct {
 // AppService methods (the public contract surface)
 // ---------------------------------------------------------------------------
 
-func (service *AppService) LibraryGroupPage(health, kind, query, collectionID, scope string, page, pageSize int) (LibraryGroupPage, error) {
-	return service.store.ListLibraryGroupPage(context.Background(), health, kind, query, collectionID, scope, page, pageSize)
+func (service *AppService) LibraryGroupPage(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, sortKey string, sortDirection int) (LibraryGroupPage, error) {
+	return service.store.ListLibraryGroupPage(ctx, health, kind, query, collectionID, scope, page, pageSize, sortKey, sortDirection)
 }
 
 func (service *AppService) SetTagGrouped(tagID string, grouped bool) (OrganizationState, error) {
@@ -401,13 +424,11 @@ func newGroupID() (string, error) {
 // Phase 1 computes the ordered row stream as IDENTITIES ONLY in SQL — group
 // headers, member identities for unfolded groups, ungrouped identities — with
 // counts, sizes, TotalRows, DistinctMods and the LIMIT/OFFSET window all
-// evaluated there.  Phase 2 hydrates only the identities on the returned page.
-// Nothing outside the page is hydrated.
+// evaluated there. Phase 2 loads only lightweight summaries for the returned page.
 //
-// SLOW PATH (residual filter active — health derivation or tag_exact):
-// Falls back to full materialisation: hydrate all candidates, apply the Go
-// residual filter, build and page the stream in memory.  This path is used
-// only when a predicate genuinely cannot be expressed in SQL today.
+// SUMMARY PATH (derived health, exact-tag matching or tag/status ordering):
+// Load candidate summaries, apply the Go predicates/comparison, then page.
+// Neither path reads detailed archive manifests.
 //
 // Filter combinations and their paths:
 //   health=""  query=""                              → fast
@@ -417,17 +438,70 @@ func newGroupID() (string, error) {
 //   health=""  query="is:healthy"                    → slow (health derivation is Go-only)
 //   health="clean"                                   → slow (health derivation is Go-only)
 
-func (s *Store) ListLibraryGroupPage(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int) (LibraryGroupPage, error) {
-	search := parseLibrarySearchQuery(query)
-	if groupPageNeedsResidual(health, search) {
-		return s.listLibraryGroupPageSlow(ctx, health, kind, query, collectionID, scope, page, pageSize, search)
-	}
-	return s.listLibraryGroupPageFast(ctx, health, kind, query, collectionID, scope, page, pageSize, search)
+// validGroupSortKeys enumerates every library column the caller may sort by.
+var validGroupSortKeys = map[string]bool{
+	"name": true, "path": true, "kind": true, "source": true,
+	"status": true, "author": true, "tags": true, "files": true,
+	"variants": true, "size": true, "modified": true, "lastScan": true,
+	"issues": true,
 }
 
-// groupPageNeedsResidual returns true when any active predicate requires
-// hydrated item fields that SQL alone cannot provide.
-func groupPageNeedsResidual(health string, search librarySearchQuery) bool {
+// sqlGroupSortKeys use scalar entity, archive-link or artifact-summary columns,
+// without opening the detailed inspection JSON.
+var sqlGroupSortKeys = map[string]bool{
+	"name": true, "path": true, "kind": true, "source": true,
+	"size": true, "modified": true, "author": true, "files": true,
+	"variants": true, "issues": true,
+}
+
+// normalizeGroupSortKey validates and defaults the sort key.
+func normalizeGroupSortKey(key string) (string, error) {
+	if key == "" {
+		return "name", nil
+	}
+	if !validGroupSortKeys[key] {
+		return "", fmt.Errorf("invalid sort key: %q", key)
+	}
+	return key, nil
+}
+
+// normalizeGroupSortDirection validates and defaults the sort direction.
+func normalizeGroupSortDirection(direction int) (int, error) {
+	switch direction {
+	case 0, 1:
+		return 1, nil
+	case -1:
+		return -1, nil
+	default:
+		return 0, fmt.Errorf("invalid sort direction: %d", direction)
+	}
+}
+
+func (s *Store) ListLibraryGroupPage(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, sortKey string, sortDirection int) (LibraryGroupPage, error) {
+	if err := ctx.Err(); err != nil {
+		return LibraryGroupPage{}, err
+	}
+	sk, err := normalizeGroupSortKey(sortKey)
+	if err != nil {
+		return LibraryGroupPage{}, err
+	}
+	sd, err := normalizeGroupSortDirection(sortDirection)
+	if err != nil {
+		return LibraryGroupPage{}, err
+	}
+	search := parseLibrarySearchQuery(query)
+	if groupPageNeedsResidual(health, search, sk) {
+		return s.listLibraryGroupPageSlow(ctx, health, kind, query, collectionID, scope, page, pageSize, search, sk, sd)
+	}
+	return s.listLibraryGroupPageFast(ctx, health, kind, query, collectionID, scope, page, pageSize, search, sk, sd)
+}
+
+// groupPageNeedsResidual selects the summary path for Go-derived health,
+// exact Unicode tag matching, or ordering not represented by a SQL scalar.
+func groupPageNeedsResidual(health string, search librarySearchQuery, sortKey string) bool {
+	if !sqlGroupSortKeys[sortKey] {
+		return true
+	}
 	if normalizeLibraryStatus(health) != "" {
 		return true
 	}
@@ -457,7 +531,7 @@ type groupStat struct {
 	matchCount int
 }
 
-func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, search librarySearchQuery) (LibraryGroupPage, error) {
+func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, search librarySearchQuery, sortKey string, sortDir int) (LibraryGroupPage, error) {
 	archiveScope, err := normalizeLibraryArchiveScope(scope)
 	if err != nil {
 		return LibraryGroupPage{}, err
@@ -571,6 +645,8 @@ func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, quer
 	pageEntityIDs := make([]string, 0, end-start)
 	pos := 0
 
+	orderClause := sqlMemberOrderClause(sortKey, sortDir)
+
 	for _, g := range groups {
 		if g.modCount == 0 {
 			continue
@@ -605,7 +681,7 @@ func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, quer
 				memberEnd = end - pos
 			}
 			count := memberEnd - memberStart
-			eids, err := queryGroupMemberIDsTx(ctx, tx, g.tagID, memberStart, count)
+			eids, err := queryGroupMemberIDsTx(ctx, tx, g.tagID, memberStart, count, orderClause)
 			if err != nil {
 				return LibraryGroupPage{}, err
 			}
@@ -646,7 +722,7 @@ func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, quer
 					memberEnd = end - pos
 				}
 				count := memberEnd - memberStart
-				eids, err := queryUngroupedMemberIDsTx(ctx, tx, memberStart, count)
+				eids, err := queryUngroupedMemberIDsTx(ctx, tx, memberStart, count, orderClause)
 				if err != nil {
 					return LibraryGroupPage{}, err
 				}
@@ -663,7 +739,7 @@ func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, quer
 
 	// --- Phase 2: Hydrate only the page entities ------------------------
 	if len(pageEntityIDs) > 0 {
-		items, err := s.listItemsByIDsTx(ctx, tx, pageEntityIDs)
+		items, err := s.listLibrarySummaryItemsByIDsTx(ctx, tx, pageEntityIDs)
 		if err != nil {
 			return LibraryGroupPage{}, err
 		}
@@ -675,8 +751,7 @@ func (s *Store) listLibraryGroupPageFast(ctx context.Context, health, kind, quer
 		for i := range rows {
 			if rows[i].RowType == "mod" && eidIdx < len(pageEntityIDs) {
 				if item, ok := itemMap[pageEntityIDs[eidIdx]]; ok {
-					cp := *item
-					rows[i].Item = &cp
+					rows[i].Item = item
 				}
 				eidIdx++
 			}
@@ -757,16 +832,73 @@ func queryGroupStatsTx(ctx context.Context, tx *sql.Tx) ([]groupStat, error) {
 	return stats, rows.Err()
 }
 
+// sqlMemberOrderClause returns the SQL ORDER BY body for the given sort key
+// and direction.  Every key is paired with a deterministic tie-break on
+// entity ID so that LIMIT/OFFSET pagination is stable.
+//
+// Columns that require archive_links are detected by the callers via
+// strings.Contains(orderClause, "l.") and joined as needed.
+func sqlMemberOrderClause(sortKey string, sortDir int) string {
+	dir := "ASC"
+	if sortDir < 0 {
+		dir = "DESC"
+	}
+	var primary string
+	switch sortKey {
+	case "path":
+		primary = "COALESCE(l.path,'') COLLATE library_sort " + dir
+	case "kind":
+		primary = "e.kind COLLATE library_sort " + dir
+	case "source":
+		primary = "CASE WHEN lower(COALESCE(NULLIF(l.source_id,''),NULLIF(e.source_id,''),'user-added'))='beamng-repository' THEN 'beamng-repository' ELSE 'user-added' END " + dir
+		return primary + ", e.display_name COLLATE library_sort " + dir + ", e.id " + dir
+	case "size":
+		primary = "COALESCE(l.size_bytes,0) " + dir
+	case "modified":
+		primary = "COALESCE(julianday(l.modified_at),2440587.5) " + dir
+	case "author":
+		primary = "COALESCE(a.author,'') COLLATE library_sort " + dir
+	case "files":
+		primary = "COALESCE(a.member_count,0) " + dir
+	case "variants":
+		primary = "COALESCE(a.variant_count,0) " + dir
+	case "issues":
+		primary = "COALESCE(a.issue_count,0) " + dir
+	default: // "name"
+		primary = "e.display_name COLLATE library_sort " + dir
+	}
+	return primary + ", e.id " + dir
+}
+
+// sqlArchiveLinkJoin is the LEFT JOIN snippet used when the sort key
+// requires archive_links columns.  It selects the primary link per entity
+// with the same precedence as the hydration query.
+const sqlArchiveLinkJoin = `LEFT JOIN archive_links l ON l.id = (
+	SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id
+	ORDER BY l2.active DESC, l2.last_seen_at DESC, l2.id DESC LIMIT 1
+)`
+
 // queryGroupMemberIDsTx returns entity IDs for one group's members in the
-// candidate set, ordered by display_name COLLATE NOCASE, entity_id.
-func queryGroupMemberIDsTx(ctx context.Context, tx *sql.Tx, tagID string, offset, limit int) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT mte.entity_id
+// candidate set, ordered by the supplied ORDER BY clause.
+func queryGroupMemberIDsTx(ctx context.Context, tx *sql.Tx, tagID string, offset, limit int, orderClause string) ([]string, error) {
+	linkJoin := ""
+	if strings.Contains(orderClause, "l.") || strings.Contains(orderClause, "a.") {
+		linkJoin = sqlArchiveLinkJoin
+	}
+	if strings.Contains(orderClause, "a.") {
+		linkJoin += " LEFT JOIN artifact_summaries a ON a.artifact_id=l.artifact_id"
+	}
+	// The orderClause is built by sqlMemberOrderClause from a validated sort
+	// key, never from user input, so direct interpolation is safe.
+	q := `SELECT DISTINCT mte.entity_id
 		FROM mod_tag_entities mte
 		JOIN _gp ON _gp.id = mte.entity_id
 		JOIN entities e ON e.id = mte.entity_id
+		` + linkJoin + `
 		WHERE mte.tag_id = ?
-		ORDER BY e.display_name COLLATE NOCASE, mte.entity_id
-		LIMIT ? OFFSET ?`, tagID, limit, offset)
+		ORDER BY ` + orderClause + `
+		LIMIT ? OFFSET ?`
+	rows, err := tx.QueryContext(ctx, q, tagID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -783,18 +915,27 @@ func queryGroupMemberIDsTx(ctx context.Context, tx *sql.Tx, tagID string, offset
 }
 
 // queryUngroupedMemberIDsTx returns entity IDs for ungrouped candidates,
-// ordered by display_name COLLATE NOCASE, entity_id.
-func queryUngroupedMemberIDsTx(ctx context.Context, tx *sql.Tx, offset, limit int) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT g.id
+// ordered by the supplied ORDER BY clause.
+func queryUngroupedMemberIDsTx(ctx context.Context, tx *sql.Tx, offset, limit int, orderClause string) ([]string, error) {
+	linkJoin := ""
+	if strings.Contains(orderClause, "l.") || strings.Contains(orderClause, "a.") {
+		linkJoin = sqlArchiveLinkJoin
+	}
+	if strings.Contains(orderClause, "a.") {
+		linkJoin += " LEFT JOIN artifact_summaries a ON a.artifact_id=l.artifact_id"
+	}
+	q := `SELECT g.id
 		FROM _gp g
 		JOIN entities e ON e.id = g.id
+		` + linkJoin + `
 		WHERE NOT EXISTS (
 			SELECT 1 FROM mod_tag_entities mte
 			JOIN mod_tags mt ON mt.id = mte.tag_id AND mt.grouped = 1
 			WHERE mte.entity_id = g.id
 		)
-		ORDER BY e.display_name COLLATE NOCASE, g.id
-		LIMIT ? OFFSET ?`, limit, offset)
+		ORDER BY ` + orderClause + `
+		LIMIT ? OFFSET ?`
+	rows, err := tx.QueryContext(ctx, q, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -811,12 +952,11 @@ func queryUngroupedMemberIDsTx(ctx context.Context, tx *sql.Tx, offset, limit in
 }
 
 // ---------------------------------------------------------------------------
-// Slow path: materialise all candidates, filter in Go, page in memory
-// ---------------------------------------------------------------------------
-// Used only when a residual Go predicate is active (health filter, is:status,
-// tag:exact).  This path is identical to the original implementation.
+// Summary path: filter or sort small candidates in Go, then page the stream.
+// Used for derived health, exact-tag predicates and tag/status/lastScan sorts.
+// It never hydrates archive members or metadata-document contents.
 
-func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, search librarySearchQuery) (LibraryGroupPage, error) {
+func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, query, collectionID, scope string, page, pageSize int, search librarySearchQuery, sortKey string, sortDir int) (LibraryGroupPage, error) {
 	archiveScope, err := normalizeLibraryArchiveScope(scope)
 	if err != nil {
 		return LibraryGroupPage{}, err
@@ -832,7 +972,7 @@ func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, quer
 	if err != nil {
 		return LibraryGroupPage{}, err
 	}
-	items, err := s.listItemsByIDsTx(ctx, tx, entityIDs)
+	items, err := s.listLibrarySummaryItemsByIDsTx(ctx, tx, entityIDs)
 	if err != nil {
 		return LibraryGroupPage{}, err
 	}
@@ -909,6 +1049,9 @@ func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, quer
 	inGroup := map[string]bool{}
 
 	for _, tag := range groupedTags {
+		if err := ctx.Err(); err != nil {
+			return LibraryGroupPage{}, err
+		}
 		g := &groupInfo{tagID: tag.ID, tagName: tag.Name, collapsed: foldStates[tag.ID]}
 		for _, item := range items {
 			if filteredMap[item.EntityID] == nil {
@@ -924,18 +1067,13 @@ func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, quer
 		}
 		groups = append(groups, g)
 	}
+	// Group headers remain in name order; only members are user-sorted.
 	sort.SliceStable(groups, func(i, j int) bool {
 		return strings.ToLower(groups[i].tagName) < strings.ToLower(groups[j].tagName)
 	})
+	memberLess := libraryItemLessFunc(sortKey, sortDir)
 	for _, g := range groups {
-		sort.SliceStable(g.members, func(i, j int) bool {
-			di := strings.ToLower(g.members[i].DisplayName)
-			dj := strings.ToLower(g.members[j].DisplayName)
-			if di != dj {
-				return di < dj
-			}
-			return g.members[i].EntityID < g.members[j].EntityID
-		})
+		sort.SliceStable(g.members, memberLess(g.members))
 	}
 
 	ungroupedItems := make([]*LibraryItem, 0)
@@ -944,14 +1082,10 @@ func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, quer
 			ungroupedItems = append(ungroupedItems, item)
 		}
 	}
-	sort.SliceStable(ungroupedItems, func(i, j int) bool {
-		di := strings.ToLower(ungroupedItems[i].DisplayName)
-		dj := strings.ToLower(ungroupedItems[j].DisplayName)
-		if di != dj {
-			return di < dj
-		}
-		return ungroupedItems[i].EntityID < ungroupedItems[j].EntityID
-	})
+	sort.SliceStable(ungroupedItems, memberLess(ungroupedItems))
+	if err := ctx.Err(); err != nil {
+		return LibraryGroupPage{}, err
+	}
 	ungroupedCollapsed := foldStates[ungroupedGroupID]
 
 	stream := make([]LibraryGroupRow, 0, len(filteredMap)+len(groups)+1)
@@ -1043,6 +1177,143 @@ func (s *Store) listLibraryGroupPageSlow(ctx context.Context, health, kind, quer
 		e0 = totalRows
 	}
 	return LibraryGroupPage{Rows: stream[s0:e0], TotalRows: totalRows, DistinctMods: distinctMods, Page: page, PageSize: pageSize}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Go sort helpers — used by the slow path and shared with tests
+// ---------------------------------------------------------------------------
+
+// healthRank maps a health-status string to a numeric rank matching the
+// frontend's healthRank function in ModTable.tsx.
+func healthRank(status string) int {
+	switch status {
+	case "threat":
+		return 0
+	case "broken":
+		return 1
+	case "review":
+		return 2
+	case "scan_failed":
+		return 3
+	case "scanning":
+		return 4
+	case "safe":
+		return 6
+	default: // "unscanned" and anything else
+		return 5
+	}
+}
+
+// normalizedSourceID mirrors the frontend sourceID() normalisation: the only
+// two values are "beamng-repository" and "user-added".
+func normalizedSourceID(item *LibraryItem) string {
+	id := strings.TrimSpace(strings.ToLower(item.SourceID))
+	if id == "beamng-repository" || id == "user-added" {
+		return id
+	}
+	label := strings.TrimSpace(strings.ToLower(item.Source))
+	if label == "beamng repository" {
+		return "beamng-repository"
+	}
+	return "user-added"
+}
+
+// libraryItemSortValue extracts a comparable value from a hydrated item for
+// the given sort key. Text uses the shared collation; numeric keys use int64.
+func libraryItemSortValue(item *LibraryItem, key string) (str string, num int64, isNum bool) {
+	switch key {
+	case "name":
+		return item.DisplayName, 0, false
+	case "path":
+		return item.ArchivePath, 0, false
+	case "kind":
+		return string(item.Kind), 0, false
+	case "source":
+		return normalizedSourceID(item), 0, false
+	case "status":
+		return "", int64(healthRank(item.HealthStatus)), true
+	case "author":
+		return item.Manifest.Author, 0, false
+	case "tags":
+		names := make([]string, len(item.Tags))
+		for i, t := range item.Tags {
+			names[i] = t.Name
+		}
+		return strings.Join(names, " "), 0, false
+	case "files":
+		return "", int64(item.MemberCount), true
+	case "variants":
+		return "", int64(item.VariantCount), true
+	case "size":
+		return "", item.SizeBytes, true
+	case "modified":
+		parsed, _ := time.Parse(time.RFC3339Nano, item.ModifiedAt)
+		if parsed.IsZero() {
+			return "", 0, true
+		}
+		return "", parsed.UnixMilli(), true
+	case "lastScan":
+		parsed, _ := time.Parse(time.RFC3339Nano, item.LastSecurityScanAt)
+		if parsed.IsZero() {
+			return "", 0, true
+		}
+		return "", parsed.UnixMilli(), true
+	case "issues":
+		return "", int64(item.IssueCount), true
+	default:
+		return item.DisplayName, 0, false
+	}
+}
+
+// libraryItemLessFunc returns a sort.SliceStable less-function factory.
+// Call the returned function with the slice to sort; it captures the sort
+// key, direction, and provides a deterministic entity-ID tie-break.
+func libraryItemLessFunc(sortKey string, sortDir int) func([]*LibraryItem) func(i, j int) bool {
+	return func(items []*LibraryItem) func(i, j int) bool {
+		// Tags and normalized strings are computed once per member, not once
+		// per comparison during sorting.
+		type sortValue struct {
+			text    string
+			number  int64
+			numeric bool
+		}
+		values := make(map[string]sortValue, len(items))
+		for _, item := range items {
+			text, number, numeric := libraryItemSortValue(item, sortKey)
+			values[item.EntityID] = sortValue{text, number, numeric}
+		}
+		return func(i, j int) bool {
+			left, right := values[items[i].EntityID], values[items[j].EntityID]
+			si, ni, numI := left.text, left.number, left.numeric
+			sj, nj, numJ := right.text, right.number, right.numeric
+			var cmp int
+			if numI && numJ {
+				switch {
+				case ni < nj:
+					cmp = -1
+				case ni > nj:
+					cmp = 1
+				}
+			} else {
+				cmp = compareLibrarySortText(si, sj)
+			}
+			if cmp == 0 && sortKey == "source" {
+				cmp = compareLibrarySortText(items[i].DisplayName, items[j].DisplayName)
+			}
+			if cmp != 0 {
+				if sortDir < 0 {
+					return cmp > 0
+				}
+				return cmp < 0
+			}
+			// Deterministic tie-break by entity ID in the same direction.
+			tie := strings.Compare(items[i].EntityID, items[j].EntityID)
+			if sortDir < 0 {
+				return tie > 0
+			}
+			return tie < 0
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

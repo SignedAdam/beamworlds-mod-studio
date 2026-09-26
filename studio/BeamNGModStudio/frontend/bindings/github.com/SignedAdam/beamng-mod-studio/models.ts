@@ -920,6 +920,27 @@ export interface ModRemovalTarget {
     "missing": boolean;
 }
 
+export interface ModReplacementImpact {
+    "keeper": ModRemovalTarget;
+    "mods": ModRemovalTarget[] | null;
+    "collections": string[] | null;
+    "groups": string[] | null;
+    "tags": string[] | null;
+    "workspaces": string[] | null;
+    "archiveCount": number;
+    "archiveBytes": number;
+    "refusals": string[] | null;
+    "fingerprint": string;
+}
+
+export interface ModReplacementResult {
+    "replaced": number;
+    "forgotten": number;
+    "recycled": number;
+    "recycledBytes": number;
+    "failures": string[] | null;
+}
+
 export interface ModSecurityMetadata {
     "schemaVersion": number;
     "entityId": string;

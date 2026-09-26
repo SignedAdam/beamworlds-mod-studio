@@ -130,6 +130,8 @@ export interface ModTableProps {
   hasActiveSearch?: boolean;
   /** Notifies the parent when the user changes the page size. */
   onPageSizeChange?: () => void;
+  /** Sort key currently awaiting a server response, shown as a pending spinner in the column header. */
+  sortingColumn?: ModTableSortKey | null;
 }
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
@@ -319,6 +321,7 @@ export function ModTable({
   onToggleGroupCollapsed,
   hasActiveSearch = false,
   onPageSizeChange,
+  sortingColumn = null,
 }: ModTableProps) {
   const preferenceKey =
     surface === "library"
@@ -410,7 +413,9 @@ export function ModTable({
   const sorted = useMemo(
     () =>
       isGrouped
-        ? (groupRows ?? []).filter((r) => r.rowType === "mod" && r.item).map((r) => r.item!)
+        ? (groupRows ?? [])
+            .filter((r) => r.rowType === "mod" && r.item)
+            .map((r) => r.item!)
         : sortKey === null
           ? [...items]
           : sortItems(
@@ -441,7 +446,8 @@ export function ModTable({
     ? Math.max(1, Math.ceil(groupTotalRows / pageSize))
     : Math.max(1, Math.ceil(sorted.length / pageSize));
   const visible = useMemo(
-    () => (isGrouped ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize)),
+    () =>
+      isGrouped ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize),
     [sorted, page, pageSize, isGrouped],
   );
   const visibleColumns = useMemo(
@@ -462,8 +468,12 @@ export function ModTable({
   const groupPageSize = pageSize;
   const effectiveGroupPage = isGrouped ? groupPage : page;
   const rangeStart = isGrouped
-    ? groupTotalRows === 0 ? 0 : effectiveGroupPage * groupPageSize + 1
-    : sorted.length === 0 ? 0 : page * pageSize + 1;
+    ? groupTotalRows === 0
+      ? 0
+      : effectiveGroupPage * groupPageSize + 1
+    : sorted.length === 0
+      ? 0
+      : page * pageSize + 1;
   const rangeEnd = isGrouped
     ? Math.min(groupTotalRows, (effectiveGroupPage + 1) * groupPageSize)
     : Math.min(sorted.length, (page + 1) * pageSize);
@@ -913,6 +923,9 @@ export function ModTable({
         {interaction.kind === "browse" &&
           " Click a row without modifiers or press Enter to open it."}
       </span>
+      <span className="sr-only" role="status" aria-live="polite">
+        {sortingColumn ? `Sorting ${columnLabel(sortingColumn, surface)}` : ""}
+      </span>
       {visible.length === 0 && !isGrouped ? (
         loading ? (
           <div className="center-loader" role="status">
@@ -970,6 +983,7 @@ export function ModTable({
                     surface={surface}
                     active={sortKey}
                     direction={sortDirection}
+                    sortingColumn={sortingColumn}
                     onSort={changeSort}
                     onDragStart={setDraggedColumn}
                     onDrop={(target) => {
@@ -997,6 +1011,10 @@ export function ModTable({
                             <GroupSectionHeader
                               columns={visibleColumns}
                               surface={surface}
+                              active={sortKey}
+                              direction={sortDirection}
+                              sortingColumn={sortingColumn}
+                              onSort={changeSort}
                             />
                           )}
                         </Fragment>
@@ -1027,7 +1045,9 @@ export function ModTable({
                         familyByEntityID={familyByEntityID}
                         onReviewFamily={onReviewFamily}
                         onContextMenu={
-                          interaction.onContextMenu ? openContextMenu : undefined
+                          interaction.onContextMenu
+                            ? openContextMenu
+                            : undefined
                         }
                       />
                     );
@@ -1056,7 +1076,9 @@ export function ModTable({
                         familyByEntityID={familyByEntityID}
                         onReviewFamily={onReviewFamily}
                         onContextMenu={
-                          interaction.onContextMenu ? openContextMenu : undefined
+                          interaction.onContextMenu
+                            ? openContextMenu
+                            : undefined
                         }
                       />
                     );
@@ -1091,7 +1113,9 @@ export function ModTable({
           </span>
           <Button
             tone="quiet"
-            disabled={effectiveGroupPage + 1 >= pageCount || totalForPager === 0}
+            disabled={
+              effectiveGroupPage + 1 >= pageCount || totalForPager === 0
+            }
             onClick={() => {
               if (isGrouped) onGroupPageChange?.(effectiveGroupPage + 1);
               else setPage((value) => value + 1);
@@ -1196,6 +1220,7 @@ const SortableHead = memo(function SortableHead({
   surface,
   active,
   direction,
+  sortingColumn,
   onSort,
   onDragStart,
   onDrop,
@@ -1205,6 +1230,7 @@ const SortableHead = memo(function SortableHead({
   surface: ModTableProps["surface"];
   active: SortKey | null;
   direction: 1 | -1;
+  sortingColumn: ModTableSortKey | null;
   onSort: (value: SortKey) => void;
   onDragStart: (value: ColumnKey) => void;
   onDrop: (value: ColumnKey) => void;
@@ -1235,6 +1261,7 @@ const SortableHead = memo(function SortableHead({
     );
   }
   const selected = key === active;
+  const sorting = key === sortingColumn;
   return (
     <th
       draggable
@@ -1247,7 +1274,10 @@ const SortableHead = memo(function SortableHead({
     >
       <button onClick={() => onSort(key)}>
         {columnLabel(key, surface)}
-        <span>{selected ? (direction === 1 ? "▲" : "▼") : "↕"}</span>
+        <span>
+          {selected ? (direction === 1 ? "▲" : "▼") : "↕"}
+          {sorting && <span className="sort-spinner" aria-hidden="true" />}
+        </span>
       </button>
       <i
         className="column-resizer"
@@ -1391,11 +1421,13 @@ const GroupRow = memo(function GroupRow({
           </button>
           <span className="group-row__label">{label}</span>
           <span className="group-row__meta">
-            {row.modCount.toLocaleString()} {row.modCount === 1 ? "mod" : "mods"} · {formatBytes(row.sizeBytes)}
+            {row.modCount.toLocaleString()}{" "}
+            {row.modCount === 1 ? "mod" : "mods"} · {formatBytes(row.sizeBytes)}
           </span>
           {showMatch && (
             <span className="group-row__match">
-              {row.matchCount.toLocaleString()} {row.matchCount === 1 ? "match" : "matches"}
+              {row.matchCount.toLocaleString()}{" "}
+              {row.matchCount === 1 ? "match" : "matches"}
             </span>
           )}
         </div>
@@ -1406,16 +1438,54 @@ const GroupRow = memo(function GroupRow({
 const GroupSectionHeader = memo(function GroupSectionHeader({
   columns,
   surface,
+  active,
+  direction,
+  sortingColumn,
+  onSort,
 }: {
   columns: ColumnState[];
   surface: ModTableProps["surface"];
+  active: SortKey | null;
+  direction: 1 | -1;
+  sortingColumn: ModTableSortKey | null;
+  onSort: (key: SortKey) => void;
 }) {
   return (
-    <tr className="group-section-header" aria-hidden="true">
+    <tr className="group-section-header">
       <td />
-      {columns.map((column) => (
-        <td key={column.key}>{columnLabel(column.key, surface)}</td>
-      ))}
+      {columns.map((column) => {
+        const key = column.key;
+        if (key === "thumbnail") {
+          return (
+            <td key={key}>
+              <span className="mod-table__column-label">
+                {columnLabel(key, surface)}
+              </span>
+            </td>
+          );
+        }
+        const selected = key === active;
+        const sorting = key === sortingColumn;
+        return (
+          <td
+            key={key}
+            role="columnheader"
+            aria-sort={
+              selected ? (direction === 1 ? "ascending" : "descending") : "none"
+            }
+          >
+            <button type="button" onClick={() => onSort(key)}>
+              {columnLabel(key, surface)}
+              <span>
+                {selected ? (direction === 1 ? "▲" : "▼") : "↕"}
+                {sorting && (
+                  <span className="sort-spinner" aria-hidden="true" />
+                )}
+              </span>
+            </button>
+          </td>
+        );
+      })}
     </tr>
   );
 });

@@ -39,7 +39,13 @@ import { TooltipLayer } from "./Tooltip";
 import "./AppArt.css";
 
 type View =
-  "library" | "collections" | "play" | "workspaces" | "scanner" | "activity" | "settings";
+  | "library"
+  | "collections"
+  | "play"
+  | "workspaces"
+  | "scanner"
+  | "activity"
+  | "settings";
 type ToastTone = "success" | "error" | "info";
 type InterfaceSize = "compact" | "default" | "comfortable" | "large";
 type TextSize = "small" | "default" | "large" | "extra-large";
@@ -61,7 +67,10 @@ function readInspectorWidth(): number {
     if (raw === null || raw.trim() === "") return INSPECTOR_DEFAULT_WIDTH;
     const stored = Number(raw);
     if (Number.isFinite(stored))
-      return Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, Math.round(stored)));
+      return Math.max(
+        INSPECTOR_MIN_WIDTH,
+        Math.min(INSPECTOR_MAX_WIDTH, Math.round(stored)),
+      );
   } catch {
     // The default remains authoritative when storage is unavailable.
   }
@@ -69,9 +78,7 @@ function readInspectorWidth(): number {
 }
 
 function normalizeInterfaceSize(value: unknown): InterfaceSize {
-  return value === "compact" ||
-    value === "comfortable" ||
-    value === "large"
+  return value === "compact" || value === "comfortable" || value === "large"
     ? value
     : "default";
 }
@@ -122,7 +129,8 @@ function App() {
       window.localStorage.getItem("beamworlds.sidebar-collapsed") === "true",
   );
   const [setupState, setSetupState] = useState<SetupState | null>(null);
-  const [inspectorPreferredWidth, setInspectorPreferredWidth] = useState(readInspectorWidth);
+  const [inspectorPreferredWidth, setInspectorPreferredWidth] =
+    useState(readInspectorWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [setupOpen, setSetupOpen] = useState(false);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -216,24 +224,18 @@ function App() {
     Math.min(inspectorMaxWidth, inspectorPreferredWidth),
   );
   const inspectorResizeDisabled = viewportWidth < 720;
-  const commitInspectorResize = useCallback(
-    (width: number) => {
-      const next = Math.max(
-        INSPECTOR_MIN_WIDTH,
-        Math.min(INSPECTOR_MAX_WIDTH, Math.round(width)),
-      );
-      setInspectorPreferredWidth(next);
-      try {
-        window.localStorage.setItem(
-          INSPECTOR_WIDTH_STORAGE_KEY,
-          String(next),
-        );
-      } catch {
-        // The in-memory preference remains authoritative when storage is unavailable.
-      }
-    },
-    [],
-  );
+  const commitInspectorResize = useCallback((width: number) => {
+    const next = Math.max(
+      INSPECTOR_MIN_WIDTH,
+      Math.min(INSPECTOR_MAX_WIDTH, Math.round(width)),
+    );
+    setInspectorPreferredWidth(next);
+    try {
+      window.localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(next));
+    } catch {
+      // The in-memory preference remains authoritative when storage is unavailable.
+    }
+  }, []);
   const resetInspectorWidth = useCallback(() => {
     commitInspectorResize(INSPECTOR_DEFAULT_WIDTH);
   }, [commitInspectorResize]);
@@ -301,7 +303,6 @@ function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-
   useEffect(() => {
     selectedItemRef.current = selectedItem;
   }, [selectedItem]);
@@ -366,11 +367,18 @@ function App() {
     setFamilies(nextFamilies);
     return nextFamilies;
   }, []);
-  const handleOrganizationChange = useCallback((state: OrganizationState) => {
-    setOrganization(state);
-    void Promise.all([loadOrganization(), loadLibrary()]).catch(handleError);
-  }, [loadOrganization, loadLibrary, handleError]);
-  const playSession = usePlaySession(organization, handleOrganizationChange, handleError);
+  const handleOrganizationChange = useCallback(
+    (state: OrganizationState) => {
+      setOrganization(state);
+      void Promise.all([loadOrganization(), loadLibrary()]).catch(handleError);
+    },
+    [loadOrganization, loadLibrary, handleError],
+  );
+  const playSession = usePlaySession(
+    organization,
+    handleOrganizationChange,
+    handleError,
+  );
   // Held in a ref so callbacks can reach the session without taking on its
   // identity, which changes on every selection or preview update.
   const playSessionRef = useRef(playSession);
@@ -378,9 +386,17 @@ function App() {
   useEffect(() => {
     if (!organization) return;
     const known = organization.collections ?? [];
-    if (collectionID !== "all" && collectionID !== "unfiled" &&
-        !known.some((collection) => collection.id === collectionID)) setCollectionID("all");
-    if (openedCollectionID && !known.some((collection) => collection.id === openedCollectionID)) setOpenedCollectionID("");
+    if (
+      collectionID !== "all" &&
+      collectionID !== "unfiled" &&
+      !known.some((collection) => collection.id === collectionID)
+    )
+      setCollectionID("all");
+    if (
+      openedCollectionID &&
+      !known.some((collection) => collection.id === openedCollectionID)
+    )
+      setOpenedCollectionID("");
   }, [organization, collectionID, openedCollectionID]);
   const markOpenEntitiesStale = useCallback((snapshot: LibraryItem[]) => {
     const byEntityID: Record<string, LibraryItem> = {};
@@ -498,15 +514,15 @@ function App() {
         ]);
       if (libraryResult.status === "rejected")
         handleError(libraryResult.reason);
-      if (shellResult.status === "rejected")
-        handleError(shellResult.reason);
+      if (shellResult.status === "rejected") handleError(shellResult.reason);
       if (organizationResult.status === "rejected")
         handleError(organizationResult.reason);
       if (familiesResult.status === "rejected")
         handleError(familiesResult.reason);
       // The first indexed library may have seeded a collection and profile on
       // the backend; pick that up instead of leaving the pre-scan empty state.
-      if (successful) await playSessionRef.current?.reloadState().catch(handleError);
+      if (successful)
+        await playSessionRef.current?.reloadState().catch(handleError);
     } catch (error) {
       handleError(error);
     } finally {
@@ -783,7 +799,8 @@ function App() {
           !workspaceStaleRef.current &&
           baseline &&
           baseline.workspaceID === workspaceID &&
-          (!baseline.entityID || baseline.entityID === detail.entity.entityId) &&
+          (!baseline.entityID ||
+            baseline.entityID === detail.entity.entityId) &&
           (!baseline.revision || detail.entity.revision > baseline.revision)
         ) {
           workspaceBaselineRef.current = {
@@ -878,11 +895,7 @@ function App() {
   };
 
   const createWorkspace = async () => {
-    if (
-      writeBlockedRef.current ||
-      !selectedItem ||
-      inspectorStaleRef.current
-    )
+    if (writeBlockedRef.current || !selectedItem || inspectorStaleRef.current)
       return;
     if (!confirmInspectorLeave()) return;
     const entityID = selectedItem.entityId;
@@ -959,12 +972,14 @@ function App() {
   // built for it. Reloading the item list alone left the mod on screen
   // until the next app start.
   const refreshAfterModRemoval = useCallback(async () => {
-    const [, , , nextWorkspaces] = await Promise.all([
+    const [, , , nextWorkspaces, nextDashboard] = await Promise.all([
       loadLibrary(),
       loadOrganization(),
       loadFamilies(),
       API.ListWorkspaces(),
+      API.Dashboard(),
     ]);
+    setDashboard(nextDashboard);
     setLibraryRevision((current) => current + 1);
 
     // Deleting a mod can take its ModMaker project with it.  The editor holds
@@ -974,7 +989,10 @@ function App() {
     const openWorkspaces = nextWorkspaces ?? [];
     setWorkspaces(openWorkspaces);
     const openID = selectedWorkspaceIDRef.current;
-    if (openID && !openWorkspaces.some((workspace) => workspace.id === openID)) {
+    if (
+      openID &&
+      !openWorkspaces.some((workspace) => workspace.id === openID)
+    ) {
       workspaceDetailLoadVersion.current += 1;
       selectedWorkspaceIDRef.current = "";
       setSelectedWorkspaceID("");
@@ -1109,7 +1127,9 @@ function App() {
     icon: string,
   ): Promise<ModTag | null> => {
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     const next = await API.CreateModTag(name, color, icon);
     const createdTag =
       (next.tags ?? []).find(
@@ -1165,14 +1185,18 @@ function App() {
     icon: string,
   ): Promise<void> => {
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     if (!selectedItemRef.current) return;
     const entityID = selectedItemRef.current.entityId;
     const next = await API.UpdateModTagVisual(tagID, color, icon);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
     setOrganization(next);
     if (selectedItemRef.current?.entityId !== entityID)
-      throw new Error("Inspector selection changed before the tag update completed.");
+      throw new Error(
+        "Inspector selection changed before the tag update completed.",
+      );
     const currentTag = selectedItemRef.current.tags?.find(
       (tag) => tag.id === tagID,
     );
@@ -1182,12 +1206,22 @@ function App() {
       updatedTag ??
         (currentTag
           ? { ...currentTag, color, icon }
-          : { id: tagID, name: "", modCount: 0, color, icon, origin: "user", grouped: false }),
+          : {
+              id: tagID,
+              name: "",
+              modCount: 0,
+              color,
+              icon,
+              origin: "user",
+              grouped: false,
+            }),
     );
   };
   const deleteTag = async (tagID: string): Promise<void> => {
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     if (!selectedItemRef.current) return;
     const next = await API.DeleteModTag(tagID);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
@@ -1213,11 +1247,14 @@ function App() {
     if (!current) return [];
     const confirmedTags = [...(current.tags ?? [])];
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     const entityID = current.entityId;
     const next = await API.SetLibraryItemTags(entityID, tagIDs);
     const assignedTags = next.tags ?? [];
-    if (writeBlockedRef.current || inspectorStaleRef.current) return confirmedTags;
+    if (writeBlockedRef.current || inspectorStaleRef.current)
+      return confirmedTags;
     if (selectedItemRef.current?.entityId !== entityID) return assignedTags;
     advanceInspectorBaseline(next);
     selectedItemRef.current = next;
@@ -1263,7 +1300,9 @@ function App() {
     const current = selectedItemRef.current;
     if (!current) return;
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     const entityID = current.entityId;
     const next = await API.UpdateLibraryItemDetails(entityID, update);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
@@ -1272,10 +1311,14 @@ function App() {
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
     setItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+      currentItems.map((item) =>
+        item.entityId === entityID ? next.item : item,
+      ),
     );
     setAllItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+      currentItems.map((item) =>
+        item.entityId === entityID ? next.item : item,
+      ),
     );
     setEntityDetail(next);
     bumpLibraryRevision();
@@ -1284,7 +1327,9 @@ function App() {
     const current = selectedItemRef.current;
     if (!current) return;
     if (writeBlockedRef.current || inspectorStaleRef.current)
-      throw new Error("Inspector changes are locked while the selected mod is being rescanned.");
+      throw new Error(
+        "Inspector changes are locked while the selected mod is being rescanned.",
+      );
     const entityID = current.entityId;
     const next = await API.UpdateLibraryVariant(entityID, update);
     if (writeBlockedRef.current || inspectorStaleRef.current) return;
@@ -1293,10 +1338,14 @@ function App() {
     selectedItemRef.current = next.item;
     setSelectedItem(next.item);
     setItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+      currentItems.map((item) =>
+        item.entityId === entityID ? next.item : item,
+      ),
     );
     setAllItems((currentItems) =>
-      currentItems.map((item) => (item.entityId === entityID ? next.item : item)),
+      currentItems.map((item) =>
+        item.entityId === entityID ? next.item : item,
+      ),
     );
     setEntityDetail(next);
   };
@@ -1352,7 +1401,10 @@ function App() {
     if (!changeView("library")) return;
     const item = allItems.find((candidate) => candidate.entityId === entityID);
     if (item) void selectItem(item);
-    else handleError("This mod is no longer in the current library. Refresh the library to inspect it.");
+    else
+      handleError(
+        "This mod is no longer in the current library. Refresh the library to inspect it.",
+      );
   };
 
   const toggleSidebar = () => {
@@ -1511,9 +1563,15 @@ function App() {
         {loading ? (
           <div className="splash">
             <div className="splash__panels" aria-hidden="true">
-              <span style={{ backgroundImage: "url(/art/night-highway.jpg)" }} />
-              <span style={{ backgroundImage: "url(/art/forest-recovery.jpg)" }} />
-              <span style={{ backgroundImage: "url(/art/night-station.jpg)" }} />
+              <span
+                style={{ backgroundImage: "url(/art/night-highway.jpg)" }}
+              />
+              <span
+                style={{ backgroundImage: "url(/art/forest-recovery.jpg)" }}
+              />
+              <span
+                style={{ backgroundImage: "url(/art/night-station.jpg)" }}
+              />
               <span style={{ backgroundImage: "url(/art/city-street.jpg)" }} />
               <span style={{ backgroundImage: "url(/art/crash.jpg)" }} />
             </div>
@@ -1560,7 +1618,12 @@ function App() {
                 onCollectionChange={setCollectionID}
                 onScopeChange={(next) => {
                   setLibraryScope(next);
-                  try { window.localStorage.setItem("beamworlds.library-scope", next); } catch {}
+                  try {
+                    window.localStorage.setItem(
+                      "beamworlds.library-scope",
+                      next,
+                    );
+                  } catch {}
                 }}
                 onManageCollections={() => openCollection("")}
                 onOrganization={handleOrganizationChange}
@@ -1626,7 +1689,10 @@ function App() {
                 onOpenCollection={setOpenedCollectionID}
                 onOrganization={handleOrganizationChange}
                 onAddToPlay={(ids) => {
-                  void playSession.addCollections(ids).then(() => changeView("play")).catch(handleError);
+                  void playSession
+                    .addCollections(ids)
+                    .then(() => changeView("play"))
+                    .catch(handleError);
                 }}
                 onInspectMod={inspectCollectionMod}
                 onNotify={notify}
@@ -1733,8 +1799,13 @@ function App() {
             <span>
               {allItems.length.toLocaleString()} mods
               {(() => {
-                const archived = Math.max(0, (dashboard?.entities ?? 0) - allItems.length);
-                return archived > 0 ? ` · ${archived.toLocaleString()} archived` : "";
+                const archived = Math.max(
+                  0,
+                  (dashboard?.entities ?? 0) - allItems.length,
+                );
+                return archived > 0
+                  ? ` · ${archived.toLocaleString()} archived`
+                  : "";
               })()}
             </span>
           ) : (

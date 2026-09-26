@@ -370,6 +370,7 @@ func hasUniqueIndexTx(ctx context.Context, tx *sql.Tx, table, index string) (boo
 	if err != nil {
 		return false, err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var seq, unique, partial int
 		var origin, name string
@@ -1041,6 +1042,7 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 		return fmt.Errorf("entity archived_at column: %w", err)
 	}
 	if err := ensureColumnTx(ctx, tx, "workspaces", "virgil_configured", `INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("workspace virgil_configured column: %w", err)
 	}
 	if err := ensureColumnTx(ctx, tx, "workspaces", "virgil_enabled", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("workspace virgil_enabled column: %w", err)
@@ -1138,6 +1140,44 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	}
 	if err := ensureColumnTx(ctx, tx, "play_profiles", "excludes_all_mods", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("play profile excludes_all_mods column: %w", err)
+	}
+	// IF NOT EXISTS cannot upgrade the older three-column index in place.
+	var primaryIndexSQL string
+	if err := tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type='index' AND name='archive_links_entity_idx'`).Scan(&primaryIndexSQL); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("inspect primary archive index: %w", err)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(strings.ToLower(primaryIndexSQL)), ""), "(entity_id,activedesc,last_seen_atdesc,iddesc)") {
+		if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS archive_links_entity_idx`); err != nil {
+			return fmt.Errorf("replace primary archive index: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE INDEX archive_links_entity_idx ON archive_links(entity_id,active DESC,last_seen_at DESC,id DESC)`); err != nil {
+			return fmt.Errorf("create primary archive index: %w", err)
+		}
+	}
+	// Backfill artifact_summaries for any existing artifacts that lack a
+	// summary row.  The triggers maintain the projection going forward; this
+	// INSERT OR IGNORE populates the table exactly once per artifact.
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO artifact_summaries(
+		artifact_id,revision,title,author,version,description,
+		namespaces_json,issues_json,
+		member_count,namespace_count,variant_count,issue_count
+	)
+	SELECT
+		a.id,
+		hex(randomblob(16)),
+		COALESCE(json_extract(a.manifest_json,'$.title'),''),
+		COALESCE(json_extract(a.manifest_json,'$.author'),''),
+		COALESCE(json_extract(a.manifest_json,'$.version'),''),
+		COALESCE(json_extract(a.manifest_json,'$.description'),''),
+		COALESCE(json_extract(a.manifest_json,'$.namespaces'),'{}'),
+		COALESCE(json_extract(a.manifest_json,'$.issues'),'[]'),
+		COALESCE(json_array_length(json_extract(a.manifest_json,'$.members')),0),
+		(SELECT COUNT(*) FROM json_each(COALESCE(json_extract(a.manifest_json,'$.namespaces'),'{}'))),
+		COALESCE(json_array_length(json_extract(a.manifest_json,'$.variants')),0),
+		COALESCE(json_array_length(json_extract(a.manifest_json,'$.issues')),0)
+	FROM artifacts a
+	WHERE a.id NOT IN (SELECT artifact_id FROM artifact_summaries)`); err != nil {
+		return fmt.Errorf("backfill artifact summaries: %w", err)
 	}
 	var seeded string
 	err := tx.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, exampleTagSeedKey).Scan(&seeded)
@@ -1860,6 +1900,64 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS library_search_fts USING fts5(entity_id UNINDEXED, content, tokenize='trigram case_sensitive 0')`,
+		`CREATE TABLE IF NOT EXISTS artifact_summaries (
+			artifact_id TEXT PRIMARY KEY,
+			revision TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT '',
+			author TEXT NOT NULL DEFAULT '',
+			version TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			namespaces_json TEXT NOT NULL DEFAULT '{}',
+			issues_json TEXT NOT NULL DEFAULT '[]',
+			member_count INTEGER NOT NULL DEFAULT 0,
+			namespace_count INTEGER NOT NULL DEFAULT 0,
+			variant_count INTEGER NOT NULL DEFAULT 0,
+			issue_count INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+		)`,
+		`CREATE TRIGGER IF NOT EXISTS artifact_summaries_ai
+		AFTER INSERT ON artifacts BEGIN
+			INSERT OR REPLACE INTO artifact_summaries(
+				artifact_id,revision,title,author,version,description,
+				namespaces_json,issues_json,
+				member_count,namespace_count,variant_count,issue_count
+			) VALUES(
+				NEW.id,
+				hex(randomblob(16)),
+				COALESCE(json_extract(NEW.manifest_json,'$.title'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.author'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.version'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.description'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.namespaces'),'{}'),
+				COALESCE(json_extract(NEW.manifest_json,'$.issues'),'[]'),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.members')),0),
+				(SELECT COUNT(*) FROM json_each(COALESCE(json_extract(NEW.manifest_json,'$.namespaces'),'{}'))),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.variants')),0),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.issues')),0)
+			);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS artifact_summaries_au
+		AFTER UPDATE OF manifest_json ON artifacts
+		WHEN OLD.manifest_json <> NEW.manifest_json BEGIN
+			INSERT OR REPLACE INTO artifact_summaries(
+				artifact_id,revision,title,author,version,description,
+				namespaces_json,issues_json,
+				member_count,namespace_count,variant_count,issue_count
+			) VALUES(
+				NEW.id,
+				hex(randomblob(16)),
+				COALESCE(json_extract(NEW.manifest_json,'$.title'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.author'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.version'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.description'),''),
+				COALESCE(json_extract(NEW.manifest_json,'$.namespaces'),'{}'),
+				COALESCE(json_extract(NEW.manifest_json,'$.issues'),'[]'),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.members')),0),
+				(SELECT COUNT(*) FROM json_each(COALESCE(json_extract(NEW.manifest_json,'$.namespaces'),'{}'))),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.variants')),0),
+				COALESCE(json_array_length(json_extract(NEW.manifest_json,'$.issues')),0)
+			);
+		END`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -1947,7 +2045,7 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS entities_kind_idx ON entities(kind,updated_at,display_name COLLATE NOCASE)`,
 		`CREATE INDEX IF NOT EXISTS entities_source_idx ON entities(source_id,updated_at)`,
 		`CREATE INDEX IF NOT EXISTS entities_updated_idx ON entities(updated_at,display_name COLLATE NOCASE)`,
-		`CREATE INDEX IF NOT EXISTS archive_links_entity_idx ON archive_links(entity_id,active,last_seen_at)`,
+		`CREATE INDEX IF NOT EXISTS archive_links_entity_idx ON archive_links(entity_id,active DESC,last_seen_at DESC,id DESC)`,
 		`CREATE INDEX IF NOT EXISTS archive_links_path_idx ON archive_links(path COLLATE NOCASE)`,
 		`CREATE INDEX IF NOT EXISTS archive_links_root_idx ON archive_links(root_path COLLATE NOCASE,active,last_scan_id)`,
 		`CREATE INDEX IF NOT EXISTS archive_links_source_idx ON archive_links(source_id,active)`,
@@ -1961,6 +2059,8 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS scans_status_idx ON scans(status,started_at)`,
 		`CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity_id,id)`,
 		`CREATE INDEX IF NOT EXISTS agent_runs_session_idx ON agent_runs(session_id,started_at,id)`,
+		`CREATE INDEX IF NOT EXISTS virus_scans_entity_idx ON virus_scans(entity_id,updated_at DESC,id DESC)`,
+		`CREATE INDEX IF NOT EXISTS virus_scans_entity_artifact_idx ON virus_scans(entity_id,artifact_id,updated_at DESC,id DESC)`,
 	}
 	for _, statement := range indexes {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -2189,9 +2289,11 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 	if entityID == "" {
 		return errors.New("cannot refresh an empty library entity ID")
 	}
-	var displayName, kind, sourceID, pathValue, rootPath, manifestJSON, collectionNames string
+	var displayName, kind, sourceID, pathValue, rootPath, collectionNames string
+	var author, description, namespacesJSON string
 	err := tx.QueryRowContext(ctx, `SELECT e.display_name,e.kind,e.source_id,
-		COALESCE(l.path,''),COALESCE(l.root_path,''),COALESCE(a.manifest_json,'{}'),
+		COALESCE(l.path,''),COALESCE(l.root_path,''),
+		COALESCE(s.author,''),COALESCE(s.description,''),COALESCE(s.namespaces_json,'{}'),
 		COALESCE((SELECT GROUP_CONCAT(name,' ') FROM (
 			SELECT c.name AS name FROM collection_mods cm
 			JOIN collections c ON c.id=cm.collection_id
@@ -2205,18 +2307,23 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 			ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1
 		)
 		LEFT JOIN artifacts a ON a.id=l.artifact_id
-		WHERE e.id=?`, entityID).Scan(&displayName, &kind, &sourceID, &pathValue, &rootPath, &manifestJSON, &collectionNames)
+		LEFT JOIN artifact_summaries s ON s.artifact_id=a.id
+		WHERE e.id=?`, entityID).Scan(&displayName, &kind, &sourceID, &pathValue, &rootPath, &author, &description, &namespacesJSON, &collectionNames)
 	if err != nil {
 		return err
 	}
-	var manifest modkit.Manifest
-	if strings.TrimSpace(manifestJSON) != "" {
-		if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
-			return fmt.Errorf("decode manifest for FTS entity %q: %w", entityID, err)
+	var namespaces map[string][]string
+	if namespacesJSON != "" && namespacesJSON != "{}" {
+		if err := json.Unmarshal([]byte(namespacesJSON), &namespaces); err != nil {
+			return fmt.Errorf("decode namespaces for FTS entity %q: %w", entityID, err)
 		}
 	}
-	archiveRows, err := tx.QueryContext(ctx, `SELECT COALESCE(l.path,''),COALESCE(l.root_path,''),COALESCE(a.manifest_json,'{}')
-		FROM archive_links l LEFT JOIN artifacts a ON a.id=l.artifact_id
+	// Gather paths, root paths, and descriptions from all archive links using
+	// the lightweight artifact_summaries projection rather than the full manifest.
+	archiveRows, err := tx.QueryContext(ctx, `SELECT COALESCE(l.path,''),COALESCE(l.root_path,''),COALESCE(s.description,'')
+		FROM archive_links l
+		LEFT JOIN artifacts a ON a.id=l.artifact_id
+		LEFT JOIN artifact_summaries s ON s.artifact_id=a.id
 		WHERE l.entity_id=?
 		ORDER BY l.active DESC,l.last_seen_at DESC,l.id DESC`, entityID)
 	if err != nil {
@@ -2229,8 +2336,8 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 	seenRootPaths := map[string]struct{}{}
 	seenDescriptions := map[string]struct{}{}
 	for archiveRows.Next() {
-		var archivePath, archiveRoot, archiveManifestJSON string
-		if err := archiveRows.Scan(&archivePath, &archiveRoot, &archiveManifestJSON); err != nil {
+		var archivePath, archiveRoot, archiveDescription string
+		if err := archiveRows.Scan(&archivePath, &archiveRoot, &archiveDescription); err != nil {
 			_ = archiveRows.Close()
 			return err
 		}
@@ -2248,13 +2355,10 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 				rootPaths = append(rootPaths, archiveRoot)
 			}
 		}
-		var archiveManifest modkit.Manifest
-		if strings.TrimSpace(archiveManifestJSON) != "" && json.Unmarshal([]byte(archiveManifestJSON), &archiveManifest) == nil {
-			if archiveManifest.Description != "" {
-				if _, seen := seenDescriptions[archiveManifest.Description]; !seen {
-					seenDescriptions[archiveManifest.Description] = struct{}{}
-					descriptions = append(descriptions, archiveManifest.Description)
-				}
+		if archiveDescription != "" {
+			if _, seen := seenDescriptions[archiveDescription]; !seen {
+				seenDescriptions[archiveDescription] = struct{}{}
+				descriptions = append(descriptions, archiveDescription)
 			}
 		}
 	}
@@ -2291,7 +2395,7 @@ func refreshLibrarySearchEntryTx(ctx context.Context, tx *sql.Tx, entityID strin
 	if err := tagRows.Close(); err != nil {
 		return err
 	}
-	content := canonicalLibrarySearchText(displayName, string(manifest.Kind), kind, sourceID, pathValue, rootPath, manifest.Author, strings.Join(descriptions, " "), manifest.Namespaces, collectionNames, tagNames)
+	content := canonicalLibrarySearchText(displayName, kind, kind, sourceID, pathValue, rootPath, author, strings.Join(descriptions, " "), namespaces, collectionNames, tagNames)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM library_search_fts WHERE entity_id=?`, entityID); err != nil {
 		return err
 	}

@@ -124,7 +124,7 @@ func (service *AppService) Dashboard() (Dashboard, error) {
 }
 
 func (service *AppService) ListLibrary(health, kind, query, collectionID, scope string) ([]LibraryItem, error) {
-	return service.store.ListLibrary(context.Background(), health, kind, query, collectionID, scope)
+	return service.store.ListLibrarySummary(context.Background(), health, kind, query, collectionID, scope)
 }
 
 func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {

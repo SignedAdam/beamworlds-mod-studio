@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
+	"reflect"
 	"testing"
+	"time"
+
+	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
 
 // ---------------------------------------------------------------------------
@@ -66,10 +70,10 @@ func setCollapsed(tb testing.TB, store *Store, groupID string, collapsed bool) {
 }
 
 // groupPage is a convenience wrapper that calls ListLibraryGroupPage with no
-// filters and the default scope.
+// filters, default scope, and default sort (name ascending).
 func groupPage(tb testing.TB, store *Store, page, pageSize int) LibraryGroupPage {
 	tb.Helper()
-	result, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", "", page, pageSize)
+	result, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", "", page, pageSize, "", 0)
 	if err != nil {
 		tb.Fatalf("group page: %v", err)
 	}
@@ -79,7 +83,7 @@ func groupPage(tb testing.TB, store *Store, page, pageSize int) LibraryGroupPage
 // groupPageQuery calls ListLibraryGroupPage with a search query.
 func groupPageQuery(tb testing.TB, store *Store, query string, page, pageSize int) LibraryGroupPage {
 	tb.Helper()
-	result, err := store.ListLibraryGroupPage(context.Background(), "", "", query, "", "", page, pageSize)
+	result, err := store.ListLibraryGroupPage(context.Background(), "", "", query, "", "", page, pageSize, "", 0)
 	if err != nil {
 		tb.Fatalf("group page query: %v", err)
 	}
@@ -89,7 +93,7 @@ func groupPageQuery(tb testing.TB, store *Store, query string, page, pageSize in
 // groupPageScope calls ListLibraryGroupPage with a given scope.
 func groupPageScope(tb testing.TB, store *Store, scope string, page, pageSize int) LibraryGroupPage {
 	tb.Helper()
-	result, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", scope, page, pageSize)
+	result, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", scope, page, pageSize, "", 0)
 	if err != nil {
 		tb.Fatalf("group page scope: %v", err)
 	}
@@ -469,6 +473,133 @@ func TestGroupPageBoundaryInsideIdenticalNames(t *testing.T) {
 	for id := range allEntityIDs {
 		if !seenEntityIDs[id] {
 			t.Errorf("entity %s never appeared in any page", id)
+		}
+	}
+}
+
+func TestGroupedColumnSortBeforePagination(t *testing.T) {
+	store, root := openGroupStore(t)
+	ctx := context.Background()
+	archives := libraryFixtureArchives(root, 6, 0)
+	names := []string{"Mod 10", "mod 2", "Álpha", "Zed", "Beta", "Gamma"}
+	sizes := []int64{100, 2, 1000, 10, 200, 1}
+	counts := []int{4, 2, 6, 3, 5, 1}
+	for i := range archives {
+		archives[i].Manifest.Title = names[i]
+		archives[i].Manifest.Author = names[i]
+		archives[i].Manifest.Members = make([]modkit.ArchiveMember, counts[i])
+		archives[i].SizeBytes = sizes[i]
+		archives[i].Modified = time.Unix(sizes[i], 0).UTC()
+		archives[i].SourceClass = "user-added"
+	}
+	items := applyLibraryArchives(t, store, root, archives)
+	if err := store.CreateModTag(ctx, "SortCohort", "#123456", "tag"); err != nil {
+		t.Fatal(err)
+	}
+	var cohort string
+	if err := store.db.QueryRowContext(ctx, `SELECT id FROM mod_tags WHERE name='SortCohort'`).Scan(&cohort); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if err := store.SetLibraryItemTags(ctx, item.EntityID, []string{cohort}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	groupID := createGroupWithMembers(t, store, "Vehicles", libraryEntityIDs(items[:3]))
+	setCollapsed(t, store, groupID, false)
+	setCollapsed(t, store, ungroupedGroupID, false)
+
+	for _, tc := range []struct {
+		key   string
+		order []int
+	}{
+		{"name", []int{2, 4, 5, 1, 0, 3}},
+		{"source", []int{2, 4, 5, 1, 0, 3}}, // same source falls back to name
+		{"author", []int{2, 4, 5, 1, 0, 3}},
+		{"size", []int{5, 1, 3, 0, 4, 2}},
+		{"files", []int{5, 1, 3, 0, 4, 2}},
+		{"modified", []int{5, 1, 3, 0, 4, 2}},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			for _, direction := range []int{1, -1} {
+				order := append([]int(nil), tc.order...)
+				if direction == -1 {
+					for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
+						order[i], order[j] = order[j], order[i]
+					}
+				}
+				expected := []string{"Vehicles"}
+				for _, i := range order {
+					if i < 3 {
+						expected = append(expected, items[i].EntityID)
+					}
+				}
+				expected = append(expected, "Ungrouped")
+				for _, i := range order {
+					if i >= 3 {
+						expected = append(expected, items[i].EntityID)
+					}
+				}
+				// An exact-tag filter takes the hydrated path without changing
+				// the cohort. It must have precisely the same page boundaries.
+				for _, query := range []string{"", "tag:SortCohort"} {
+					var actual []string
+					for page := range 4 {
+						result, err := store.ListLibraryGroupPage(ctx, "", "", query, "", "", page, 2, tc.key, direction)
+						if err != nil {
+							t.Fatal(err)
+						}
+						for _, row := range result.Rows {
+							if row.RowType == "group" {
+								actual = append(actual, row.Label)
+							} else {
+								actual = append(actual, row.Item.EntityID)
+							}
+						}
+					}
+					if !reflect.DeepEqual(actual, expected) {
+						t.Fatalf("direction %d query %q: paged order %v, want %v", direction, query, actual, expected)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGroupedStatusSortUsesHealthSeverity(t *testing.T) {
+	store, root := openGroupStore(t)
+	archives := libraryFixtureArchives(root, 2, 0)
+	archives[0].Manifest.Title = "A unscanned"
+	archives[1].Manifest.Title = "Z broken"
+	archives[1].Manifest.Issues = []modkit.Issue{{Severity: modkit.SeverityError, Code: "invalid_archive"}}
+	items := applyLibraryArchives(t, store, root, archives)
+	for _, direction := range []int{1, -1} {
+		result, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", "", 0, 0, "status", direction)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := items[1].EntityID
+		if direction == -1 {
+			first = items[0].EntityID
+		}
+		if len(result.Rows) != 3 || result.Rows[1].Item.EntityID != first {
+			t.Fatalf("status direction %d did not order by severity: %#v", direction, result.Rows)
+		}
+	}
+}
+
+func TestGroupedSortRejectsInvalidOrder(t *testing.T) {
+	store, _ := openGroupStore(t)
+	for _, tc := range []struct {
+		key       string
+		direction int
+	}{
+		{"name; DROP TABLE entities", 1},
+		{"name", 42},
+	} {
+		_, err := store.ListLibraryGroupPage(context.Background(), "", "", "", "", "", 0, 10, tc.key, tc.direction)
+		if err == nil {
+			t.Fatalf("accepted unsupported order %q/%d", tc.key, tc.direction)
 		}
 	}
 }

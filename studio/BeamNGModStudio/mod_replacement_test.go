@@ -457,7 +457,7 @@ func TestReplacementRecycleFailurePreservesSource(t *testing.T) {
 	if oldUsages != 0 {
 		t.Fatal("failed cleanup restored obsolete collection/group usages")
 	}
-	group, err := service.store.ListLibraryGroupPage(ctx, "", "", "", "", "", 0, 0)
+	group, err := service.store.ListLibraryGroupPage(ctx, "", "", "", "", "", 0, 0, "name", 1)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -74,6 +74,103 @@ func resolveAndFingerprint(t *testing.T, service *AppService, collectionID strin
 	return PlayRequest{CollectionIDs: []string{collectionID}, Fingerprint: selection.Fingerprint}
 }
 
+func TestPlayAfterRemovedArchiveReconciliation(t *testing.T) {
+	for _, mode := range []string{"rescan", "scan completion", "startup"} {
+		t.Run(mode, func(t *testing.T) {
+			service := newTestAppService(t)
+			ctx := context.Background()
+			root := filepath.Join(service.config.DataDir, "library")
+			service.config.ScanRoots = []string{root}
+			service.library = NewLibraryEngine(service.store, service.config, func(string, any) {})
+			removedPath := filepath.Join(root, "removed.zip")
+			keptPath := filepath.Join(root, "kept.zip")
+			writeLibraryScanArchive(t, removedPath, "Removed Mod")
+			writeLibraryScanArchive(t, keptPath, "Kept Mod")
+			if _, err := service.ScanLibrary(); err != nil {
+				t.Fatal(err)
+			}
+			items, err := service.store.ListLibrary(ctx, "all", "all", "", "all", "active")
+			if err != nil {
+				t.Fatal(err)
+			}
+			removed, ok := libraryItemByPath(items, removedPath)
+			if !ok {
+				t.Fatal("removed mod was not indexed")
+			}
+			kept, ok := libraryItemByPath(items, keptPath)
+			if !ok {
+				t.Fatal("kept mod was not indexed")
+			}
+			collection, err := service.CreateCollection("Play removal regression", "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			collectionID := collection.Collection.ID
+			if _, err := service.SetCollectionMods(collectionID, []string{removed.EntityID, kept.EntityID}, true); err != nil {
+				t.Fatal(err)
+			}
+			before := resolveAndFingerprint(t, service, collectionID)
+			if err := os.Remove(removedPath); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "rescan":
+				writeLibraryScanArchive(t, filepath.Join(root, "added.zip"), "Added Mod")
+				if _, err := service.ScanLibrary(); err != nil {
+					t.Fatal(err)
+				}
+			case "scan completion":
+				scanID, err := service.store.BeginScan(ctx, []string{root})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.store.db.ExecContext(ctx, `UPDATE archive_links SET last_scan_id=? WHERE entity_id=?`, scanID, kept.EntityID); err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.FinishScan(ctx, scanID, []string{root}, 1, 0, 0, nil); err != nil {
+					t.Fatal(err)
+				}
+			case "startup":
+				// Reproduce databases left by scans before reconciliation existed.
+				if _, err := service.store.db.ExecContext(ctx, `UPDATE archive_links SET active=0 WHERE entity_id=?`, removed.EntityID); err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.Close(); err != nil {
+					t.Fatal(err)
+				}
+				reopened, err := OpenStore(service.config.DatabasePath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = reopened.Close() })
+				service.store = reopened
+			}
+			selection, err := service.ResolvePlaySelection([]string{collectionID}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if selection.ModCount != 1 || selection.MissingCount != 0 || selection.Mods[0].EntityID != kept.EntityID {
+				t.Fatalf("removed archive still contributes to Play: %#v", selection)
+			}
+			if selection.Fingerprint == before.Fingerprint {
+				t.Fatal("removal did not invalidate the old Play review")
+			}
+			detail, err := service.store.CollectionDetail(ctx, collectionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(detail.Members) != 2 {
+				t.Fatal("reconciliation deleted collection membership instead of disabling it")
+			}
+			activation := activateAndCheck(t, service, resolveAndFingerprint(t, service, collectionID))
+			entries, err := os.ReadDir(activation.ModsPath)
+			if err != nil || len(entries) != 1 || activation.ModCount != 1 {
+				t.Fatalf("remaining mod was not materialized: %#v, %v", activation, err)
+			}
+		})
+	}
+}
+
 // activateAndCheck is a shorthand to run activatePlaySelection expecting success.
 func activateAndCheck(t *testing.T, service *AppService, request PlayRequest) PlayActivation {
 	t.Helper()

@@ -53,6 +53,8 @@ The Mod Library, collection members, Virus Scanner, and ModMaker tables share ro
 - Single-click a row or press Enter to open a library mod, collection member, or ModMaker workspace. Ctrl/Command-click, Shift-click, and checkboxes change selection without opening a mod. In the Virus Scanner, Enter toggles selection instead.
 - Right-click a selected row to act on the selected group, or an unselected row to target that row. Shift+F10 opens the focused row's menu where available.
 - **Columns** opens a floating, viewport-constrained panel above the table. Toggle visibility or drag columns to reorder them; Escape, the close button, or an outside click dismisses the panel.
+- Click a column heading to sort; click it again to reverse direction. In grouped Mod Library view, the main and repeated headings sort mods within every group before pagination. Changing sort returns to the first page; group order stays fixed, with Ungrouped last.
+- While a grouped sort is pending, its main and repeated column headings show a spinner. Clicking another heading cancels the older request and applies only the latest choice. Headers stay interactive; changing filters or views also cancels obsolete reads.
 
 Unavailable scanner rows and busy tables cannot be selected. Embedded actions, such as a collection member's enable checkbox, do not change row selection.
 
@@ -61,6 +63,14 @@ Unavailable scanner rows and busy tables cannot be selected. Embedded actions, s
 Use **+ New tag** in a mod's inspector to enter a name, choose a color and icon, and create the tag. A newly created tag is assigned to that mod.
 
 **Gameplay**, **Graphics**, and **Trailer** are included among the default tags. Existing libraries receive them on their next launch without replacing same-named custom tags, their appearance, or their assignments. Deleting a default tag after this update keeps it deleted on later launches.
+
+## Library storage and caching
+
+Mod identities, archive locations, collection/tag memberships, ModMaker projects, and security analyses are separate related records. Full archive inspection documents remain in `artifacts`; they are not the library table's read model.
+
+`artifact_summaries` is a small one-to-one projection used for library listing, filtering, counts, and sorting. SQLite triggers update it in the same transaction as archive metadata changes, and startup backfills existing archives without rescanning ZIPs. Listing responses omit archive inventories, variant/document contents, and detailed issue messages; `GetEntity` supplies complete inspection data when a mod is opened.
+
+Full parsed manifests are cached on demand using artifact ID plus a unique metadata revision. Warm reads avoid fetching the large JSON column. Cached values are mutation-isolated; rollback cannot reuse an uncommitted revision. Retention is bounded by entry count and a 64 MiB source-JSON budget (not a fixed Go heap-size guarantee), and the cache is released when the store closes. Collection/tag changes remain ordinary relational updates rather than rebuilding archive metadata.
 
 ## Safety model
 
@@ -72,6 +82,7 @@ Use **+ New tag** in a mod's inspector to enter a name, choose a color and icon,
 - Test installs use the `modstudio-test-*.zip` namespace and verify their checksum before launch.
 - Collections group mods and other collections. Membership is many-to-many and cycles are rejected, so a mod or collection can be reused anywhere without being moved or copied.
 - Every membership carries an enabled flag. A disabled mod keeps its place in the collection and stops shipping; a disabled child collection is not traversed from that parent. Enabled wins: a mod enabled in any reachable collection is included.
+- Successful scans disable collection entries whose last indexed archive was removed. Startup also repairs stale entries left by older scans. Membership and ordering remain intact; restore the archive and re-enable the mod to include it again. Another active source keeps the mod enabled, and failed or cancelled scans do not disable it.
 - On the first indexed library, the mods BeamNG already has enabled become one collection held by one profile, and that profile is selected. A fresh install therefore launches the mod set the user already had.
 - Play resolves the selected profile's collections into one deduplicated mod set. External archives are hardlinked or copied into `current/mods/beamworlds-managed`, BeamNG's native `db.json` active state is backed up and updated atomically, and normal settings, controls, and saves remain shared.
 - Profiles are named collection selections. Selecting, renaming, or deleting one never changes mod files or what BeamNG currently loads; only Play does.

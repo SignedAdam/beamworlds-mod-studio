@@ -99,7 +99,7 @@
 }
 
 .preview-picker__candidate:hover:not(:disabled) {
-  border-color: var(--inspector-accent, var(--active-tab, var(--orange)));
+  border-color: var(--inspector-accent, var(--active-tab, var(--emphasis)));
   background: var(--surface-soft);
   color: var(--text);
 }
@@ -107,14 +107,14 @@
 .preview-picker__candidate:focus-visible {
   position: relative;
   z-index: 1;
-  outline: 2px solid var(--inspector-accent, var(--active-tab, var(--orange)));
+  outline: 2px solid var(--inspector-accent, var(--active-tab, var(--emphasis)));
   outline-offset: 2px;
 }
 
 .preview-picker__candidate.is-selected {
-  border-color: var(--inspector-accent, var(--active-tab, var(--orange)));
-  background: color-mix(in srgb, var(--inspector-accent, var(--active-tab, var(--orange))) 10%, var(--field));
-  box-shadow: inset 0 0 0 1px var(--inspector-accent, var(--active-tab, var(--orange)));
+  border-color: var(--inspector-accent, var(--active-tab, var(--emphasis)));
+  background: color-mix(in srgb, var(--inspector-accent, var(--active-tab, var(--emphasis))) 10%, var(--field));
+  box-shadow: inset 0 0 0 1px var(--inspector-accent, var(--active-tab, var(--emphasis)));
 }
 
 .preview-picker__candidate:disabled {

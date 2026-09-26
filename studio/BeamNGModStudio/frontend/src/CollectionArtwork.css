@@ -129,9 +129,9 @@
 .collection-artwork-mode:hover { background: var(--surface-soft); color: var(--text); }
 
 .collection-artwork-mode.is-active {
-  background: color-mix(in srgb, var(--orange) 13%, var(--surface));
+  background: color-mix(in srgb, var(--emphasis) 13%, var(--surface));
   color: var(--text);
-  box-shadow: inset 0 -2px var(--orange);
+  box-shadow: inset 0 -2px var(--emphasis);
 }
 
 .collection-artwork-editor__workspace {
@@ -203,7 +203,7 @@
   color: var(--text-3);
 }
 
-.collection-artwork-editor__search:focus-within { border-color: var(--orange); }
+.collection-artwork-editor__search:focus-within { border-color: var(--emphasis); }
 
 .collection-artwork-editor__search input {
   flex: 1;
@@ -244,7 +244,7 @@
 .collection-artwork-editor__mod:hover { background: var(--surface-soft); color: var(--text); }
 
 .collection-artwork-editor__mod.is-active {
-  background: color-mix(in srgb, var(--orange) 11%, transparent);
+  background: color-mix(in srgb, var(--emphasis) 11%, transparent);
   color: var(--text);
 }
 
@@ -307,7 +307,7 @@
   transition: border-color 120ms ease;
 }
 
-.collection-artwork-candidate:hover:not(:disabled) { border-color: var(--orange); color: var(--text); }
+.collection-artwork-candidate:hover:not(:disabled) { border-color: var(--emphasis); color: var(--text); }
 .collection-artwork-candidate:disabled { opacity: .55; cursor: default; }
 
 .collection-artwork-candidate__image {
@@ -382,7 +382,7 @@
 }
 
 .collection-artwork-selected:focus-visible,
-.collection-artwork-selected.is-replacing { border-color: var(--orange); outline: none; }
+.collection-artwork-selected.is-replacing { border-color: var(--emphasis); outline: none; }
 
 .collection-artwork-selected__thumb {
   position: relative;
@@ -443,7 +443,7 @@
   font-size: var(--font-caption);
 }
 
-.collection-artwork-selected__body input[type="range"] { width: 100%; accent-color: var(--orange); }
+.collection-artwork-selected__body input[type="range"] { width: 100%; accent-color: var(--emphasis); }
 
 .collection-artwork-selected__actions {
   display: flex;

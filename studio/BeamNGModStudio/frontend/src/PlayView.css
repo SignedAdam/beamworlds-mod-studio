@@ -9,7 +9,7 @@
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--orange) 6%, transparent), transparent 70%),
+    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--emphasis) 6%, transparent), transparent 70%),
     var(--bg);
 }
 
@@ -120,7 +120,7 @@
 }
 
 .play-launch-status progress::-webkit-progress-bar { background: var(--line); }
-.play-launch-status progress::-webkit-progress-value { background: var(--orange); }
+.play-launch-status progress::-webkit-progress-value { background: var(--emphasis); }
 
 /* 88px = sidebar bottom block (5 + 38 + 38 + 7). */
 .play-launch-controls {
@@ -183,7 +183,7 @@
   transition: color 120ms ease;
 }
 
-.play-link:hover:not(:disabled) { color: var(--orange); }
+.play-link:hover:not(:disabled) { color: var(--emphasis); }
 .play-link:disabled { color: var(--disabled); cursor: default; text-decoration: none; }
 
 .play-launch-actions {
@@ -223,14 +223,14 @@
   height: 66px;
   padding: 0 26px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--orange) 52%, #000);
+  border: 1px solid color-mix(in srgb, var(--emphasis) 52%, #000);
   border-radius: 11px;
   background: #0a0b0c;
   cursor: pointer;
   transform: translateZ(0);
   box-shadow:
     0 10px 20px -6px rgb(0 0 0 / 62%),
-    0 2px 0 0 color-mix(in srgb, var(--orange) 22%, #000),
+    0 2px 0 0 color-mix(in srgb, var(--emphasis) 22%, #000),
     inset 0 1px 0 rgb(255 255 255 / 20%);
   transition: transform 160ms cubic-bezier(.22, 1, .36, 1), box-shadow 160ms ease, border-color 160ms ease;
 }
@@ -302,10 +302,10 @@
 }
 
 .play-launch-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--orange) 76%, #fff);
+  border-color: color-mix(in srgb, var(--emphasis) 76%, #fff);
   box-shadow:
     0 14px 26px -8px rgb(0 0 0 / 66%),
-    0 2px 0 0 color-mix(in srgb, var(--orange) 32%, #000),
+    0 2px 0 0 color-mix(in srgb, var(--emphasis) 32%, #000),
     inset 0 1px 0 rgb(255 255 255 / 24%);
 }
 
@@ -336,7 +336,7 @@
   opacity: .46;
 }
 
-.play-launch-button:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.play-launch-button:focus-visible { outline: 2px solid var(--emphasis); outline-offset: 3px; }
 .play-launch-button:disabled { border-color: var(--line-strong); cursor: default; box-shadow: none; }
 .play-launch-button:disabled .play-launch-button__art { filter: brightness(.18) saturate(.35); }
 .play-launch-button:disabled .play-launch-button__glass { opacity: .4; }
@@ -442,7 +442,7 @@
   flex: 1 1 200px;
   height: 30px;
   padding: 0 8px;
-  border: 1px solid var(--orange);
+  border: 1px solid var(--emphasis);
   border-radius: 4px;
   background: var(--field);
   color: var(--text);
@@ -467,9 +467,9 @@
 
 /* ---------- All mods card ---------- */
 .play-all-mods-card .collection-card__fallback {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 14%, var(--surface-raised)), var(--bg-deep));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--emphasis) 14%, var(--surface-raised)), var(--bg-deep));
 }
-.play-all-mods-card__icon { color: var(--orange); }
+.play-all-mods-card__icon { color: var(--emphasis); }
 .play-all-mods-card.is-selected .play-all-mods-card__icon { color: var(--text); }
 
 /* ---------- Excluded card ---------- */
@@ -495,7 +495,7 @@
 }
 
 html[data-theme="light"] .play-all-mods-card .collection-card__fallback {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--orange) 10%, #fff), var(--bg));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--emphasis) 10%, #fff), var(--bg));
 }
 
 @media (max-width: 900px) {
@@ -507,7 +507,7 @@ html[data-theme="light"] .play-all-mods-card .collection-card__fallback {
 
 html[data-theme="light"] .play-view {
   background:
-    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--orange) 8%, transparent), transparent 70%),
+    radial-gradient(1100px 340px at 80% -14%, color-mix(in srgb, var(--emphasis) 8%, transparent), transparent 70%),
     var(--bg);
 }
 

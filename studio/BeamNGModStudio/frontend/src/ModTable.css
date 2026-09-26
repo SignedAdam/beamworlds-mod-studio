@@ -4,12 +4,12 @@
 
 .mod-table-panel .mod-table tbody tr:focus-visible,
 .mod-table-panel .mod-table tbody tr.is-selected:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--emphasis);
   outline-offset: -2px;
 }
 
 html[data-theme="light"] .mod-table tbody tr.is-selected {
-  background: color-mix(in srgb, var(--orange) 18%, var(--surface-solid));
+  background: color-mix(in srgb, var(--emphasis) 18%, var(--surface-solid));
 }
 
 /* Library table presentation is scoped here so scanner and ModMaker tables keep their palette. */
@@ -880,7 +880,7 @@ html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader svg {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--orange);
+  accent-color: var(--emphasis);
   cursor: pointer;
 }
 
@@ -1044,7 +1044,7 @@ html[data-theme="light"] .mod-row--archived {
 
 .group-row__match {
   margin-left: auto;
-  color: var(--blue);
+  color: var(--accent-neutral);
   font-size: inherit;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1125,7 +1125,7 @@ html[data-theme="light"] .mod-table-panel--library .group-row__match {
 }
 
 .group-section-header td button:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--emphasis);
   outline-offset: -2px;
 }
 
@@ -1160,7 +1160,7 @@ html[data-theme="light"]
   height: 10px;
   margin-left: 4px;
   border: 1.5px solid var(--line-strong);
-  border-top-color: var(--orange);
+  border-top-color: var(--emphasis);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex: none;

@@ -29,7 +29,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2, 8px);
-  color: var(--active-tab, var(--orange));
+  color: var(--active-tab, var(--emphasis));
 }
 
 .source-control-header__title > div {
@@ -134,12 +134,12 @@
 }
 
 .source-control-branch-button:hover:not(:disabled) {
-  border-color: var(--active-tab, var(--orange));
-  background: color-mix(in srgb, var(--active-tab, var(--orange)) 10%, var(--surface));
+  border-color: var(--active-tab, var(--emphasis));
+  background: color-mix(in srgb, var(--active-tab, var(--emphasis)) 10%, var(--surface));
 }
 
 .source-control-branch-button:focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: 2px;
 }
 
@@ -272,7 +272,7 @@
 }
 
 .source-control-branch-list > button:focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: -2px;
 }
 
@@ -346,8 +346,8 @@
 }
 
 .source-control-operation-progress {
-  border-color: color-mix(in srgb, var(--active-tab, var(--orange)) 40%, var(--line));
-  background: color-mix(in srgb, var(--active-tab, var(--orange)) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--active-tab, var(--emphasis)) 40%, var(--line));
+  background: color-mix(in srgb, var(--active-tab, var(--emphasis)) 10%, var(--surface));
 }
 
 .source-control-operation-progress > strong {
@@ -535,7 +535,7 @@
 }
 
 .source-control-change-tree:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--active-tab, var(--orange));
+  box-shadow: inset 0 0 0 2px var(--active-tab, var(--emphasis));
 }
 
 .source-control-group {
@@ -583,7 +583,7 @@
 }
 
 .source-control-group-toggle:focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: -2px;
 }
 
@@ -625,15 +625,15 @@ html[data-theme="light"] .source-control-file-row {
 .source-control-file-row:hover,
 .source-control-file-row:focus-visible,
 .source-control-file-row.is-selected {
-  background: linear-gradient(90deg, var(--orange-soft), var(--blue-soft));
+  background: linear-gradient(90deg, var(--selected-tint), var(--hover-tint));
 }
 
 .source-control-file-row:focus-visible {
-  box-shadow: inset 3px 0 var(--active-tab, var(--orange));
+  box-shadow: inset 3px 0 var(--active-tab, var(--emphasis));
 }
 
 .source-control-file-row.is-selected {
-  box-shadow: inset 3px 0 var(--active-tab, var(--orange));
+  box-shadow: inset 3px 0 var(--active-tab, var(--emphasis));
 }
 
 .source-control-file-status {
@@ -793,11 +793,11 @@ html[data-theme="light"] .source-control-file-row {
   width: 16px;
   height: 16px;
   min-height: 16px;
-  accent-color: var(--orange);
+  accent-color: var(--emphasis);
 }
 
 .source-control-amend-toggle input:focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: 2px;
 }
 
@@ -918,7 +918,7 @@ html[data-theme="light"] .source-control-file-row {
 }
 
 .source-control-diff-line--hunk {
-  background: color-mix(in srgb, var(--blue, var(--active-tab, #3f93c5)) 16%, transparent);
+  background: color-mix(in srgb, var(--accent-neutral, var(--active-tab, #3f93c5)) 16%, transparent);
   color: var(--text-3);
 }
 
@@ -1076,12 +1076,12 @@ html[data-theme="light"] .source-control-file-row {
 }
 
 .source-control-discard-dialog :where(button, input):focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: 2px;
 }
 
 .source-control-view :where(button, input, textarea, select):focus-visible {
-  outline: 2px solid var(--active-tab, var(--orange));
+  outline: 2px solid var(--active-tab, var(--emphasis));
   outline-offset: 2px;
 }
 

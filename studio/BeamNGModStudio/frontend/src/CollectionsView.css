@@ -57,7 +57,7 @@
   transition: border-color 120ms ease;
 }
 
-.collections-search:focus-within { border-color: var(--orange); }
+.collections-search:focus-within { border-color: var(--emphasis); }
 .collections-search svg { flex: 0 0 auto; }
 
 .collections-search input {
@@ -103,7 +103,7 @@
   min-height: 40px;
   padding: 6px 16px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--orange) 7%, var(--surface));
+  background: color-mix(in srgb, var(--emphasis) 7%, var(--surface));
 }
 
 .collections-bulk-toolbar strong,
@@ -254,7 +254,7 @@
 }
 
 .collection-detail-metrics > span:first-child {
-  border-color: color-mix(in srgb, var(--orange) 40%, var(--line));
+  border-color: color-mix(in srgb, var(--emphasis) 40%, var(--line));
   color: var(--text);
 }
 
@@ -459,7 +459,7 @@
 
 .collection-child-name strong { font-size: var(--font-control); font-weight: 600; }
 .collection-child-name small { margin-top: 2px; color: var(--text-3); font-size: var(--font-caption); }
-.collection-child-name:hover strong { color: var(--orange); }
+.collection-child-name:hover strong { color: var(--emphasis); }
 
 .collection-child-open {
   flex: none;
@@ -491,7 +491,7 @@
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--orange);
+  accent-color: var(--emphasis);
 }
 
 .collection-child-reorder {
@@ -590,7 +590,7 @@
   cursor: pointer;
 }
 
-.collections-impact-list button:hover { color: var(--orange); }
+.collections-impact-list button:hover { color: var(--emphasis); }
 .collections-usage-dialog > p { margin-bottom: 10px; color: var(--text-2); font-size: var(--font-caption); line-height: 1.5; }
 
 .collections-impact__warning {
@@ -646,10 +646,10 @@
 
 .collections-picker-row:last-child { border-bottom: 0; }
 .collections-picker-row:hover { background: var(--surface-soft); }
-.collections-picker-row.is-selected { background: color-mix(in srgb, var(--orange) 9%, transparent); }
+.collections-picker-row.is-selected { background: color-mix(in srgb, var(--emphasis) 9%, transparent); }
 .collections-picker-row.is-disabled { color: var(--text-3); cursor: not-allowed; }
 .collections-picker-row--choice { grid-template-columns: 44px minmax(0, 1fr); }
-.collections-picker-row input { width: 15px; height: 15px; margin: 0; accent-color: var(--orange); }
+.collections-picker-row input { width: 15px; height: 15px; margin: 0; accent-color: var(--emphasis); }
 
 .collections-picker-thumb,
 .collections-picker-cover {

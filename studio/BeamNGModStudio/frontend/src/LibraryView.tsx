@@ -1552,7 +1552,7 @@ export function LibraryView(props: LibraryViewProps) {
                     checked={tag.grouped}
                     disabled={promotionBusy === tag.id}
                     onChange={() => void toggleTagGrouped(tag.id, !tag.grouped)}
-                    style={{ accentColor: "var(--orange)" }}
+                    style={{ accentColor: "var(--emphasis)" }}
                   />
                   <span
                     style={{

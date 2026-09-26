@@ -98,12 +98,12 @@
 
 .add-mod-dialog__location:hover:not(:disabled) > svg,
 .add-mod-dialog__location.is-active > svg {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 
 .add-mod-dialog__location.is-active {
-  border-color: color-mix(in srgb, var(--orange) 48%, var(--line));
-  background: color-mix(in srgb, var(--orange) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--emphasis) 48%, var(--line));
+  background: color-mix(in srgb, var(--emphasis) 12%, var(--surface));
   color: var(--text);
   font-weight: 650;
 }
@@ -202,8 +202,8 @@
 
 .add-mod-dialog__path-form:focus-within,
 .add-mod-dialog__filter:focus-within {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--orange) 22%, transparent);
+  border-color: var(--emphasis);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--emphasis) 22%, transparent);
 }
 
 .add-mod-dialog__path-form > svg,
@@ -451,7 +451,7 @@
   color: var(--text);
 }
 .add-mod-dialog__list-columns button.is-active {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 .add-mod-dialog__list-columns button > svg {
   flex: none;
@@ -499,11 +499,11 @@
   color: var(--text);
 }
 .add-mod-dialog__entry.is-selected {
-  background: color-mix(in srgb, var(--orange) 13%, var(--surface));
+  background: color-mix(in srgb, var(--emphasis) 13%, var(--surface));
   color: var(--text);
 }
 .add-mod-dialog__entry.is-focused {
-  outline: 2px solid color-mix(in srgb, var(--orange) 78%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--emphasis) 78%, transparent);
   outline-offset: -2px;
 }
 .add-mod-dialog__entry.is-failed {
@@ -519,7 +519,7 @@
   color: var(--danger);
 }
 .add-mod-dialog__entry.is-directory .add-mod-dialog__entry-icon {
-  color: var(--orange);
+  color: var(--emphasis);
 }
 
 .add-mod-dialog__entry-check {
@@ -533,7 +533,7 @@
   width: 15px;
   height: 15px;
   margin: 0;
-  accent-color: var(--orange);
+  accent-color: var(--emphasis);
   cursor: pointer;
 }
 
@@ -764,7 +764,7 @@
 }
 .add-mod-dialog__destination > svg {
   flex: none;
-  color: var(--orange);
+  color: var(--emphasis);
 }
 .add-mod-dialog__destination > span {
   min-width: 0;
@@ -812,7 +812,7 @@
 .add-mod-dialog button:focus-visible,
 .add-mod-dialog input:focus-visible,
 .add-mod-dialog__footer-actions button:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--emphasis);
   outline-offset: 2px;
 }
 

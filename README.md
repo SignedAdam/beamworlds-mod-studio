@@ -25,6 +25,21 @@ Choose **Add mod…** in the Mod Library to open the custom file explorer. Each 
 
 Adding mods does not enable them in BeamNG or add them to a collection. If some files fail, successful imports stay in the library and the picker keeps the failed files selected with an explanation.
 
+### Clean up duplicates
+
+**Review duplicates** shows each set of duplicates as a card. Every version row lists the collections, groups, and tags it belongs to. Pick the version to keep (the suggested one is preselected), then choose what happens to the others:
+
+- **Replace** deletes the other versions and gives their collections, groups, and tags to the kept version. The chips it gains are marked with **+**.
+- **Remove** deletes the other versions and takes them out of their collections, groups, and tags. The kept version stays exactly as it is.
+- **Keep both** / **Keep all** deletes nothing and stops flagging the set until its membership changes.
+- For identical files of one mod, **Remove copies** deletes the extra files; collections, groups, and tags are not affected.
+
+Each section can set every open card at once. Nothing changes until **Apply**; applying runs the chosen sets one after another in the background, so you can keep deciding (and apply again) while it works. Deleted files go to the Recycle Bin.
+
+With **Replace**, shared collection entries merge: enabled wins, disabled-only entries stay disabled, and the keeper's existing position is preserved. Profiles follow their collections automatically. Old security scan results are not copied onto a different archive.
+
+If a file is locked, the usage change still applies and the version stays in the library; **Check again** reloads the remaining duplicates so cleanup can be retried. A library that changed since the card was checked, or a kept version whose file is missing, blocks deletion for that set. Versions with ModMaker projects remain protected until their editable work is preserved and the project is explicitly removed.
+
 ## Table controls
 
 The Mod Library, collection members, Virus Scanner, and ModMaker tables share row-selection controls:

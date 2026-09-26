@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -603,6 +604,111 @@ func TestReplacementPlanListsAffectedOrganization(t *testing.T) {
 	}
 	if !containsString(impact.Groups, "Plan Group") {
 		t.Fatalf("groups = %v, want 'Plan Group'", impact.Groups)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Remove: old versions leave their collections, groups, and tags; the keeper
+// gains nothing and keeps what it had
+// ---------------------------------------------------------------------------
+
+func TestRemoveModVersionsDropsUsagesWithoutTransfer(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	root := filepath.Join(service.config.DataDir, "library")
+	ctx := context.Background()
+
+	keeper := modFamilyScanArchive(t, root, "rm-keeper.zip", "Remove Mod", "Author", "2.0", "", "rmk-sha", "rmk-fp", 200, testArchiveModified(10), 0)
+	old := modFamilyScanArchive(t, root, "rm-old.zip", "Remove Mod", "Author", "1.0", "", "rmo-sha", "rmo-fp", 100, testArchiveModified(1), 0)
+	items := applyLibraryArchives(t, service.store, root, []ScanArchive{keeper, old})
+	keeperItem := itemByPath(t, items, keeper.ArchivePath)
+	oldItem := itemByPath(t, items, old.ArchivePath)
+
+	shared, err := service.CreateCollection("Shared", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionMods(shared.Collection.ID, []string{keeperItem.EntityID, oldItem.EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionModsEnabled(shared.Collection.ID, []string{keeperItem.EntityID}, false); err != nil {
+		t.Fatal(err)
+	}
+	oldOnly, err := service.CreateCollection("Old only", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionMods(oldOnly.Collection.ID, []string{oldItem.EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	org, err := service.CreateModTag("Old Tag", "#ff0000", "tag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetLibraryItemTags(oldItem.EntityID, []string{findModTag(t, org, "Old Tag").ID}); err != nil {
+		t.Fatal(err)
+	}
+	createGroupWithMembers(t, service.store, "Old Group", []string{oldItem.EntityID})
+
+	// The review lists each version's own usages, split into collections,
+	// groups, and tags, so the choice can be made per version.
+	families, err := service.ModFamilies()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldMember *ModFamilyMember
+	for fi := range families {
+		for mi := range families[fi].Members {
+			if families[fi].Members[mi].EntityID == oldItem.EntityID {
+				oldMember = &families[fi].Members[mi]
+			}
+		}
+	}
+	if oldMember == nil {
+		t.Fatalf("old version is not in a family: %#v", families)
+	}
+	if !slices.Equal(oldMember.Collections, []string{"Old only", "Shared"}) || !slices.Equal(oldMember.Groups, []string{"Old Group"}) || !slices.Equal(oldMember.Tags, []string{"Old Tag"}) {
+		t.Fatalf("old member usages = collections %v, groups %v, tags %v", oldMember.Collections, oldMember.Groups, oldMember.Tags)
+	}
+
+	impact, err := service.PlanModReplacement(keeperItem.EntityID, []string{oldItem.EntityID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RemoveModVersions(keeperItem.EntityID, []string{oldItem.EntityID}, impact.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Forgotten != 1 {
+		if len(result.Failures) > 0 && strings.Contains(result.Failures[0], "only supported on Windows") {
+			t.Skipf("archive recycling is not supported on this platform: %+v", result)
+		}
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Stat(old.ArchivePath); !os.IsNotExist(err) {
+		t.Fatalf("old archive survived: %v", err)
+	}
+
+	detail, err := service.GetCollection(oldOnly.Collection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Members) != 0 {
+		t.Fatalf("keeper was given the old version's place: %+v", detail.Members)
+	}
+	detail, err = service.GetCollection(shared.Collection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Members) != 1 || detail.Members[0].EntityID != keeperItem.EntityID || detail.Members[0].Enabled {
+		t.Fatalf("keeper's own membership changed: %+v", detail.Members)
+	}
+	keeperDetail, err := service.store.GetLibraryItem(ctx, keeperItem.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keeperDetail.Tags) != 0 {
+		t.Fatalf("keeper inherited tags or groups: %+v", keeperDetail.Tags)
 	}
 }
 

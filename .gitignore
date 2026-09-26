@@ -1,7 +1,14 @@
 # Machine-local configuration and runtime state
 config.json
 studio-data/
-.tools/
+
+# Hidden directories are local state: toolchains, worktrees, and the
+# BEAMWORLDS_HOME sandboxes used for isolated manual testing.
+/.*/
+!/.omp/
+studio/BeamNGModStudio/.*/
+studio/BeamNGModStudio/_sandbox/
+studio/BeamNGModStudio/frontend/.bindings-tmp-*/
 
 # Dependencies and generated frontend output
 node_modules/
@@ -10,7 +17,6 @@ node_modules/
 
 # Wails build output and generated task state
 studio/BeamNGModStudio/bin/
-studio/BeamNGModStudio/.task/
 studio/BeamNGModStudio/build/linux/appimage/build/
 studio/BeamNGModStudio/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 studio/BeamNGModStudio/build/ios/xcode/overlay.json

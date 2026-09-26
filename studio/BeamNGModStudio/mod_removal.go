@@ -178,8 +178,21 @@ func (s *Store) ForgetEntities(ctx context.Context, entityIDs []string) (int, er
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	forgotten, err := forgetEntitiesTx(ctx, tx, ids)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return forgotten, nil
+}
+
+// forgetEntitiesTx removes index records inside the caller's transaction.
+// Callers must serialize writers and validate any replacement references first.
+func forgetEntitiesTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (int, error) {
 	forgotten := 0
-	for _, entityID := range ids {
+	for _, entityID := range entityIDs {
 		var workspaceCount int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspaces WHERE entity_id=?`, entityID).Scan(&workspaceCount); err != nil {
 			return 0, err
@@ -207,9 +220,6 @@ func (s *Store) ForgetEntities(ctx context.Context, entityIDs []string) (int, er
 	// Archives that no longer belong to any mod would otherwise be re-linked by
 	// the next scan and reappear as ghosts.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE id NOT IN (SELECT artifact_id FROM archive_links)`); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return forgotten, nil

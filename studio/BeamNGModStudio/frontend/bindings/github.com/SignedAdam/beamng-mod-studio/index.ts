@@ -79,6 +79,8 @@ export type {
     ModRemovalImpact,
     ModRemovalResult,
     ModRemovalTarget,
+    ModReplacementImpact,
+    ModReplacementResult,
     ModSecurityMetadata,
     ModTag,
     NewModRequest,

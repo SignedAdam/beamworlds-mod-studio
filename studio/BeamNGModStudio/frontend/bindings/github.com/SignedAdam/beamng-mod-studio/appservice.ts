@@ -386,6 +386,10 @@ export function PlanModRemoval(entityIDs: string[] | null): $CancellablePromise<
     return $Call.ByID(627688409, entityIDs);
 }
 
+export function PlanModReplacement(keeperID: string, entityIDs: string[] | null): $CancellablePromise<$models.ModReplacementImpact> {
+    return $Call.ByID(2816245377, keeperID, entityIDs);
+}
+
 /**
  * PollGitHubPublishAuth performs at most one protocol-compliant device poll.
  */
@@ -439,6 +443,10 @@ export function RenameWorkspacePath(workspaceID: string, oldPath: string, newPat
 
 export function ReorderCollectionMembers(collectionID: string, entityIDs: string[] | null, childIDs: string[] | null): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(937529560, collectionID, entityIDs, childIDs);
+}
+
+export function ReplaceModArchives(keeperID: string, entityIDs: string[] | null, fingerprint: string): $CancellablePromise<$models.ModReplacementResult> {
+    return $Call.ByID(4170698601, keeperID, entityIDs, fingerprint);
 }
 
 export function ResetEntityPreview(entityID: string): $CancellablePromise<$models.LibraryItem> {

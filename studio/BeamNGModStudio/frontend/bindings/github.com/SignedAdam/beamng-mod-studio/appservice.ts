@@ -421,6 +421,15 @@ export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $C
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
 
+/**
+ * RemoveModVersions retires the old versions and drops their collection,
+ * group, and tag usages; the keeper's own usages are left exactly as they are.
+ * It shares the replacement review, so the same fingerprint guards both.
+ */
+export function RemoveModVersions(keeperID: string, entityIDs: string[] | null, fingerprint: string): $CancellablePromise<$models.ModReplacementResult> {
+    return $Call.ByID(3129567031, keeperID, entityIDs, fingerprint);
+}
+
 export function RemoveModsFromGroup(tagID: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(2668843830, tagID, entityIDs);
 }
@@ -445,6 +454,10 @@ export function ReorderCollectionMembers(collectionID: string, entityIDs: string
     return $Call.ByID(937529560, collectionID, entityIDs, childIDs);
 }
 
+/**
+ * ReplaceModArchives retires the old versions after handing their collection,
+ * group, and tag usages to the keeper.
+ */
 export function ReplaceModArchives(keeperID: string, entityIDs: string[] | null, fingerprint: string): $CancellablePromise<$models.ModReplacementResult> {
     return $Call.ByID(4170698601, keeperID, entityIDs, fingerprint);
 }

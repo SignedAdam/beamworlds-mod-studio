@@ -38,10 +38,21 @@ func (service *AppService) PlanModReplacement(keeperID string, entityIDs []strin
 	return service.store.modReplacementImpact(context.Background(), keeperID, entityIDs)
 }
 
+// ReplaceModArchives retires the old versions after handing their collection,
+// group, and tag usages to the keeper.
 func (service *AppService) ReplaceModArchives(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
 	service.modImportMu.Lock()
 	defer service.modImportMu.Unlock()
-	return service.store.replaceModArchives(context.Background(), keeperID, entityIDs, fingerprint)
+	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, true)
+}
+
+// RemoveModVersions retires the old versions and drops their collection,
+// group, and tag usages; the keeper's own usages are left exactly as they are.
+// It shares the replacement review, so the same fingerprint guards both.
+func (service *AppService) RemoveModVersions(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, false)
 }
 
 type replacementMembership struct {
@@ -136,12 +147,12 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 			}
 		}
 		if entity.ArchivedAt != "" {
-			plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("%s is archived; restore it before replacing versions", entity.Name))
+			plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("%s is archived; restore it first", entity.Name))
 		}
 		if index == 0 {
 			plan.Impact.Keeper = target
 			if target.Missing {
-				plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("%s has no available active archive to keep; relink or rescan it first", entity.Name))
+				plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("the file of %s is missing, so it can't be the version kept; keep another version or rescan", entity.Name))
 			}
 			continue
 		}
@@ -160,12 +171,12 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 			plan.Impact.Workspaces = append(plan.Impact.Workspaces, entity.Name+" ("+workspace+")")
 		}
 		if len(entity.Workspaces) > 0 {
-			plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("%s has a ModMaker project. Export or preserve that work, then delete the project before replacing this version", entity.Name))
+			plan.Impact.Refusals = append(plan.Impact.Refusals, fmt.Sprintf("%s has a ModMaker project. Export or preserve that work, then delete the project before removing this version", entity.Name))
 		}
 		for _, archive := range entity.Archives {
 			for _, keptArchive := range plan.Entities[0].Archives {
 				if archive.Path != "" && samePath(archive.Path, keptArchive.Path) {
-					plan.Impact.Refusals = append(plan.Impact.Refusals, "a retired archive shares the keeper's path; rescan before replacing versions")
+					plan.Impact.Refusals = append(plan.Impact.Refusals, "an old version shares the kept version's file path; rescan first")
 				}
 			}
 		}
@@ -300,7 +311,9 @@ func (archive *replacementArchive) readFileIdentity() error {
 	return nil
 }
 
-func (s *Store) replaceModArchives(ctx context.Context, keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
+// retireModVersions moves (transferUsages) or drops the old versions' usages in
+// one transaction, then recycles and forgets each old version.
+func (s *Store) retireModVersions(ctx context.Context, keeperID string, entityIDs []string, fingerprint string, transferUsages bool) (ModReplacementResult, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	result := ModReplacementResult{Failures: []string{}}
@@ -319,7 +332,7 @@ func (s *Store) replaceModArchives(ctx context.Context, keeperID string, entityI
 		return result, err
 	}
 	if strings.TrimSpace(fingerprint) == "" || fingerprint != plan.Impact.Fingerprint {
-		return result, errors.New("the library changed since this replacement was reviewed; review the remaining versions again")
+		return result, errors.New("the library changed since these versions were checked; review them again")
 	}
 	if len(plan.Impact.Refusals) > 0 {
 		return result, errors.New(strings.Join(plan.Impact.Refusals, "; "))
@@ -331,7 +344,12 @@ func (s *Store) replaceModArchives(ctx context.Context, keeperID string, entityI
 		return result, fmt.Errorf("open archive to keep: %w", err)
 	}
 	defer keptFile.Close()
-	if err := transferReplacementReferencesTx(ctx, tx, plan); err != nil {
+	if transferUsages {
+		err = transferReplacementReferencesTx(ctx, tx, plan)
+	} else {
+		err = dropRetiredReferencesTx(ctx, tx, plan)
+	}
+	if err != nil {
 		return result, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -339,7 +357,7 @@ func (s *Store) replaceModArchives(ctx context.Context, keeperID string, entityI
 	}
 	result.Replaced = len(plan.Entities) - 1
 	// Filesystem recycling cannot share a transaction with SQLite. The durable
-	// transfer above makes even a partial cleanup safe and reviewable on retry.
+	// usage change above makes even a partial cleanup safe and reviewable on retry.
 	for _, source := range plan.Entities[1:] {
 		if err := s.retireReplacementSource(ctx, source, &result); err != nil {
 			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", source.Name, err))
@@ -412,6 +430,43 @@ func transferReplacementReferencesTx(ctx context.Context, tx *sql.Tx, plan repla
 	return markLibraryIndexFreshTx(ctx, tx)
 }
 
+// dropRetiredReferencesTx removes the old versions from every collection,
+// group, and tag without giving those places to the keeper.
+func dropRetiredReferencesTx(ctx context.Context, tx *sql.Tx, plan replacementPlan) error {
+	now := nowUTC()
+	affected := map[string]bool{}
+	sourceIDs := make([]string, 0, len(plan.Entities)-1)
+	for _, source := range plan.Entities[1:] {
+		sourceIDs = append(sourceIDs, source.ID)
+		for _, member := range source.Memberships {
+			affected[member.CollectionID] = true
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM mod_tag_entities WHERE entity_id=?`, source.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM collection_mods WHERE entity_id=?`, source.ID); err != nil {
+			return err
+		}
+	}
+	for collectionID := range affected {
+		if _, err := tx.ExecContext(ctx, `UPDATE collections SET updated_at=? WHERE id=?`, now, collectionID); err != nil {
+			return err
+		}
+	}
+	for _, entity := range plan.Entities {
+		if err := touchEntityUpdatedAtTx(ctx, tx, entity.ID, now); err != nil {
+			return err
+		}
+		if err := refreshLibrarySearchEntryTx(ctx, tx, entity.ID); err != nil {
+			return err
+		}
+	}
+	if err := appendEventTx(ctx, tx, plan.Entities[0].ID, "mod_versions_removed", map[string]any{"sourceEntityIds": sourceIDs, "collections": plan.Impact.Collections, "groups": plan.Impact.Groups, "tags": plan.Impact.Tags}); err != nil {
+		return err
+	}
+	return markLibraryIndexFreshTx(ctx, tx)
+}
+
 func (s *Store) retireReplacementSource(ctx context.Context, source replacementEntity, result *ModReplacementResult) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -427,10 +482,10 @@ func (s *Store) retireReplacementSource(ctx context.Context, source replacementE
 		return err
 	}
 	if len(current.Memberships) > 0 || len(current.Tags) > 0 || len(current.Workspaces) > 0 || current.ArchivedAt != source.ArchivedAt {
-		return errors.New("new references appeared after replacement; kept this version indexed for another review")
+		return errors.New("it gained a new usage, ModMaker project, or archive state in the meantime; kept it for another review")
 	}
 	if !slices.Equal(current.Archives, source.Archives) {
-		return errors.New("archive links or files changed after replacement; review this version again before recycling")
+		return errors.New("its files changed in the meantime; review it again before deleting")
 	}
 	var failures []string
 	for _, archive := range current.Archives {

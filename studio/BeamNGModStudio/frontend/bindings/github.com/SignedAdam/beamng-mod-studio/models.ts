@@ -834,6 +834,8 @@ export interface ModFamilyMember {
     "sha256": string;
     "sourceLabel": string;
     "collections": string[] | null;
+    "groups": string[] | null;
+    "tags": string[] | null;
     "workspaceCount": number;
     "thumbnailUrl": string;
     "entryCount": number;

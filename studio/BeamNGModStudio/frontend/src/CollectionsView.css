@@ -380,6 +380,11 @@
   min-height: 220px;
 }
 
+/* The detail page owns vertical scrolling; the table only needs horizontal overflow. */
+.collection-members-table > .mod-table-wrap {
+  overscroll-behavior-y: auto;
+}
+
 .collection-children-list {
   overflow: auto;
   background: var(--surface);

@@ -978,6 +978,8 @@ export function LibraryView(props: LibraryViewProps) {
             )}
           </div>
         )}
+      </div>
+      <div className="library-selection-row">
         {selectedEntityIDs.size > 0 && (
           <div
             className="library-selection"
@@ -1041,16 +1043,16 @@ export function LibraryView(props: LibraryViewProps) {
             </button>
           </div>
         )}
+        {selectedEntityIDs.size > 0 && (
+          <SelectionCollections
+            selectedEntityIDs={selectedEntityIDs}
+            catalogItems={props.catalogItems}
+            collections={props.collections}
+            onSelectionChange={setSelectedEntityIDs}
+            onCollectionChange={props.onCollectionChange}
+          />
+        )}
       </div>
-      {selectedEntityIDs.size > 0 && (
-        <SelectionCollections
-          selectedEntityIDs={selectedEntityIDs}
-          catalogItems={props.catalogItems}
-          collections={props.collections}
-          onSelectionChange={setSelectedEntityIDs}
-          onCollectionChange={props.onCollectionChange}
-        />
-      )}
       <div className="library-workarea">
         {viewMode === "preview" ? (
           <LibraryPreviewGrid

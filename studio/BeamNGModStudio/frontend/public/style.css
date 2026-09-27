@@ -796,30 +796,15 @@ html[data-theme="light"] .main-nav button.is-active{background:rgba(0,0,0,.07);b
 .page-toolbar__meta{margin-left:auto;color:var(--text-3);font-size:var(--font-caption);font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:520px){.page-toolbar{padding:0 var(--space-3);gap:var(--space-1)}.page-toolbar__meta{display:none}}
 
-/* Selection actions ride in the Library toolbar: picking mods must never shift
-   the table down. Labels fold away from least to most important as the toolbar
-   narrows, so the row survives a tight window without wrapping. */
+/* Selection actions occupy the reserved row below the Library toolbar. */
 .library-selection{margin-left:auto;flex:none;display:flex;align-items:center;gap:var(--space-1)}
 .library-selection__count{height:var(--control-height);display:inline-flex;align-items:center;padding:0 9px;border:1px solid color-mix(in srgb,var(--active-tab) 48%,var(--line-strong));border-radius:4px;background:color-mix(in srgb,var(--active-tab) 13%,transparent);color:var(--text);font-size:var(--font-control);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .library-selection .button{white-space:nowrap}
 .library-selection__clear{width:var(--control-height);height:var(--control-height);flex:none}
 @container page-toolbar (max-width:1080px){.page-toolbar .segmented:not(.segmented--compact) button>span{display:none}}
-@container page-toolbar (max-width:900px){.library-selection__add>span{display:none}.library-selection__add{padding:0 9px}}
-@container page-toolbar (max-width:780px){.library-selection__more>span{display:none}.library-selection__more{padding:0 9px}}
-@container page-toolbar (max-width:680px){.page-toolbar>.library-search{flex:1 1 120px}.library-selection__count{padding:0 6px}}
-/* No state is allowed to vanish from this toolbar.  Hiding the selection
-   strip outright would erase the only statement of how many mods are
-   selected, and hiding the scope control would strand a user inside Archived
-   with no way back.  So the narrow rungs fold labels to icons, keep the
-   count, the scope, the grouping toggle and the clear button, and drop only
-   the two action buttons that the row's right-click menu already offers. */
+@container page-toolbar (max-width:680px){.page-toolbar>.library-search{flex:1 1 120px}}
 @container page-toolbar (max-width:860px){.page-toolbar>.segmented--compact button>span{display:none}.page-toolbar>.collection-control .collection-trigger{max-width:132px}}
-/* Add-to-collection and the actions menu are the only controls here that the
-   row's own right-click menu already offers in full, so they are what folds
-   away first - the count, the clear button, the scope, the grouping toggle,
-   the collection filter and the search all stay. */
-@container page-toolbar (max-width:740px){.library-selection__add,.library-selection__more{display:none}.page-toolbar>.collection-control .collection-trigger{max-width:104px}}
-@container page-toolbar (max-width:620px){.library-selection__count{padding:0 5px}.library-selection{gap:4px}}
+@container page-toolbar (max-width:740px){.page-toolbar>.collection-control .collection-trigger{max-width:104px}}
 @container page-toolbar (max-width:560px){.page-toolbar>.library-search{flex:1 1 124px;min-width:124px}.page-toolbar>.collection-control .collection-trigger{max-width:96px}}
 /* In light mode --active-tab is near-white, so the chip borrows the Library's
    own accent to stay readable as a count rather than another button. */

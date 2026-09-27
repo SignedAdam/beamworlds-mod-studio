@@ -1,19 +1,30 @@
-/* Collection chips in the library selection strip: one row between the
-   toolbar and the mod table, visible only while mods are selected. */
+/* Reserve selection controls and collection chips without moving the results. */
+.library-selection-row {
+  flex: none;
+  height: calc(max(var(--control-height), var(--tag-chip-height)) + 2 * var(--space-1) + 14px);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.library-selection-row > .library-selection {
+  margin-left: 0;
+}
 
 .selection-collections {
-  flex: none;
+  flex: 1 0 auto;
   display: flex;
-  /* This strip only exists while a selection does, so a second line costs
-     nothing already-visible. Scrolling with a hidden scrollbar would take
-     chips off screen with no sign they were ever there - the same trap the
-     page header had, where actions scrolled away invisibly. */
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   row-gap: var(--space-1);
   column-gap: var(--space-1);
-  padding: var(--space-1) var(--space-4);
-  border-bottom: 1px solid var(--line);
+  padding: var(--space-1) 0;
   background: var(--surface);
   user-select: none;
 }

@@ -62,8 +62,6 @@ export type {
     GitStatus,
     GitStatusEntry,
     KnowledgeDocument,
-    LibraryGroupPage,
-    LibraryGroupRow,
     LibraryItem,
     LibraryItemDetailsUpdate,
     LibraryVariantUpdate,

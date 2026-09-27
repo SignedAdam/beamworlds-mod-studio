@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	storeSchemaVersion          = 5
+	storeSchemaVersion          = 6
 	legacyCatalogSchemaVersion  = 1
 	legacyCatalogImportMarker   = "legacy_catalog_imported"
 	legacyCatalogImportAbsent   = "absent"
@@ -197,11 +197,14 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if err := ensureVersionedAdditiveMigrationsTx(ctx, tx); err != nil {
 		return fmt.Errorf("apply additive SQLite migrations: %w", err)
 	}
+	if err := migrateGroupedTagsToCollectionsTx(ctx, tx); err != nil {
+		return fmt.Errorf("migrate grouped tags to collections: %w", err)
+	}
 	if err := rebuildLibrarySearchFTSTx(ctx, tx); err != nil {
 		return fmt.Errorf("build library search index: %w", err)
 	}
 	if err := validateIntegrityTx(ctx, tx); err != nil {
-		return fmt.Errorf("validate SQLite v5 integrity: %w", err)
+		return fmt.Errorf("validate SQLite v6 integrity: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.Itoa(storeSchemaVersion)); err != nil {
 		return fmt.Errorf("record settings schema version: %w", err)
@@ -212,7 +215,7 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO library_index_metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, libraryFTSFreshnessKey, "1"); err != nil {
 		return fmt.Errorf("record FTS freshness: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version=5`); err != nil {
+	if _, err := tx.ExecContext(ctx, `PRAGMA user_version=6`); err != nil {
 		return fmt.Errorf("record SQLite user version: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM schema_meta`); err != nil {
@@ -1125,9 +1128,6 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if err := ensureColumnTx(ctx, tx, "mod_tags", "origin", `TEXT NOT NULL DEFAULT 'user'`); err != nil {
 		return fmt.Errorf("mod tag origin column: %w", err)
 	}
-	if err := ensureColumnTx(ctx, tx, "mod_tags", "grouped", `INTEGER NOT NULL DEFAULT 0`); err != nil {
-		return fmt.Errorf("mod tag grouped column: %w", err)
-	}
 	// Play profile collections carry an excluded flag so saved profiles can
 	// remember both included and excluded collection lists.
 	if err := ensureColumnTx(ctx, tx, "play_profile_collections", "excluded", `INTEGER NOT NULL DEFAULT 0`); err != nil {
@@ -1200,6 +1200,207 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	}
 	if err := ensureAdditionalDefaultModTagsTx(ctx, tx); err != nil {
 		return fmt.Errorf("seed additional default tags: %w", err)
+	}
+	return nil
+}
+
+func migrateGroupedTagsToCollectionsTx(ctx context.Context, tx *sql.Tx) error {
+	hasGrouped, err := hasColumnTx(ctx, tx, "mod_tags", "grouped")
+	if err != nil {
+		return err
+	}
+	if !hasGrouped {
+		return nil
+	}
+
+	type groupedTag struct {
+		id   string
+		name string
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id,name FROM mod_tags WHERE grouped=1 ORDER BY name COLLATE NOCASE,id`)
+	if err != nil {
+		return err
+	}
+	var tags []groupedTag
+	for rows.Next() {
+		var tag groupedTag
+		if err := rows.Scan(&tag.id, &tag.name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		tags = append(tags, tag)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	usedCollectionIDs := map[string]struct{}{}
+	collectionIDsByName := map[string]string{}
+	rows, err = tx.QueryContext(ctx, `SELECT id,name FROM collections`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		usedCollectionIDs[id] = struct{}{}
+		collectionIDsByName[sqliteNoCaseKey(name)] = id
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	allocateCollectionID := func(namespace, oldID string) string {
+		candidate := oldID
+		if _, exists := usedCollectionIDs[candidate]; exists {
+			candidate = stableLegacyID("legacy-"+namespace, oldID)
+			for suffix := 2; ; suffix++ {
+				if _, exists := usedCollectionIDs[candidate]; !exists {
+					break
+				}
+				candidate = stableLegacyID(fmt.Sprintf("legacy-%s-%d", namespace, suffix), oldID)
+			}
+		}
+		usedCollectionIDs[candidate] = struct{}{}
+		return candidate
+	}
+	allocateCollectionName := func(base string) string {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			base = "Untitled collection"
+		}
+		if len(base) > 80 {
+			base = base[:80]
+		}
+		candidate := base
+		for suffix := 2; ; suffix++ {
+			key := sqliteNoCaseKey(candidate)
+			if _, exists := collectionIDsByName[key]; !exists {
+				collectionIDsByName[key] = ""
+				return candidate
+			}
+			extra := fmt.Sprintf(" (%d)", suffix)
+			prefix := base
+			if len(prefix)+len(extra) > 80 {
+				prefix = strings.TrimSpace(prefix[:80-len(extra)])
+			}
+			candidate = prefix + extra
+		}
+	}
+
+	var nextCollectionPosition int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(position),-1)+1 FROM collections`).Scan(&nextCollectionPosition); err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		nameKey := sqliteNoCaseKey(tag.name)
+		collectionID, exists := collectionIDsByName[nameKey]
+		if !exists || collectionID == "" {
+			collectionID = allocateCollectionID("tag", tag.id)
+			name := allocateCollectionName(tag.name)
+			now := nowUTC()
+			if _, err := tx.ExecContext(ctx, `INSERT INTO collections(id,name,description,position,cover_json,cover_asset_sha,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+				collectionID, name, "", nextCollectionPosition, automaticCollectionCover, "", now, now); err != nil {
+				return fmt.Errorf("insert migrated tag collection %q: %w", tag.name, err)
+			}
+			nextCollectionPosition++
+			collectionIDsByName[sqliteNoCaseKey(name)] = collectionID
+		}
+
+		memberRows, err := tx.QueryContext(ctx, `SELECT entity_id FROM mod_tag_entities WHERE tag_id=? ORDER BY entity_id`, tag.id)
+		if err != nil {
+			return err
+		}
+		var entityIDs []string
+		for memberRows.Next() {
+			var entityID string
+			if err := memberRows.Scan(&entityID); err != nil {
+				_ = memberRows.Close()
+				return err
+			}
+			entityIDs = append(entityIDs, entityID)
+		}
+		if err := memberRows.Err(); err != nil {
+			_ = memberRows.Close()
+			return err
+		}
+		if err := memberRows.Close(); err != nil {
+			return err
+		}
+		var nextMemberPosition int
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(position),-1)+1 FROM collection_mods WHERE collection_id=?`, collectionID).Scan(&nextMemberPosition); err != nil {
+			return err
+		}
+		now := nowUTC()
+		changed := false
+		for _, entityID := range entityIDs {
+			result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO collection_mods(collection_id,entity_id,position) VALUES(?,?,?)`, collectionID, entityID, nextMemberPosition)
+			if err != nil {
+				return err
+			}
+			affected, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if affected == 0 {
+				continue
+			}
+			nextMemberPosition++
+			changed = true
+			if err := touchEntityUpdatedAtTx(ctx, tx, entityID, now); err != nil {
+				return err
+			}
+		}
+		if changed {
+			if _, err := tx.ExecContext(ctx, `UPDATE collections SET updated_at=? WHERE id=?`, now, collectionID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM settings WHERE key LIKE 'library_group_collapsed:%'`); err != nil {
+		return err
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT name,COALESCE(sql,'') FROM sqlite_master WHERE type='index' AND tbl_name='mod_tags'`)
+	if err != nil {
+		return err
+	}
+	var groupedIndexes []string
+	for rows.Next() {
+		var name, sqlText string
+		if err := rows.Scan(&name, &sqlText); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if strings.Contains(strings.ToLower(sqlText), "grouped") {
+			groupedIndexes = append(groupedIndexes, name)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, index := range groupedIndexes {
+		if _, err := tx.ExecContext(ctx, `DROP INDEX IF EXISTS `+quoteSQLiteIdentifier(index)); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE mod_tags DROP COLUMN grouped`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1777,7 +1978,6 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			color TEXT NOT NULL DEFAULT '#7a8791',
 			icon TEXT NOT NULL DEFAULT 'tag',
 			origin TEXT NOT NULL DEFAULT 'user',
-			grouped INTEGER NOT NULL DEFAULT 0,
 			created_at TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL DEFAULT ''
 		)`,
@@ -2004,7 +2204,6 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"mod_tags", "color", `TEXT NOT NULL DEFAULT '#7a8791'`},
 		{"mod_tags", "icon", `TEXT NOT NULL DEFAULT 'tag'`},
 		{"mod_tags", "origin", `TEXT NOT NULL DEFAULT 'user'`},
-		{"mod_tags", "grouped", `INTEGER NOT NULL DEFAULT 0`},
 		{"workspace_drafts", "base_sha256", `TEXT NOT NULL DEFAULT ''`},
 		{"virus_scans", "file_sha256", `TEXT NOT NULL DEFAULT ''`},
 		{"virus_scan_stages", "file_sha256", `TEXT NOT NULL DEFAULT ''`},

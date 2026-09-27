@@ -28,7 +28,6 @@ type ModFamilyMember struct {
 	SHA256          string   `json:"sha256"`
 	SourceLabel     string   `json:"sourceLabel"`
 	Collections     []string `json:"collections"`
-	Groups          []string `json:"groups"`
 	Tags            []string `json:"tags"`
 	WorkspaceCount  int      `json:"workspaceCount"`
 	ThumbnailURL    string   `json:"thumbnailUrl"`
@@ -762,14 +761,7 @@ func (s *Store) makeModFamilyMember(ctx context.Context, candidate *modFamilyCan
 		if collections == nil {
 			collections = []string{}
 		}
-		groups, err := s.scanStrings(ctx, `SELECT t.name FROM mod_tag_entities mt JOIN mod_tags t ON t.id=mt.tag_id WHERE mt.entity_id=? AND t.grouped=1 ORDER BY t.name COLLATE NOCASE,t.id`, candidate.EntityID)
-		if err != nil {
-			return ModFamilyMember{}, err
-		}
-		if groups == nil {
-			groups = []string{}
-		}
-		tags, err := s.scanStrings(ctx, `SELECT t.name FROM mod_tag_entities mt JOIN mod_tags t ON t.id=mt.tag_id WHERE mt.entity_id=? AND t.grouped=0 ORDER BY t.name COLLATE NOCASE,t.id`, candidate.EntityID)
+		tags, err := s.scanStrings(ctx, `SELECT t.name FROM mod_tag_entities mt JOIN mod_tags t ON t.id=mt.tag_id WHERE mt.entity_id=? ORDER BY t.name COLLATE NOCASE,t.id`, candidate.EntityID)
 		if err != nil {
 			return ModFamilyMember{}, err
 		}
@@ -790,7 +782,6 @@ func (s *Store) makeModFamilyMember(ctx context.Context, candidate *modFamilyCan
 			SHA256:          candidate.SHA256,
 			SourceLabel:     candidate.SourceLabel,
 			Collections:     collections,
-			Groups:          groups,
 			Tags:            tags,
 			WorkspaceCount:  workspaceCount,
 			ThumbnailURL:    candidate.ThumbnailURL,
@@ -810,7 +801,6 @@ func (s *Store) makeModFamilyMember(ctx context.Context, candidate *modFamilyCan
 	member.SHA256 = link.SHA256
 	member.SourceLabel = link.SourceLabel
 	member.Collections = append([]string{}, base.Collections...)
-	member.Groups = append([]string{}, base.Groups...)
 	member.Tags = append([]string{}, base.Tags...)
 	member.EntryCount = len(link.Manifest.Members)
 	member.VariantCount = len(link.Manifest.Variants)

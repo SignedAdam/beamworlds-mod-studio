@@ -395,13 +395,6 @@
   color: var(--accent-neutral);
 }
 
-.dup-chip--groups {
-  border-color: color-mix(in srgb, var(--emphasis) 45%, var(--line-strong));
-}
-
-.dup-chip--groups svg {
-  color: var(--emphasis);
-}
 
 .dup-chip--gained {
   border-style: dashed;

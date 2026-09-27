@@ -680,62 +680,6 @@ export interface KnowledgeDocument {
     "content": string;
 }
 
-/**
- * LibraryGroupPage is the paged result returned by LibraryGroupPage.
- */
-export interface LibraryGroupPage {
-    "rows": LibraryGroupRow[] | null;
-    "totalRows": number;
-    "distinctMods": number;
-    "page": number;
-    "pageSize": number;
-}
-
-/**
- * LibraryGroupRow is one row in the paged group stream.
- */
-export interface LibraryGroupRow {
-    /**
-     * "group" | "mod"
-     */
-    "rowType": string;
-
-    /**
-     * tag ID, or ungroupedGroupID
-     */
-    "groupId": string;
-
-    /**
-     * group name; empty for mod rows
-     */
-    "label": string;
-
-    /**
-     * group rows only
-     */
-    "modCount": number;
-
-    /**
-     * group rows only
-     */
-    "sizeBytes": number;
-
-    /**
-     * group rows only
-     */
-    "collapsed": boolean;
-
-    /**
-     * group rows only, while a search is active
-     */
-    "matchCount": number;
-
-    /**
-     * mod rows carry summary metadata; GetEntity returns full inspection details
-     */
-    "item": LibraryItem | null;
-}
-
 export interface LibraryItem {
     "entityId": string;
     "revision": string;
@@ -834,7 +778,6 @@ export interface ModFamilyMember {
     "sha256": string;
     "sourceLabel": string;
     "collections": string[] | null;
-    "groups": string[] | null;
     "tags": string[] | null;
     "workspaceCount": number;
     "thumbnailUrl": string;
@@ -926,7 +869,6 @@ export interface ModReplacementImpact {
     "keeper": ModRemovalTarget;
     "mods": ModRemovalTarget[] | null;
     "collections": string[] | null;
-    "groups": string[] | null;
     "tags": string[] | null;
     "workspaces": string[] | null;
     "archiveCount": number;
@@ -956,7 +898,6 @@ export interface ModTag {
     "color": string;
     "icon": string;
     "origin": string;
-    "grouped": boolean;
     "modCount": number;
 }
 

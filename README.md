@@ -1,6 +1,6 @@
 # BeamWorlds Mod Studio
 
-Native Wails desktop application for indexing local BeamNG ZIP mods, grouping them into collections, editing isolated ModMaker workspaces, collaborating with Virgil, and launching an exact set of mods while preserving normal BeamNG settings, controls, and saves.
+Native Wails desktop application for indexing local BeamNG ZIP mods, organizing them into collections, editing isolated ModMaker workspaces, collaborating with Virgil, and launching an exact set of mods while preserving normal BeamNG settings, controls, and saves.
 
 ## Run
 
@@ -27,12 +27,12 @@ Adding mods does not enable them in BeamNG or add them to a collection. If some 
 
 ### Clean up duplicates
 
-**Review duplicates** shows each set of duplicates as a card. Every version row lists the collections, groups, and tags it belongs to. Pick the version to keep (the suggested one is preselected), then choose what happens to the others:
+**Review duplicates** shows each set of duplicates as a card. Every version row lists the collections and tags it belongs to. Pick the version to keep (the suggested one is preselected), then choose what happens to the others:
 
-- **Replace** deletes the other versions and gives their collections, groups, and tags to the kept version. The chips it gains are marked with **+**.
-- **Remove** deletes the other versions and takes them out of their collections, groups, and tags. The kept version stays exactly as it is.
+- **Replace** deletes the other versions and gives their collections and tags to the kept version. The chips it gains are marked with **+**.
+- **Remove** deletes the other versions and takes them out of their collections and tags. The kept version stays exactly as it is.
 - **Keep both** / **Keep all** deletes nothing and stops flagging the set until its membership changes.
-- For identical files of one mod, **Remove copies** deletes the extra files; collections, groups, and tags are not affected.
+- For identical files of one mod, **Remove copies** deletes the extra files; collections and tags are not affected.
 
 Each section can set every open card at once. Nothing changes until **Apply**; applying runs the chosen sets one after another in the background, so you can keep deciding (and apply again) while it works. Deleted files go to the Recycle Bin.
 
@@ -44,17 +44,16 @@ If a file is locked, the usage change still applies and the version stays in the
 
 The Mod Library, collection members, Virus Scanner, and ModMaker tables share row-selection controls:
 
-- In the Mod Library, click a row or preview to open details without changing the checked mods; this also applies to grouped rows. In the other tables, clicking a row selects it.
+- In the Mod Library, click a row or preview to open details without changing the checked mods. In the other tables, clicking a row selects it.
 - Ctrl-click (Command-click on macOS) toggles an individual table row without clearing the others.
 - Shift-click selects the inclusive range from the last selection anchor. Ctrl/Command+Shift-click adds a range to an existing selection. Ranges follow the current sort and filter, including across pages.
 - Checkboxes toggle rows without modifier keys; Shift-clicking a checkbox adds a range.
 - Up/Down, Home/End, and Page Up/Page Down move selection. Hold Shift to extend or shrink a range, or Ctrl/Command to move focus without changing selection. Space toggles the focused row.
 - Ctrl/Command+A selects all matching, selectable rows across pages. Escape clears selection. The header checkbox selects or clears matching rows without changing selections outside the filter.
 - Single-click a row or press Enter to open a library mod, collection member, or ModMaker workspace. Ctrl/Command-click, Shift-click, and checkboxes change selection without opening a mod. In the Virus Scanner, Enter toggles selection instead.
-- Right-click a selected row to act on the selected group, or an unselected row to target that row. Shift+F10 opens the focused row's menu where available.
+- Right-click a selected row to act on the selection, or an unselected row to target that row. Shift+F10 opens the focused row's menu where available.
 - **Columns** opens a floating, viewport-constrained panel above the table. Toggle visibility or drag columns to reorder them; Escape, the close button, or an outside click dismisses the panel.
-- Click a column heading to sort; click it again to reverse direction. In grouped Mod Library view, the main and repeated headings sort mods within every group before pagination. Changing sort returns to the first page; group order stays fixed, with Ungrouped last.
-- While a grouped sort is pending, its main and repeated column headings show a spinner. Clicking another heading cancels the older request and applies only the latest choice. Headers stay interactive; changing filters or views also cancels obsolete reads.
+- Click a column heading to sort; click it again to reverse direction. Sorting applies to the visible filtered mods, and changing sort returns to the first page.
 
 Unavailable scanner rows and busy tables cannot be selected. Embedded actions, such as a collection member's enable checkbox, do not change row selection.
 
@@ -63,6 +62,15 @@ Unavailable scanner rows and busy tables cannot be selected. Embedded actions, s
 Use **+ New tag** in a mod's inspector to enter a name, choose a color and icon, and create the tag. A newly created tag is assigned to that mod.
 
 **Gameplay**, **Graphics**, and **Trailer** are included among the default tags. Existing libraries receive them on their next launch without replacing same-named custom tags, their appearance, or their assignments. Deleting a default tag after this update keeps it deleted on later launches.
+
+## Play a set of mods
+
+Collections are the named sets; **Play** combines them into what launches.
+
+- Tick collections to play just those, or tick **All mods** to play everything.
+- With **All mods** ticked, click a collection to leave it out, and click it again to bring it back. "Everything except the Pixar Cars mods" is **All mods** plus one click.
+- The launch bar shows the result, for example `540 included − 76 left out = 464 mods`. It is worked out when you press **Play**, so mods you add later are included unless they are in a collection you left out.
+- **Save as new** keeps the combination as a profile you can switch back to.
 
 ## Library storage and caching
 
@@ -80,7 +88,7 @@ Full parsed manifests are cached on demand using artifact ID plus a unique metad
 - Unsaved editor drafts persist in SQLite and are recovered after restart.
 - Export validates the workspace, checks the source checksum before and after packing, writes atomically, and registers a new immutable ZIP.
 - Test installs use the `modstudio-test-*.zip` namespace and verify their checksum before launch.
-- Collections group mods and other collections. Membership is many-to-many and cycles are rejected, so a mod or collection can be reused anywhere without being moved or copied.
+- Collections contain mods and other collections. Membership is many-to-many and cycles are rejected, so a mod or collection can be reused anywhere without being moved or copied.
 - Every membership carries an enabled flag. A disabled mod keeps its place in the collection and stops shipping; a disabled child collection is not traversed from that parent. Enabled wins: a mod enabled in any reachable collection is included.
 - Successful scans disable collection entries whose last indexed archive was removed. Startup also repairs stale entries left by older scans. Membership and ordering remain intact; restore the archive and re-enable the mod to include it again. Another active source keeps the mod enabled, and failed or cancelled scans do not disable it.
 - On the first indexed library, the mods BeamNG already has enabled become one collection held by one profile, and that profile is selected. A fresh install therefore launches the mod set the user already had.

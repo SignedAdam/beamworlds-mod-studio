@@ -9,7 +9,7 @@ import type {
 // Server state lives here. Data is fetched once and stays fresh until a
 // mutation or backend event invalidates its key; nothing refetches on focus
 // or on a timer. Keys are hierarchical, so invalidating ["library"] refreshes
-// every filtered list and every server-built group page together.
+// every filtered list.
 
 let reportError: (error: unknown) => void = () => {};
 
@@ -45,17 +45,10 @@ export interface LibraryFilter {
 /** The unfiltered active library: the catalog other pages resolve mods against. */
 export const catalogFilter: LibraryFilter = { query: "", collectionID: "all", scope: "active" };
 
-export interface LibraryGroupPageParams extends LibraryFilter {
-  page: number;
-  pageSize: number;
-  sortKey: string;
-  sortDirection: number;
-}
 
 export const queryKeys = {
   library: ["library"] as const,
   libraryLists: ["library", "list"] as const,
-  libraryGroups: ["library", "groups"] as const,
   organization: ["organization"] as const,
   families: ["families"] as const,
   dashboard: ["dashboard"] as const,
@@ -76,25 +69,6 @@ export const libraryListQuery = (filter: LibraryFilter) =>
       (await cancellable(API.ListLibrary("all", "all", filter.query, filter.collectionID, filter.scope), signal)) ?? [],
   });
 
-export const libraryGroupPageQuery = (params: LibraryGroupPageParams) =>
-  queryOptions({
-    queryKey: [...queryKeys.libraryGroups, params],
-    queryFn: ({ signal }) =>
-      cancellable(
-        API.LibraryGroupPage(
-          "all",
-          "all",
-          params.query,
-          params.collectionID,
-          params.scope,
-          params.page,
-          params.pageSize,
-          params.sortKey,
-          params.sortDirection,
-        ),
-        signal,
-      ),
-  });
 
 export const organizationQuery = queryOptions({
   queryKey: queryKeys.organization,
@@ -121,13 +95,9 @@ export const workspacesQuery = queryOptions({
   queryFn: async () => (await API.ListWorkspaces()) ?? [],
 });
 
-/**
- * Applies an edit to every cached library list, then refetches the group
- * pages, which the server builds from the same rows.
- */
+/** Applies an edit to every cached library list. */
 export function updateCachedLibraryItems(update: (item: LibraryItem) => LibraryItem) {
   queryClient.setQueriesData<LibraryItem[]>({ queryKey: queryKeys.libraryLists }, (items) => items?.map(update));
-  void queryClient.invalidateQueries({ queryKey: queryKeys.libraryGroups });
 }
 
 /** Replaces one mod in every cached library list. */

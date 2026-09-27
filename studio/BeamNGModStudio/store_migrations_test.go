@@ -110,7 +110,7 @@ func migrationFTSEntityMatches(tb testing.TB, store *Store, term string) []strin
 	return ids
 }
 
-func TestSQLiteCleanInstallCreatesVersion4SchemaAndEnforcesForeignKeys(t *testing.T) {
+func TestSQLiteCleanInstallCreatesVersion6SchemaAndEnforcesForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "clean.sqlite")
 	store, err := OpenStore(path)
@@ -180,6 +180,191 @@ func TestSQLiteCleanInstallCreatesVersion4SchemaAndEnforcesForeignKeys(t *testin
 		if foreignKeys != 1 {
 			t.Fatalf("connection %d foreign_keys = %d, want 1", index, foreignKeys)
 		}
+	}
+}
+
+func TestGroupedTagMigrationToCollections(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "grouped-tags.sqlite")
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	root := filepath.Join(t.TempDir(), "mods")
+	archives := []ScanArchive{
+		migrationFixtureArchive(root, 1),
+		migrationFixtureArchive(root, 2),
+		migrationFixtureArchive(root, 3),
+	}
+	items := migrationApplyBatch(t, store, root, archives, len(archives), len(archives), 0)
+	if len(items) != len(archives) {
+		t.Fatalf("fixture items = %d, want %d", len(items), len(archives))
+	}
+
+	existing, err := store.CreateCollection(ctx, "Existing Collection", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetCollectionMods(ctx, existing.Collection.ID, []string{items[0].EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateModTag(ctx, "existing collection", "#123456", "tag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateModTag(ctx, "Migrated Tag Collection", "#654321", "tag"); err != nil {
+		t.Fatal(err)
+	}
+	var existingTagID, newTagID string
+	if err := store.db.QueryRowContext(ctx, `SELECT id FROM mod_tags WHERE name=? COLLATE NOCASE`, "existing collection").Scan(&existingTagID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, `SELECT id FROM mod_tags WHERE name=? COLLATE NOCASE`, "Migrated Tag Collection").Scan(&newTagID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLibraryItemTags(ctx, items[0].EntityID, []string{existingTagID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLibraryItemTags(ctx, items[1].EntityID, []string{existingTagID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLibraryItemTags(ctx, items[2].EntityID, []string{newTagID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `ALTER TABLE mod_tags ADD COLUMN grouped INTEGER NOT NULL DEFAULT 0`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE mod_tags SET grouped=1 WHERE id IN (?,?)`, existingTagID, newTagID); err != nil {
+		t.Fatal(err)
+	}
+	for _, tagID := range []string{existingTagID, newTagID} {
+		if _, err := store.db.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES(?,?)`, "library_group_collapsed:"+tagID, "1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE schema_meta SET version=5`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE settings SET value='5' WHERE key='schema_version'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `PRAGMA user_version=5`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupedTagMigration := func() {
+		var groupedColumn int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('mod_tags') WHERE name='grouped'`).Scan(&groupedColumn); err != nil {
+			t.Fatal(err)
+		}
+		if groupedColumn != 0 {
+			t.Fatal("grouped column survived migration")
+		}
+		var foldStates int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings WHERE key LIKE 'library_group_collapsed:%'`).Scan(&foldStates); err != nil {
+			t.Fatal(err)
+		}
+		if foldStates != 0 {
+			t.Fatalf("fold-state settings survived migration: %d", foldStates)
+		}
+		var existingCount int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections WHERE name=? COLLATE NOCASE`, "existing collection").Scan(&existingCount); err != nil {
+			t.Fatal(err)
+		}
+		if existingCount != 1 {
+			t.Fatalf("case-insensitive existing collection count = %d, want 1", existingCount)
+		}
+		var newCount int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections WHERE name=? COLLATE NOCASE`, "Migrated Tag Collection").Scan(&newCount); err != nil {
+			t.Fatal(err)
+		}
+		if newCount != 1 {
+			t.Fatalf("migrated collection count = %d, want 1", newCount)
+		}
+		var existingCollectionID, newCollectionID string
+		if err := store.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE name=? COLLATE NOCASE`, "existing collection").Scan(&existingCollectionID); err != nil {
+			t.Fatal(err)
+		}
+		if existingCollectionID != existing.Collection.ID {
+			t.Fatalf("existing collection was replaced: got %q, want %q", existingCollectionID, existing.Collection.ID)
+		}
+		if err := store.db.QueryRowContext(ctx, `SELECT id FROM collections WHERE name=? COLLATE NOCASE`, "Migrated Tag Collection").Scan(&newCollectionID); err != nil {
+			t.Fatal(err)
+		}
+		var existingMembers, newMembers int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods WHERE collection_id=?`, existingCollectionID).Scan(&existingMembers); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods WHERE collection_id=?`, newCollectionID).Scan(&newMembers); err != nil {
+			t.Fatal(err)
+		}
+		if existingMembers != 2 || newMembers != 1 {
+			t.Fatalf("migrated memberships = existing %d, new %d; want 2 and 1", existingMembers, newMembers)
+		}
+		for _, check := range []struct {
+			collectionID string
+			entityID     string
+		}{
+			{existingCollectionID, items[0].EntityID},
+			{existingCollectionID, items[1].EntityID},
+			{newCollectionID, items[2].EntityID},
+		} {
+			var present int
+			if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods WHERE collection_id=? AND entity_id=?`, check.collectionID, check.entityID).Scan(&present); err != nil {
+				t.Fatal(err)
+			}
+			if present != 1 {
+				t.Fatalf("missing migrated membership %#v", check)
+			}
+		}
+		for _, check := range []struct {
+			tagID string
+			count int
+		}{
+			{existingTagID, 2},
+			{newTagID, 1},
+		} {
+			var assignments int
+			if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mod_tag_entities WHERE tag_id=?`, check.tagID).Scan(&assignments); err != nil {
+				t.Fatal(err)
+			}
+			if assignments != check.count {
+				t.Fatalf("tag %q assignment count = %d, want %d", check.tagID, assignments, check.count)
+			}
+		}
+	}
+	assertGroupedTagMigration()
+	var beforeCollections, beforeMemberships, beforeAssignments int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections`).Scan(&beforeCollections); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods`).Scan(&beforeMemberships); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mod_tag_entities`).Scan(&beforeAssignments); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertGroupedTagMigration()
+	var afterCollections, afterMemberships, afterAssignments int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collections`).Scan(&afterCollections); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM collection_mods`).Scan(&afterMemberships); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mod_tag_entities`).Scan(&afterAssignments); err != nil {
+		t.Fatal(err)
+	}
+	if beforeCollections != afterCollections || beforeMemberships != afterMemberships || beforeAssignments != afterAssignments {
+		t.Fatalf("second migration changed counts: before collections/memberships/assignments %d/%d/%d, after %d/%d/%d",
+			beforeCollections, beforeMemberships, beforeAssignments, afterCollections, afterMemberships, afterAssignments)
 	}
 }
 

@@ -19,9 +19,8 @@ import "./DuplicatesDialog.css";
 
 /**
  * What happens to the versions that are not kept:
- * - replace: delete them; the kept version takes over their collections,
- *   groups, and tags.
- * - remove: delete them along with their collection, group, and tag entries.
+ * - replace: delete them; the kept version takes over their collections and tags.
+ * - remove: delete them along with their collection and tag entries.
  * - keep: delete nothing and stop flagging the set.
  */
 type Decision = "replace" | "remove" | "keep";
@@ -46,7 +45,7 @@ type RunView = {
 
 type Job = { family: ModFamily; decision: Decision; keeperID: string };
 
-type Usage = { collections: string[]; groups: string[]; tags: string[] };
+type Usage = { collections: string[]; tags: string[] };
 
 interface DuplicatesDialogProps {
   families: ModFamily[];
@@ -152,13 +151,12 @@ function impactRefusal(
 function usageOf(member: ModFamilyMember): Usage {
   return {
     collections: member.collections ?? [],
-    groups: member.groups ?? [],
     tags: member.tags ?? [],
   };
 }
 
 function usageCount(usage: Usage): number {
-  return usage.collections.length + usage.groups.length + usage.tags.length;
+  return usage.collections.length + usage.tags.length;
 }
 
 /**
@@ -168,12 +166,12 @@ function usageCount(usage: Usage): number {
 function placesOnlyOthersHave(family: ModFamily, keeperID: string): Usage {
   const members = membersOf(family);
   const keeper = members.find((m) => memberSelectionID(family, m) === keeperID);
-  const kept = keeper ? usageOf(keeper) : { collections: [], groups: [], tags: [] };
-  const result: Usage = { collections: [], groups: [], tags: [] };
+  const kept = keeper ? usageOf(keeper) : { collections: [], tags: [] };
+  const result: Usage = { collections: [], tags: [] };
   for (const member of members) {
     if (memberSelectionID(family, member) === keeperID) continue;
     const usage = usageOf(member);
-    for (const kind of ["collections", "groups", "tags"] as const) {
+    for (const kind of ["collections", "tags"] as const) {
       for (const name of usage[kind]) {
         if (!kept[kind].includes(name) && !result[kind].includes(name)) {
           result[kind].push(name);
@@ -199,7 +197,7 @@ function namesList(names: string[], max = 3): ReactNode {
   ));
 }
 
-/** "RLS and Terrain collections, Pixar Cars group and Car tag". */
+/** "RLS and Terrain collections, Car and Terrain tags". */
 function placesPhrase(usage: Usage): ReactNode {
   const phrases: ReactNode[] = [];
   if (usage.collections.length > 0) {
@@ -207,14 +205,6 @@ function placesPhrase(usage: Usage): ReactNode {
       <>
         the {namesList(usage.collections)}{" "}
         {plural(usage.collections.length, "collection", "collections")}
-      </>,
-    );
-  }
-  if (usage.groups.length > 0) {
-    phrases.push(
-      <>
-        the {namesList(usage.groups)}{" "}
-        {plural(usage.groups.length, "group", "groups")}
       </>,
     );
   }
@@ -248,7 +238,7 @@ function decisionOptions(family: ModFamily): DecisionOption[] {
         value: "remove",
         label: "Remove copies",
         title:
-          "Delete the extra copies of this file. Collections, groups and tags are not affected.",
+          "Delete the extra copies of this file. Collections and tags are not affected.",
       },
       keep,
     ];
@@ -258,13 +248,13 @@ function decisionOptions(family: ModFamily): DecisionOption[] {
       value: "replace",
       label: "Replace",
       title:
-        "Delete the other versions. The kept version takes their place in collections, groups and tags.",
+        "Delete the other versions. The kept version takes their place in collections and tags.",
     },
     {
       value: "remove",
       label: "Remove",
       title:
-        "Delete the other versions and take them out of their collections, groups and tags. The kept version stays as it is.",
+        "Delete the other versions and take them out of their collections and tags. The kept version stays as it is.",
     },
     keep,
   ];
@@ -284,7 +274,6 @@ const USAGE_KINDS: {
   label: string;
 }[] = [
   { kind: "collections", icon: "mixed", label: "Collection" },
-  { kind: "groups", icon: "folder", label: "Group" },
   { kind: "tags", icon: "tag", label: "Tag" },
 ];
 
@@ -293,7 +282,7 @@ function UsageChips({ usage, gained }: { usage: Usage; gained?: Usage }) {
   if (total === 0) {
     return (
       <span className="dup-usage dup-usage--none">
-        Not in any collection, group or tag
+        Not in any collection or tag
       </span>
     );
   }
@@ -465,7 +454,7 @@ function Outcome({
     return (
       <p className="dup-outcome">
         Deletes {others} extra {plural(others, "copy", "copies")}
-        {size}. Collections, groups and tags are not affected.
+        {size}. Collections and tags are not affected.
       </p>
     );
   }
@@ -478,7 +467,7 @@ function Outcome({
       <p className="dup-outcome">
         Deletes {subject}
         {size}. {others === 1 ? "It isn\u2019t" : "They aren\u2019t"} in any
-        collection, group or tag the kept version isn&rsquo;t already in.
+        collection or tag the kept version isn&rsquo;t already in.
       </p>
     );
   }
@@ -689,7 +678,7 @@ function sectionHeading(confidence: Confidence): string {
 function sectionNote(confidence: Confidence): string {
   switch (confidence) {
     case "identical":
-      return "The same file stored more than once. Removing copies never changes collections, groups or tags.";
+      return "The same file stored more than once. Removing copies never changes collections or tags.";
     case "repo":
       return "Matched by their BeamNG repository ID.";
     case "content":
@@ -1016,7 +1005,7 @@ export function DuplicatesDialog({
     const deleted = result.forgotten;
     const moved =
       decision === "replace" && usageCount(places) > 0
-        ? " It took over their collections, groups and tags."
+        ? " It took over their collections and tags."
         : "";
     return {
       summary: `Kept ${keptName}. Deleted ${deleted} ${plural(deleted, "version", "versions")}${result.recycledBytes > 0 ? ` (${formatBytes(result.recycledBytes)})` : ""}.${moved}`,
@@ -1243,8 +1232,8 @@ export function DuplicatesDialog({
             </p>
             <p className="dup-legend">
               <span>
-                <b>Replace</b> hands the others&rsquo; collections, groups and
-                tags to the kept version.
+                <b>Replace</b> hands the others&rsquo; collections and tags to
+                the kept version.
               </span>
               <span>
                 <b>Remove</b> drops them.
@@ -1253,10 +1242,6 @@ export function DuplicatesDialog({
                 <span className="dup-chip dup-chip--collections">
                   <Icon name="mixed" size={12} />
                   <span>Collection</span>
-                </span>
-                <span className="dup-chip dup-chip--groups">
-                  <Icon name="folder" size={12} />
-                  <span>Group</span>
                 </span>
                 <span className="dup-chip dup-chip--tags">
                   <Icon name="tag" size={12} />

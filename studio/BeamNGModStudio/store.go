@@ -1763,7 +1763,7 @@ func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, ite
 		items[index].Tags = []ModTag{}
 		byEntity[items[index].EntityID] = &items[index]
 	}
-	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin,t.grouped
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin
 		FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
 	args := []any{}
 	if len(items) == 1 {
@@ -1778,7 +1778,7 @@ func attachLibraryItemTagsQuery(ctx context.Context, queryer libraryQueryer, ite
 	for rows.Next() {
 		var entityID string
 		var tag ModTag
-		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped); err != nil {
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin); err != nil {
 			return err
 		}
 		if item := byEntity[entityID]; item != nil {

@@ -43,7 +43,6 @@ type ModTag struct {
 	Color    string `json:"color"`
 	Icon     string `json:"icon"`
 	Origin   string `json:"origin"`
-	Grouped  bool   `json:"grouped"`
 	ModCount int    `json:"modCount"`
 }
 
@@ -102,8 +101,6 @@ func (service *AppService) DeleteModTag(tagID string) (OrganizationState, error)
 	if err := service.store.DeleteModTag(ctx, tagID); err != nil {
 		return OrganizationState{}, err
 	}
-	// R4: deleting a group drops its fold state.
-	_ = service.store.deleteGroupCollapsed(ctx, tagID)
 	return service.Organization()
 }
 
@@ -234,7 +231,7 @@ func tagIDPart(value string) string {
 }
 
 func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon,t.origin,t.grouped,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, `SELECT t.id,t.name,t.color,t.icon,t.origin,COUNT(te.entity_id) FROM mod_tags t LEFT JOIN mod_tag_entities te ON te.tag_id=t.id GROUP BY t.id ORDER BY t.name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +239,7 @@ func (s *Store) listModTags(ctx context.Context) ([]ModTag, error) {
 	result := []ModTag{}
 	for rows.Next() {
 		var tag ModTag
-		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped, &tag.ModCount); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.ModCount); err != nil {
 			return nil, err
 		}
 		result = append(result, tag)
@@ -502,7 +499,7 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 		items[index].Tags = []ModTag{}
 		byEntity[items[index].EntityID] = &items[index]
 	}
-	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin,t.grouped FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
+	query := `SELECT te.entity_id,t.id,t.name,t.color,t.icon,t.origin FROM mod_tag_entities te JOIN mod_tags t ON t.id=te.tag_id`
 	args := []any{}
 	if len(items) == 1 {
 		query += ` WHERE te.entity_id=?`
@@ -516,7 +513,7 @@ func (s *Store) attachLibraryItemTags(ctx context.Context, items []LibraryItem) 
 	for rows.Next() {
 		var entityID string
 		var tag ModTag
-		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin, &tag.Grouped); err != nil {
+		if err := rows.Scan(&entityID, &tag.ID, &tag.Name, &tag.Color, &tag.Icon, &tag.Origin); err != nil {
 			return err
 		}
 		if item := byEntity[entityID]; item != nil {

@@ -17,7 +17,6 @@ type ModReplacementImpact struct {
 	Keeper       ModRemovalTarget   `json:"keeper"`
 	Mods         []ModRemovalTarget `json:"mods"`
 	Collections  []string           `json:"collections"`
-	Groups       []string           `json:"groups"`
 	Tags         []string           `json:"tags"`
 	Workspaces   []string           `json:"workspaces"`
 	ArchiveCount int                `json:"archiveCount"`
@@ -38,16 +37,16 @@ func (service *AppService) PlanModReplacement(keeperID string, entityIDs []strin
 	return service.store.modReplacementImpact(context.Background(), keeperID, entityIDs)
 }
 
-// ReplaceModArchives retires the old versions after handing their collection,
-// group, and tag usages to the keeper.
+// ReplaceModArchives retires the old versions after handing their collection
+// and tag usages to the keeper.
 func (service *AppService) ReplaceModArchives(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
 	service.modImportMu.Lock()
 	defer service.modImportMu.Unlock()
 	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, true)
 }
 
-// RemoveModVersions retires the old versions and drops their collection,
-// group, and tag usages; the keeper's own usages are left exactly as they are.
+// RemoveModVersions retires the old versions and drops their collection and
+// tag usages; the keeper's own usages are left exactly as they are.
 // It shares the replacement review, so the same fingerprint guards both.
 func (service *AppService) RemoveModVersions(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
 	service.modImportMu.Lock()
@@ -64,9 +63,8 @@ type replacementMembership struct {
 }
 
 type replacementTag struct {
-	ID      string
-	Name    string
-	Grouped bool
+	ID   string
+	Name string
 }
 
 type replacementArchive struct {
@@ -125,10 +123,10 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 	}
 	slices.Sort(ids)
 	plan := replacementPlan{Impact: ModReplacementImpact{
-		Mods: []ModRemovalTarget{}, Collections: []string{}, Groups: []string{}, Tags: []string{}, Workspaces: []string{}, Refusals: []string{},
+		Mods: []ModRemovalTarget{}, Collections: []string{}, Tags: []string{}, Workspaces: []string{}, Refusals: []string{},
 	}}
 	allIDs := append([]string{keeperID}, ids...)
-	collections, groups, tags := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	collections, tags := map[string]bool{}, map[string]bool{}
 	for index, id := range allIDs {
 		entity, err := loadReplacementEntityTx(ctx, tx, id)
 		if err != nil {
@@ -161,11 +159,7 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 			collections[member.Name] = true
 		}
 		for _, tag := range entity.Tags {
-			if tag.Grouped {
-				groups[tag.Name] = true
-			} else {
-				tags[tag.Name] = true
-			}
+			tags[tag.Name] = true
 		}
 		for _, workspace := range entity.Workspaces {
 			plan.Impact.Workspaces = append(plan.Impact.Workspaces, entity.Name+" ("+workspace+")")
@@ -184,13 +178,10 @@ func loadReplacementPlanTx(ctx context.Context, tx *sql.Tx, keeperID string, ent
 	for name := range collections {
 		plan.Impact.Collections = append(plan.Impact.Collections, name)
 	}
-	for name := range groups {
-		plan.Impact.Groups = append(plan.Impact.Groups, name)
-	}
 	for name := range tags {
 		plan.Impact.Tags = append(plan.Impact.Tags, name)
 	}
-	for _, names := range [][]string{plan.Impact.Collections, plan.Impact.Groups, plan.Impact.Tags, plan.Impact.Workspaces, plan.Impact.Refusals} {
+	for _, names := range [][]string{plan.Impact.Collections, plan.Impact.Tags, plan.Impact.Workspaces, plan.Impact.Refusals} {
 		slices.SortFunc(names, compareLibrarySortText)
 	}
 	payload, err := json.Marshal(plan.Entities)
@@ -229,13 +220,13 @@ func loadReplacementEntityTx(ctx context.Context, tx *sql.Tx, id string) (replac
 	if err := rows.Close(); err != nil {
 		return entity, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT t.id,t.name,t.grouped FROM mod_tag_entities mt JOIN mod_tags t ON t.id=mt.tag_id WHERE mt.entity_id=? ORDER BY t.id`, id)
+	rows, err = tx.QueryContext(ctx, `SELECT t.id,t.name FROM mod_tag_entities mt JOIN mod_tags t ON t.id=mt.tag_id WHERE mt.entity_id=? ORDER BY t.id`, id)
 	if err != nil {
 		return entity, err
 	}
 	for rows.Next() {
 		var tag replacementTag
-		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Grouped); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Name); err != nil {
 			_ = rows.Close()
 			return entity, err
 		}
@@ -424,14 +415,14 @@ func transferReplacementReferencesTx(ctx context.Context, tx *sql.Tx, plan repla
 			return err
 		}
 	}
-	if err := appendEventTx(ctx, tx, keeper.ID, "mod_versions_replaced", map[string]any{"sourceEntityIds": sourceIDs, "collections": plan.Impact.Collections, "groups": plan.Impact.Groups, "tags": plan.Impact.Tags}); err != nil {
+	if err := appendEventTx(ctx, tx, keeper.ID, "mod_versions_replaced", map[string]any{"sourceEntityIds": sourceIDs, "collections": plan.Impact.Collections, "tags": plan.Impact.Tags}); err != nil {
 		return err
 	}
 	return markLibraryIndexFreshTx(ctx, tx)
 }
 
-// dropRetiredReferencesTx removes the old versions from every collection,
-// group, and tag without giving those places to the keeper.
+// dropRetiredReferencesTx removes the old versions from every collection and
+// tag without giving those places to the keeper.
 func dropRetiredReferencesTx(ctx context.Context, tx *sql.Tx, plan replacementPlan) error {
 	now := nowUTC()
 	affected := map[string]bool{}
@@ -461,7 +452,7 @@ func dropRetiredReferencesTx(ctx context.Context, tx *sql.Tx, plan replacementPl
 			return err
 		}
 	}
-	if err := appendEventTx(ctx, tx, plan.Entities[0].ID, "mod_versions_removed", map[string]any{"sourceEntityIds": sourceIDs, "collections": plan.Impact.Collections, "groups": plan.Impact.Groups, "tags": plan.Impact.Tags}); err != nil {
+	if err := appendEventTx(ctx, tx, plan.Entities[0].ID, "mod_versions_removed", map[string]any{"sourceEntityIds": sourceIDs, "collections": plan.Impact.Collections, "tags": plan.Impact.Tags}); err != nil {
 		return err
 	}
 	return markLibraryIndexFreshTx(ctx, tx)

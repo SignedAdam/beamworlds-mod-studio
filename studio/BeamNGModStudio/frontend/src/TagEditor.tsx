@@ -288,7 +288,7 @@ export function TagEditor({ assigned, tags, selectionKey, onSet, onCreate, onUpd
     const current = runtime.optimistic
     const next = current.some(tag => tag.id === tagID)
       ? current.filter(tag => tag.id !== tagID)
-      : [...current, findTag(tagID, tags, current) ?? { id: tagID, name: tagID, color: FALLBACK_TAG_COLOR, icon: 'tag', modCount: 0, origin: 'user', grouped: false }]
+      : [...current, findTag(tagID, tags, current) ?? ({ id: tagID, name: tagID, color: FALLBACK_TAG_COLOR, icon: 'tag', modCount: 0, origin: 'user' } as ModTag)]
     runtime.statuses.delete(tagID)
     setDesiredAssignment(next)
   }

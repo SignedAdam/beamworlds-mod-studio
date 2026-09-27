@@ -21,10 +21,6 @@ export function AIUsage(): $CancellablePromise<$models.AIUsage> {
     return $Call.ByID(1900328351);
 }
 
-export function AddModsToGroup(tagID: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2884195316, tagID, entityIDs);
-}
-
 export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models.RuntimeReport> {
     return $Call.ByID(2967954498, workspaceID);
 }
@@ -104,10 +100,6 @@ export function ConfigureWorkspaceVirgil(workspaceID: string, enabled: boolean):
 
 export function CreateCollection(name: string, description: string, parentID: string): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(2008347414, name, description, parentID);
-}
-
-export function CreateGroupFromSelection(name: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(696874609, name, entityIDs);
 }
 
 export function CreateModTag(name: string, color: string, icon: string): $CancellablePromise<$models.OrganizationState> {
@@ -316,10 +308,6 @@ export function LaunchPlaySelection(request: $models.PlayRequest): $CancellableP
     return $Call.ByID(3098743839, request);
 }
 
-export function LibraryGroupPage(health: string, kind: string, query: string, collectionID: string, scope: string, page: number, pageSize: number, sortKey: string, sortDirection: number): $CancellablePromise<$models.LibraryGroupPage> {
-    return $Call.ByID(1282785871, health, kind, query, collectionID, scope, page, pageSize, sortKey, sortDirection);
-}
-
 export function ListAgentEvents(runID: string): $CancellablePromise<$models.AgentEventRecord[] | null> {
     return $Call.ByID(2949754262, runID);
 }
@@ -422,16 +410,12 @@ export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $C
 }
 
 /**
- * RemoveModVersions retires the old versions and drops their collection,
- * group, and tag usages; the keeper's own usages are left exactly as they are.
+ * RemoveModVersions retires the old versions and drops their collection and
+ * tag usages; the keeper's own usages are left exactly as they are.
  * It shares the replacement review, so the same fingerprint guards both.
  */
 export function RemoveModVersions(keeperID: string, entityIDs: string[] | null, fingerprint: string): $CancellablePromise<$models.ModReplacementResult> {
     return $Call.ByID(3129567031, keeperID, entityIDs, fingerprint);
-}
-
-export function RemoveModsFromGroup(tagID: string, entityIDs: string[] | null): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(2668843830, tagID, entityIDs);
 }
 
 export function RenameModTag(tagID: string, name: string): $CancellablePromise<$models.OrganizationState> {
@@ -455,8 +439,8 @@ export function ReorderCollectionMembers(collectionID: string, entityIDs: string
 }
 
 /**
- * ReplaceModArchives retires the old versions after handing their collection,
- * group, and tag usages to the keeper.
+ * ReplaceModArchives retires the old versions after handing their collection
+ * and tag usages to the keeper.
  */
 export function ReplaceModArchives(keeperID: string, entityIDs: string[] | null, fingerprint: string): $CancellablePromise<$models.ModReplacementResult> {
     return $Call.ByID(4170698601, keeperID, entityIDs, fingerprint);
@@ -522,10 +506,6 @@ export function SendVirgilMessage(sessionID: string, prompt: string, modelOverri
     return $Call.ByID(311073238, sessionID, prompt, modelOverride);
 }
 
-export function SetAllGroupsCollapsed(collapsed: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2167354842, collapsed);
-}
-
 export function SetCollectionChildren(collectionID: string, childIDs: string[] | null, included: boolean): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(256002693, collectionID, childIDs, included);
 }
@@ -559,16 +539,8 @@ export function SetEntityPreviewFromFile(entityID: string, sourcePath: string): 
     return $Call.ByID(602868577, entityID, sourcePath);
 }
 
-export function SetGroupCollapsed(tagID: string, collapsed: boolean): $CancellablePromise<void> {
-    return $Call.ByID(698166214, tagID, collapsed);
-}
-
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {
     return $Call.ByID(91975591, entityID, tagIDs);
-}
-
-export function SetTagGrouped(tagID: string, grouped: boolean): $CancellablePromise<$models.OrganizationState> {
-    return $Call.ByID(3415555852, tagID, grouped);
 }
 
 export function SetWorkspaceJSONValue(workspaceID: string, relativePath: string, dottedPath: string, value: any): $CancellablePromise<void> {

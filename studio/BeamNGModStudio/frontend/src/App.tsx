@@ -1098,8 +1098,7 @@ function App() {
               color,
               icon,
               origin: "user",
-              grouped: false,
-            }),
+            } as ModTag),
     );
   };
   const deleteTag = async (tagID: string): Promise<void> => {

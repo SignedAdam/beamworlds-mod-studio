@@ -1,5 +1,4 @@
 import {
-  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -16,7 +15,6 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import type {
-  LibraryGroupRow,
   LibraryItem,
   WorkspaceRecord,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
@@ -114,24 +112,6 @@ export interface ModTableProps {
   onToggleEnabled?: (entityID: string, enabled: boolean) => void;
   familyByEntityID?: ModFamilyBadgeLookup;
   onReviewFamily?: (familyID: string) => void;
-  /** Grouped mode: server-paged rows mixing group headers and mod rows. */
-  groupRows?: LibraryGroupRow[];
-  /** Grouped mode: total row count from the server for the pager. */
-  groupTotalRows?: number;
-  /** Grouped mode: distinct mod count for the summary. */
-  groupDistinctMods?: number;
-  /** Grouped mode: current page (0-based). */
-  groupPage?: number;
-  /** Grouped mode: callback when the user changes page. */
-  onGroupPageChange?: (page: number) => void;
-  /** Grouped mode: callback when user toggles fold state. */
-  onToggleGroupCollapsed?: (groupId: string, collapsed: boolean) => void;
-  /** Whether a search/filter is active (shows matchCount on group rows). */
-  hasActiveSearch?: boolean;
-  /** Notifies the parent when the user changes the page size. */
-  onPageSizeChange?: () => void;
-  /** Sort key currently awaiting a server response, shown as a pending spinner in the column header. */
-  sortingColumn?: ModTableSortKey | null;
 }
 
 const columnDefinitions: Record<ColumnKey, ColumnDefinition> = {
@@ -313,15 +293,6 @@ export function ModTable({
   onToggleEnabled,
   familyByEntityID,
   onReviewFamily,
-  groupRows,
-  groupTotalRows = 0,
-  groupDistinctMods = 0,
-  groupPage = 0,
-  onGroupPageChange,
-  onToggleGroupCollapsed,
-  hasActiveSearch = false,
-  onPageSizeChange,
-  sortingColumn = null,
 }: ModTableProps) {
   const preferenceKey =
     surface === "library"
@@ -409,26 +380,19 @@ export function ModTable({
     [workspaceRecords],
   );
 
-  const isGrouped = Boolean(groupRows);
   const sorted = useMemo(
     () =>
-      isGrouped
-        ? (groupRows ?? [])
-            .filter((r) => r.rowType === "mod" && r.item)
-            .map((r) => r.item!)
-        : sortKey === null
-          ? [...items]
-          : sortItems(
-              items,
-              { key: sortKey, direction: sortDirection },
-              surface,
-              workspaceByEntityID,
-              enabledByEntityID,
-            ),
+      sortKey === null
+        ? [...items]
+        : sortItems(
+            items,
+            { key: sortKey, direction: sortDirection },
+            surface,
+            workspaceByEntityID,
+            enabledByEntityID,
+          ),
     [
       enabledByEntityID,
-      groupRows,
-      isGrouped,
       items,
       sortDirection,
       sortKey,
@@ -437,18 +401,11 @@ export function ModTable({
     ],
   );
   const pageSize =
-    pageSizeChoice === "all"
-      ? isGrouped
-        ? Math.max(1, groupTotalRows)
-        : Math.max(1, sorted.length)
-      : pageSizeChoice;
-  const pageCount = isGrouped
-    ? Math.max(1, Math.ceil(groupTotalRows / pageSize))
-    : Math.max(1, Math.ceil(sorted.length / pageSize));
+    pageSizeChoice === "all" ? Math.max(1, sorted.length) : pageSizeChoice;
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const visible = useMemo(
-    () =>
-      isGrouped ? sorted : sorted.slice(page * pageSize, (page + 1) * pageSize),
-    [sorted, page, pageSize, isGrouped],
+    () => sorted.slice(page * pageSize, (page + 1) * pageSize),
+    [sorted, page, pageSize],
   );
   const visibleColumns = useMemo(
     () => columns.filter((column) => column.visible),
@@ -465,19 +422,10 @@ export function ModTable({
       ),
     [visibleColumns],
   );
-  const groupPageSize = pageSize;
-  const effectiveGroupPage = isGrouped ? groupPage : page;
-  const rangeStart = isGrouped
-    ? groupTotalRows === 0
-      ? 0
-      : effectiveGroupPage * groupPageSize + 1
-    : sorted.length === 0
-      ? 0
-      : page * pageSize + 1;
-  const rangeEnd = isGrouped
-    ? Math.min(groupTotalRows, (effectiveGroupPage + 1) * groupPageSize)
-    : Math.min(sorted.length, (page + 1) * pageSize);
-  const totalForPager = isGrouped ? groupTotalRows : sorted.length;
+  const rangeStart =
+    sorted.length === 0 ? 0 : page * pageSize + 1;
+  const rangeEnd = Math.min(sorted.length, (page + 1) * pageSize);
+  const totalForPager = sorted.length;
 
   let selectableCount = 0;
   let selectedSelectableCount = 0;
@@ -701,12 +649,6 @@ export function ModTable({
       window.localStorage.setItem(columnStorageKey, JSON.stringify(columns)),
     [columnStorageKey, columns],
   );
-  const pageSizeMounted = useRef(false);
-  useEffect(() => {
-    window.localStorage.setItem(pageSizeStorageKey, String(pageSizeChoice));
-    if (pageSizeMounted.current) onPageSizeChange?.();
-    else pageSizeMounted.current = true;
-  }, [pageSizeChoice, pageSizeStorageKey]);
 
   const changeSort = useCallback(
     (key: SortKey) => {
@@ -923,19 +865,7 @@ export function ModTable({
         {interaction.kind === "browse" &&
           " Click a row without modifiers or press Enter to open it."}
       </span>
-      <span className="sr-only" role="status" aria-live="polite">
-        {sortingColumn ? `Sorting ${columnLabel(sortingColumn, surface)}` : ""}
-      </span>
-      {visible.length === 0 && !isGrouped ? (
-        loading ? (
-          <div className="center-loader" role="status">
-            <Spinner />
-            <span>{loadingLabel}</span>
-          </div>
-        ) : (
-          <EmptyState icon="archive" title={emptyTitle} />
-        )
-      ) : isGrouped && (groupRows ?? []).length === 0 ? (
+      {visible.length === 0 ? (
         loading ? (
           <div className="center-loader" role="status">
             <Spinner />
@@ -983,7 +913,6 @@ export function ModTable({
                     surface={surface}
                     active={sortKey}
                     direction={sortDirection}
-                    sortingColumn={sortingColumn}
                     onSort={changeSort}
                     onDragStart={setDraggedColumn}
                     onDrop={(target) => {
@@ -996,93 +925,35 @@ export function ModTable({
               </tr>
             </thead>
             <tbody>
-              {isGrouped
-                ? (groupRows ?? []).map((row, index) => {
-                    if (row.rowType === "group") {
-                      return (
-                        <Fragment key={`g-${row.groupId}`}>
-                          <GroupRow
-                            row={row}
-                            columnCount={visibleColumns.length + 1}
-                            onToggleCollapsed={onToggleGroupCollapsed}
-                            hasActiveSearch={hasActiveSearch}
-                          />
-                          {!row.collapsed && (
-                            <GroupSectionHeader
-                              columns={visibleColumns}
-                              surface={surface}
-                              active={sortKey}
-                              direction={sortDirection}
-                              sortingColumn={sortingColumn}
-                              onSort={changeSort}
-                            />
-                          )}
-                        </Fragment>
-                      );
+              {visible.map((item) => {
+                const selected = selectionIDs.has(item.entityId);
+                const disabled =
+                  Boolean(interaction.disabled) || !canSelect(item);
+                return (
+                  <ModRow
+                    key={item.entityId}
+                    item={item}
+                    columns={visibleColumns}
+                    surface={surface}
+                    workspace={workspaceByEntityID.get(item.entityId)}
+                    tabIndex={
+                      disabled ? -1 : item.entityId === tabStopID ? 0 : -1
                     }
-                    const item = row.item;
-                    if (!item) return null;
-                    const selected = selectionIDs.has(item.entityId);
-                    const disabled =
-                      Boolean(interaction.disabled) || !canSelect(item);
-                    return (
-                      <ModRow
-                        key={`${row.groupId}-${item.entityId}-${index}`}
-                        item={item}
-                        columns={visibleColumns}
-                        surface={surface}
-                        workspace={workspaceByEntityID.get(item.entityId)}
-                        tabIndex={
-                          disabled ? -1 : item.entityId === tabStopID ? 0 : -1
-                        }
-                        selected={selected}
-                        disabled={disabled}
-                        onClick={clickItem}
-                        onKeyDown={keyDownItem}
-                        onFocus={() => setFocusedID(item.entityId)}
-                        enabledByEntityID={enabledByEntityID}
-                        onToggleEnabled={onToggleEnabled}
-                        familyByEntityID={familyByEntityID}
-                        onReviewFamily={onReviewFamily}
-                        onContextMenu={
-                          interaction.onContextMenu
-                            ? openContextMenu
-                            : undefined
-                        }
-                      />
-                    );
-                  })
-                : visible.map((item) => {
-                    const selected = selectionIDs.has(item.entityId);
-                    const disabled =
-                      Boolean(interaction.disabled) || !canSelect(item);
-                    return (
-                      <ModRow
-                        key={item.entityId}
-                        item={item}
-                        columns={visibleColumns}
-                        surface={surface}
-                        workspace={workspaceByEntityID.get(item.entityId)}
-                        tabIndex={
-                          disabled ? -1 : item.entityId === tabStopID ? 0 : -1
-                        }
-                        selected={selected}
-                        disabled={disabled}
-                        onClick={clickItem}
-                        onKeyDown={keyDownItem}
-                        onFocus={() => setFocusedID(item.entityId)}
-                        enabledByEntityID={enabledByEntityID}
-                        onToggleEnabled={onToggleEnabled}
-                        familyByEntityID={familyByEntityID}
-                        onReviewFamily={onReviewFamily}
-                        onContextMenu={
-                          interaction.onContextMenu
-                            ? openContextMenu
-                            : undefined
-                        }
-                      />
-                    );
-                  })}
+                    selected={selected}
+                    disabled={disabled}
+                    onClick={clickItem}
+                    onKeyDown={keyDownItem}
+                    onFocus={() => setFocusedID(item.entityId)}
+                    enabledByEntityID={enabledByEntityID}
+                    onToggleEnabled={onToggleEnabled}
+                    familyByEntityID={familyByEntityID}
+                    onReviewFamily={onReviewFamily}
+                    onContextMenu={
+                      interaction.onContextMenu ? openContextMenu : undefined
+                    }
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1093,33 +964,23 @@ export function ModTable({
             ? "Updating results…"
             : totalForPager === 0
               ? "0 results"
-              : isGrouped
-                ? `${rangeStart.toLocaleString()}\u2013${rangeEnd.toLocaleString()} of ${totalForPager.toLocaleString()} rows \u00B7 ${groupDistinctMods.toLocaleString()} mods`
-                : `${rangeStart.toLocaleString()}\u2013${rangeEnd.toLocaleString()} of ${totalForPager.toLocaleString()} results`}
+              : `${rangeStart.toLocaleString()}\u2013${rangeEnd.toLocaleString()} of ${totalForPager.toLocaleString()} results`}
         </span>
         <div className="pagination__pages">
           <Button
             tone="quiet"
-            disabled={effectiveGroupPage === 0 || totalForPager === 0}
-            onClick={() => {
-              if (isGrouped) onGroupPageChange?.(effectiveGroupPage - 1);
-              else setPage((value) => value - 1);
-            }}
+            disabled={page === 0 || totalForPager === 0}
+            onClick={() => setPage((value) => value - 1)}
           >
             Previous
           </Button>
           <span>
-            {effectiveGroupPage + 1} / {pageCount}
+            {page + 1} / {pageCount}
           </span>
           <Button
             tone="quiet"
-            disabled={
-              effectiveGroupPage + 1 >= pageCount || totalForPager === 0
-            }
-            onClick={() => {
-              if (isGrouped) onGroupPageChange?.(effectiveGroupPage + 1);
-              else setPage((value) => value + 1);
-            }}
+            disabled={page + 1 >= pageCount || totalForPager === 0}
+            onClick={() => setPage((value) => value + 1)}
           >
             Next
           </Button>
@@ -1220,7 +1081,6 @@ const SortableHead = memo(function SortableHead({
   surface,
   active,
   direction,
-  sortingColumn,
   onSort,
   onDragStart,
   onDrop,
@@ -1230,7 +1090,6 @@ const SortableHead = memo(function SortableHead({
   surface: ModTableProps["surface"];
   active: SortKey | null;
   direction: 1 | -1;
-  sortingColumn: ModTableSortKey | null;
   onSort: (value: SortKey) => void;
   onDragStart: (value: ColumnKey) => void;
   onDrop: (value: ColumnKey) => void;
@@ -1261,7 +1120,6 @@ const SortableHead = memo(function SortableHead({
     );
   }
   const selected = key === active;
-  const sorting = key === sortingColumn;
   return (
     <th
       draggable
@@ -1276,7 +1134,6 @@ const SortableHead = memo(function SortableHead({
         {columnLabel(key, surface)}
         <span>
           {selected ? (direction === 1 ? "▲" : "▼") : "↕"}
-          {sorting && <span className="sort-spinner" aria-hidden="true" />}
         </span>
       </button>
       <i
@@ -1384,108 +1241,6 @@ const ModRow = memo(function ModRow({
           onReviewFamily={onReviewFamily}
         />
       ))}
-    </tr>
-  );
-});
-const UNGROUPED_ID = "__ungrouped__";
-const GroupRow = memo(function GroupRow({
-  row,
-  columnCount,
-  onToggleCollapsed,
-  hasActiveSearch,
-}: {
-  row: LibraryGroupRow;
-  columnCount: number;
-  onToggleCollapsed?: (groupId: string, collapsed: boolean) => void;
-  hasActiveSearch: boolean;
-}) {
-  const isUngrouped = row.groupId === UNGROUPED_ID;
-  const label = isUngrouped ? "Ungrouped" : row.label;
-  const collapsed = row.collapsed;
-  const showMatch = hasActiveSearch && collapsed && row.matchCount > 0;
-  return (
-    <tr
-      className={`group-row${collapsed ? " group-row--collapsed" : ""}`}
-      aria-expanded={!collapsed}
-      onClick={() => onToggleCollapsed?.(row.groupId, !collapsed)}
-    >
-      <td colSpan={columnCount}>
-        <div className="group-row__cell">
-          <button
-            type="button"
-            className="group-row__toggle"
-            aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-            tabIndex={-1}
-          >
-            <Icon name="chevron" size={14} />
-          </button>
-          <span className="group-row__label">{label}</span>
-          <span className="group-row__meta">
-            {row.modCount.toLocaleString()}{" "}
-            {row.modCount === 1 ? "mod" : "mods"} · {formatBytes(row.sizeBytes)}
-          </span>
-          {showMatch && (
-            <span className="group-row__match">
-              {row.matchCount.toLocaleString()}{" "}
-              {row.matchCount === 1 ? "match" : "matches"}
-            </span>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-});
-const GroupSectionHeader = memo(function GroupSectionHeader({
-  columns,
-  surface,
-  active,
-  direction,
-  sortingColumn,
-  onSort,
-}: {
-  columns: ColumnState[];
-  surface: ModTableProps["surface"];
-  active: SortKey | null;
-  direction: 1 | -1;
-  sortingColumn: ModTableSortKey | null;
-  onSort: (key: SortKey) => void;
-}) {
-  return (
-    <tr className="group-section-header">
-      <td />
-      {columns.map((column) => {
-        const key = column.key;
-        if (key === "thumbnail") {
-          return (
-            <td key={key}>
-              <span className="mod-table__column-label">
-                {columnLabel(key, surface)}
-              </span>
-            </td>
-          );
-        }
-        const selected = key === active;
-        const sorting = key === sortingColumn;
-        return (
-          <td
-            key={key}
-            role="columnheader"
-            aria-sort={
-              selected ? (direction === 1 ? "ascending" : "descending") : "none"
-            }
-          >
-            <button type="button" onClick={() => onSort(key)}>
-              {columnLabel(key, surface)}
-              <span>
-                {selected ? (direction === 1 ? "▲" : "▼") : "↕"}
-                {sorting && (
-                  <span className="sort-spinner" aria-hidden="true" />
-                )}
-              </span>
-            </button>
-          </td>
-        );
-      })}
     </tr>
   );
 });

@@ -111,10 +111,10 @@ func TestReplacementMergesEnabledAndDisabledMemberships(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Group + tag union: keeper inherits source tags and group memberships
+// Tag union: keeper inherits source tags
 // ---------------------------------------------------------------------------
 
-func TestReplacementUnionsTagsAndGroups(t *testing.T) {
+func TestReplacementUnionsTags(t *testing.T) {
 	t.Parallel()
 	service := newTestAppService(t)
 	root := filepath.Join(service.config.DataDir, "library")
@@ -153,20 +153,12 @@ func TestReplacementUnionsTagsAndGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Make "Shared Tag" a group and add both mods.
-	if _, err := service.SetTagGrouped(sharedTagID, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.AddModsToGroup(sharedTagID, []string{keeperItem.EntityID, oldItem.EntityID}); err != nil {
-		t.Fatal(err)
-	}
-
 	impact, err := service.PlanModReplacement(keeperItem.EntityID, []string{oldItem.EntityID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(impact.Groups) == 0 {
-		t.Fatal("impact should list the group")
+	if !containsString(impact.Tags, "Old Only Tag") {
+		t.Fatalf("impact should list source tags: %v", impact.Tags)
 	}
 
 	result, err := service.ReplaceModArchives(keeperItem.EntityID, []string{oldItem.EntityID}, impact.Fingerprint)
@@ -414,8 +406,13 @@ func TestReplacementRecycleFailurePreservesSource(t *testing.T) {
 	if _, err := service.SetCollectionMods(collection.Collection.ID, []string{oldItem.EntityID}, true); err != nil {
 		t.Fatal(err)
 	}
-	groupID := createGroupWithMembers(t, service.store, "Locked version group", []string{oldItem.EntityID})
-
+	org, err := service.CreateModTag("Locked version tag", "#123456", "tag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetLibraryItemTags(oldItem.EntityID, []string{findModTag(t, org, "Locked version tag").ID}); err != nil {
+		t.Fatal(err)
+	}
 	// Lock the old archive so recycling fails on Windows.
 	handle, err := os.Open(old.ArchivePath)
 	if err != nil {
@@ -455,16 +452,7 @@ func TestReplacementRecycleFailurePreservesSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	if oldUsages != 0 {
-		t.Fatal("failed cleanup restored obsolete collection/group usages")
-	}
-	group, err := service.store.ListLibraryGroupPage(ctx, "", "", "", "", "", 0, 0, "name", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, row := range group.Rows {
-		if row.GroupID == groupID && row.RowType == "mod" && row.Item.EntityID != keeperItem.EntityID {
-			t.Fatal("old version still appears in the transferred group")
-		}
+		t.Fatal("failed cleanup restored obsolete collection or tag usages")
 	}
 	if err := handle.Close(); err != nil {
 		t.Fatal(err)
@@ -545,7 +533,7 @@ func TestReplacementRefusesUnavailableKeeper(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Plan lists all affected collections, groups, tags
+// Plan lists all affected collections and tags
 // ---------------------------------------------------------------------------
 
 func TestReplacementPlanListsAffectedOrganization(t *testing.T) {
@@ -578,16 +566,13 @@ func TestReplacementPlanListsAffectedOrganization(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a group for old only.
-	org, err = service.CreateModTag("Plan Group", "#00ff00", "tag")
+	// Create another tag for old only.
+	org, err = service.CreateModTag("Plan Classification", "#00ff00", "tag")
 	if err != nil {
 		t.Fatal(err)
 	}
-	groupTagID := findModTag(t, org, "Plan Group").ID
-	if _, err := service.SetTagGrouped(groupTagID, true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.AddModsToGroup(groupTagID, []string{oldItem.EntityID}); err != nil {
+	classificationID := findModTag(t, org, "Plan Classification").ID
+	if _, err := service.SetLibraryItemTags(oldItem.EntityID, []string{tagID, classificationID}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,13 +587,13 @@ func TestReplacementPlanListsAffectedOrganization(t *testing.T) {
 	if !containsString(impact.Tags, "Plan Tag") {
 		t.Fatalf("tags = %v, want 'Plan Tag'", impact.Tags)
 	}
-	if !containsString(impact.Groups, "Plan Group") {
-		t.Fatalf("groups = %v, want 'Plan Group'", impact.Groups)
+	if !containsString(impact.Tags, "Plan Classification") {
+		t.Fatalf("tags = %v, want 'Plan Classification'", impact.Tags)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Remove: old versions leave their collections, groups, and tags; the keeper
+// Remove: old versions leave their collections and tags; the keeper
 // gains nothing and keeps what it had
 // ---------------------------------------------------------------------------
 
@@ -648,10 +633,15 @@ func TestRemoveModVersionsDropsUsagesWithoutTransfer(t *testing.T) {
 	if _, err := service.SetLibraryItemTags(oldItem.EntityID, []string{findModTag(t, org, "Old Tag").ID}); err != nil {
 		t.Fatal(err)
 	}
-	createGroupWithMembers(t, service.store, "Old Group", []string{oldItem.EntityID})
+	org, err = service.CreateModTag("Old Classification", "#00ff00", "tag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetLibraryItemTags(oldItem.EntityID, []string{findModTag(t, org, "Old Classification").ID, findModTag(t, org, "Old Tag").ID}); err != nil {
+		t.Fatal(err)
+	}
 
-	// The review lists each version's own usages, split into collections,
-	// groups, and tags, so the choice can be made per version.
+	// The review lists each version's own collection and tag usages.
 	families, err := service.ModFamilies()
 	if err != nil {
 		t.Fatal(err)
@@ -667,8 +657,8 @@ func TestRemoveModVersionsDropsUsagesWithoutTransfer(t *testing.T) {
 	if oldMember == nil {
 		t.Fatalf("old version is not in a family: %#v", families)
 	}
-	if !slices.Equal(oldMember.Collections, []string{"Old only", "Shared"}) || !slices.Equal(oldMember.Groups, []string{"Old Group"}) || !slices.Equal(oldMember.Tags, []string{"Old Tag"}) {
-		t.Fatalf("old member usages = collections %v, groups %v, tags %v", oldMember.Collections, oldMember.Groups, oldMember.Tags)
+	if !slices.Equal(oldMember.Collections, []string{"Old only", "Shared"}) || !slices.Equal(oldMember.Tags, []string{"Old Classification", "Old Tag"}) {
+		t.Fatalf("old member usages = collections %v, tags %v", oldMember.Collections, oldMember.Tags)
 	}
 
 	impact, err := service.PlanModReplacement(keeperItem.EntityID, []string{oldItem.EntityID})
@@ -708,7 +698,7 @@ func TestRemoveModVersionsDropsUsagesWithoutTransfer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(keeperDetail.Tags) != 0 {
-		t.Fatalf("keeper inherited tags or groups: %+v", keeperDetail.Tags)
+		t.Fatalf("keeper inherited tags: %+v", keeperDetail.Tags)
 	}
 }
 
@@ -773,14 +763,14 @@ func TestReplacementInheritsEarliestSourcePosition(t *testing.T) {
 	}
 }
 
-func TestReplacementReviewDetectsGroupingChange(t *testing.T) {
+func TestReplacementReviewDetectsTagChange(t *testing.T) {
 	service := newTestAppService(t)
-	items, _ := scanAndCreateCollection(t, service, "Grouping review", 2, 9710)
-	organization, err := service.CreateModTag("Promoted after review", "#123456", "tag")
+	items, _ := scanAndCreateCollection(t, service, "Tag review", 2, 9710)
+	organization, err := service.CreateModTag("Review Tag", "#123456", "tag")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tagID := findModTag(t, organization, "Promoted after review").ID
+	tagID := findModTag(t, organization, "Review Tag").ID
 	if _, err := service.SetLibraryItemTags(items[1].EntityID, []string{tagID}); err != nil {
 		t.Fatal(err)
 	}
@@ -788,18 +778,33 @@ func TestReplacementReviewDetectsGroupingChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.SetTagGrouped(tagID, true); err != nil {
+	organization, err = service.CreateModTag("Added After Review", "#654321", "tag")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addedTagID := findModTag(t, organization, "Added After Review").ID
+	if _, err := service.SetLibraryItemTags(items[1].EntityID, []string{tagID, addedTagID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.ReplaceModArchives(items[0].EntityID, []string{items[1].EntityID}, impact.Fingerprint); err == nil {
-		t.Fatal("changed group classification did not invalidate the review")
+		t.Fatal("changed tag assignment did not invalidate the review")
 	}
 	old, err := service.store.GetLibraryItem(context.Background(), items[1].EntityID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(old.Tags) != 1 || old.Tags[0].ID != tagID || !old.Tags[0].Grouped {
-		t.Fatal("stale review changed group assignments")
+	tagIDs := map[string]struct{}{}
+	for _, tag := range old.Tags {
+		tagIDs[tag.ID] = struct{}{}
+	}
+	if len(tagIDs) != 2 {
+		t.Fatalf("stale review changed tag assignments: %#v", old.Tags)
+	}
+	if _, ok := tagIDs[tagID]; !ok {
+		t.Fatalf("original tag assignment was lost: %#v", old.Tags)
+	}
+	if _, ok := tagIDs[addedTagID]; !ok {
+		t.Fatalf("added tag assignment was lost: %#v", old.Tags)
 	}
 	if _, err := os.Stat(old.ArchivePath); err != nil {
 		t.Fatal("stale review recycled the archive")

@@ -175,13 +175,16 @@ export function PlayView({
   const noModsSelected = !session.selection.length || (session.preview?.modCount ?? 0) === 0;
 
   // Readiness line: shows arithmetic from the resolved selection.
+  const pickedCollections = session.selection.filter((id) => id !== ALL_MODS_ID).length;
   const readinessText = session.previewLoading
     ? "Checking mods\u2026"
     : noModsSelected
       ? "No mods selected"
       : (session.preview?.excludedModCount ?? 0) > 0
-        ? `${(session.preview!.modCount + session.preview!.excludedModCount).toLocaleString()} included \u2212 ${session.preview!.excludedModCount.toLocaleString()} excluded = ${session.preview!.modCount.toLocaleString()} mods`
-        : `${session.preview?.modCount ?? 0} mod${session.preview?.modCount === 1 ? "" : "s"} from ${session.selection.length} collection${session.selection.length === 1 ? "" : "s"}`;
+        ? `${(session.preview!.modCount + session.preview!.excludedModCount).toLocaleString()} included \u2212 ${session.preview!.excludedModCount.toLocaleString()} left out = ${session.preview!.modCount.toLocaleString()} mods`
+        : allModsSelected
+          ? `All ${(session.preview?.modCount ?? 0).toLocaleString()} mods \u00b7 click a collection to leave it out`
+          : `${session.preview?.modCount ?? 0} mod${session.preview?.modCount === 1 ? "" : "s"} from ${pickedCollections} collection${pickedCollections === 1 ? "" : "s"}`;
 
   useEffect(() => {
     if (!cardMenu) return;
@@ -329,7 +332,7 @@ export function PlayView({
         }]),
         // Exclude / stop excluding.
         {
-          label: cardMenuIsExcluded ? "Stop excluding" : "Exclude from Play",
+          label: cardMenuIsExcluded ? "Include again" : "Leave out",
           icon: cardMenuIsExcluded ? ("plus" as const) : ("close" as const),
           danger: !cardMenuIsExcluded,
           disabled: selectionBusy,
@@ -366,9 +369,8 @@ export function PlayView({
 
           {!organization ? (
             <div className="play-loading"><Spinner /><span>Loading collections</span></div>
-          ) : filteredCollections.length === 0 ? (
-            <p className="play-empty">Group mods into a collection, then pick it here.</p>
           ) : (
+            <>
             <div className="play-card-grid" aria-label="Collections">
               {/* All mods: a first-class entry backed by the all-mods sentinel. */}
               <article
@@ -438,6 +440,10 @@ export function PlayView({
                 );
               })}
             </div>
+            {collections.length === 0 && (
+              <p className="play-empty">Put mods in a collection to play just those, or to leave them out of All mods.</p>
+            )}
+            </>
           )}
         </section>
 
@@ -523,7 +529,7 @@ export function PlayView({
       {cardMenu && cardMenuCollection && <CollectionMenuPopup label={cardMenuCollection.name} x={cardMenu.x} y={cardMenu.y} actions={cardActions} onClose={() => setCardMenu(null)} />}
 
       {reviewOpen && <CollectionDialog title="Included mods" onClose={() => setReviewOpen(false)} wide footer={<Button onClick={() => setReviewOpen(false)}>Done</Button>}>
-        <div className="play-dialog-intro">{session.preview?.modCount ?? 0} mods{(session.preview?.excludedModCount ?? 0) > 0 ? ` (${session.preview!.excludedModCount} excluded)` : ""}</div>
+        <div className="play-dialog-intro">{session.preview?.modCount ?? 0} mods{(session.preview?.excludedModCount ?? 0) > 0 ? ` (${session.preview!.excludedModCount} left out)` : ""}</div>
         {session.preview?.warnings?.map((warning) => <div className="play-dialog-warning" key={warning}><Icon name="warning" size={14} /><span>{warning}</span></div>)}
         <div className="play-mod-review">
           {(session.preview?.mods ?? []).map((mod) => <article className={`play-mod-review__row${mod.available ? "" : " is-missing"}`} key={mod.entityId}>

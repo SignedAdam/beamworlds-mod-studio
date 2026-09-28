@@ -51,7 +51,13 @@ func (service *AppService) PlanModRemoval(entityIDs []string) (ModRemovalImpact,
 // archive could not be recycled stays in the library: the index must never
 // claim a file is gone while it is still on disk.
 func (service *AppService) DeleteModArchives(entityIDs []string) (ModRemovalResult, error) {
-	ctx := context.Background()
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	return service.deleteModArchivesLocked(context.Background(), entityIDs)
+}
+
+func (service *AppService) deleteModArchivesLocked(ctx context.Context, entityIDs []string) (ModRemovalResult, error) {
+	if err := service.requireGameStopped(); err != nil { return ModRemovalResult{}, err }
 	impact, err := service.store.ModRemovalImpact(ctx, entityIDs)
 	if err != nil {
 		return ModRemovalResult{}, err
@@ -59,27 +65,38 @@ func (service *AppService) DeleteModArchives(entityIDs []string) (ModRemovalResu
 	if len(impact.Workspaces) > 0 {
 		return ModRemovalResult{}, fmt.Errorf("open in ModMaker: %s. Delete the project first", strings.Join(impact.Workspaces, ", "))
 	}
-	result := ModRemovalResult{}
-	removable := make([]string, 0, len(impact.Mods))
+	result := ModRemovalResult{Failures: []string{}}
 	for _, mod := range impact.Mods {
-		if mod.Missing || strings.TrimSpace(mod.ArchivePath) == "" {
-			// Nothing to recycle, so forgetting is the whole operation.
-			removable = append(removable, mod.EntityID)
+		tx, err := service.store.db.BeginTx(ctx, &sql.TxOptions{ReadOnly:true})
+		if err != nil { return result, err }
+		if err := sourceHasProtectedWorkspaceTx(ctx, tx, mod.EntityID); err != nil { _=tx.Rollback(); return result, err }
+		source, err := loadReplacementEntityTx(ctx, tx, mod.EntityID)
+		if err != nil { _=tx.Rollback(); return result, err }
+		if err := tx.Commit(); err != nil { return result, err }
+		if err := service.retireArchiveReferences(ctx, []string{mod.EntityID}); err != nil {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v",mod.DisplayName,err))
 			continue
 		}
-		if err := recycleFile(mod.ArchivePath); err != nil {
-			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", mod.DisplayName, err))
-			continue
+		failed := false
+		for _, archive := range source.Archives {
+			if archive.Missing { continue }
+			checked := archive
+			if err := checked.readFileIdentity(); err != nil {
+				result.Failures=append(result.Failures,fmt.Sprintf("%s: %v",mod.DisplayName,err)); failed=true; continue
+			}
+			if checked != archive {
+				result.Failures=append(result.Failures,fmt.Sprintf("%s (%s) changed before removal; review it again",mod.DisplayName,archive.Path)); failed=true; continue
+			}
+			if err := service.requireGameStopped(); err != nil { result.Failures=append(result.Failures,err.Error()); failed=true; break }
+			if err := recycleFile(archive.Path); err != nil {
+				result.Failures=append(result.Failures,fmt.Sprintf("%s (%s): %v",mod.DisplayName,archive.Path,err)); failed=true; continue
+			}
+			result.Recycled++
 		}
-		result.Recycled++
-		removable = append(removable, mod.EntityID)
-	}
-	if len(removable) > 0 {
-		forgotten, err := service.store.ForgetEntities(ctx, removable)
-		if err != nil {
-			return result, err
-		}
-		result.Forgotten = forgotten
+		if failed { continue }
+		forgotten, err := service.store.ForgetEntities(ctx, []string{mod.EntityID})
+		if err != nil { result.Failures=append(result.Failures,fmt.Sprintf("%s: %v",mod.DisplayName,err)); continue }
+		result.Forgotten += forgotten
 	}
 	return result, nil
 }
@@ -90,6 +107,9 @@ func (service *AppService) DeleteModArchives(entityIDs []string) (ModRemovalResu
 // confirmation; this is the acknowledged path where the user agreed to lose
 // both the archive and the project.
 func (service *AppService) DeleteModArchivesAndWorkspaces(entityIDs []string) (ModRemovalResult, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	if err := service.requireGameStopped(); err != nil { return ModRemovalResult{}, err }
 	ctx := context.Background()
 	// Delete every workspace belonging to these entities first, so the
 	// archive-deletion path no longer sees them and does not refuse.
@@ -106,7 +126,7 @@ func (service *AppService) DeleteModArchivesAndWorkspaces(entityIDs []string) (M
 			}
 		}
 	}
-	return service.DeleteModArchives(entityIDs)
+	return service.deleteModArchivesLocked(ctx, entityIDs)
 }
 
 func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRemovalImpact, error) {
@@ -120,24 +140,26 @@ func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRe
 		target := ModRemovalTarget{EntityID: entityID}
 		err := s.db.QueryRowContext(ctx, `SELECT e.display_name, COALESCE(al.path,''), COALESCE(al.size_bytes,0)
 			FROM entities e
-			LEFT JOIN archive_links al ON al.entity_id=e.id AND al.active=1
+			LEFT JOIN archive_links al ON al.entity_id=e.id
 			WHERE e.id=?
-			ORDER BY al.size_bytes DESC`, entityID).Scan(&target.DisplayName, &target.ArchivePath, &target.SizeBytes)
+			ORDER BY al.active DESC,al.last_seen_at DESC,al.id DESC LIMIT 1`, entityID).Scan(&target.DisplayName, &target.ArchivePath, &target.SizeBytes)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ModRemovalImpact{}, fmt.Errorf("mod %q is not in the library", entityID)
 		}
 		if err != nil {
 			return ModRemovalImpact{}, err
 		}
-		if target.ArchivePath != "" {
-			if info, statErr := os.Stat(target.ArchivePath); statErr != nil || !info.Mode().IsRegular() {
-				target.Missing = true
-			} else {
-				impact.ArchiveCount++
-				impact.ArchiveBytes += info.Size()
-			}
-		} else {
-			target.Missing = true
+		target.Missing = true
+		paths, err := s.scanStrings(ctx, `SELECT DISTINCT path FROM archive_links WHERE entity_id=? ORDER BY path`, entityID)
+		if err != nil { return ModRemovalImpact{}, err }
+		for _, path := range paths {
+			info, statErr := os.Stat(path)
+			if errors.Is(statErr,os.ErrNotExist) { continue }
+			if statErr != nil { return ModRemovalImpact{},fmt.Errorf("inspect %s: %w",path,statErr) }
+			if !info.Mode().IsRegular() { return ModRemovalImpact{},fmt.Errorf("%s is not a regular archive",path) }
+			if target.Missing { target.ArchivePath=path;target.SizeBytes=info.Size();target.Missing=false }
+			impact.ArchiveCount++
+			impact.ArchiveBytes+=info.Size()
 		}
 		impact.Mods = append(impact.Mods, target)
 

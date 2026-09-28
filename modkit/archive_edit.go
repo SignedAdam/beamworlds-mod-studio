@@ -110,7 +110,7 @@ func CopyArchiveMember(archivePath, memberPath string, destination io.Writer, li
 // member. Existing JSON5 is decoded first; updates replace only the supplied
 // keys, and a nil update value deletes that key. Untouched entries are copied
 // in their raw compressed form and retain their original headers/content.
-func RewriteArchiveJSONMember(archivePath, memberPath string, updates map[string]any, createIfMissing bool) error {
+func RewriteArchiveJSONMember(archivePath, memberPath string, updates map[string]any, createIfMissing bool, beforeReplace func() error) error {
 	target, err := NormalizeArchivePath(memberPath)
 	if err != nil {
 		return err
@@ -245,6 +245,14 @@ func RewriteArchiveJSONMember(archivePath, memberPath string, updates map[string
 		if err := os.Chmod(temporaryName, mode); err != nil {
 			return fmt.Errorf("preserve archive permissions: %w", err)
 		}
+	}
+	currentInfo, err := os.Stat(archivePath)
+	if err != nil { return fmt.Errorf("revalidate source archive: %w", err) }
+	if !os.SameFile(sourceInfo, currentInfo) || sourceInfo.Size() != currentInfo.Size() || !sourceInfo.ModTime().Equal(currentInfo.ModTime()) {
+		return fmt.Errorf("source archive changed while preparing metadata update")
+	}
+	if beforeReplace != nil {
+		if err := beforeReplace(); err != nil { return err }
 	}
 	if err := os.Rename(temporaryName, archivePath); err != nil {
 		return fmt.Errorf("replace archive atomically: %w", err)

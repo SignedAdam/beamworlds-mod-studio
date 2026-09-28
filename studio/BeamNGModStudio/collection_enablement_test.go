@@ -74,7 +74,7 @@ func TestDisabledMembershipStopsShippingButKeepsMembership(t *testing.T) {
 	if after.Fingerprint == before.Fingerprint {
 		t.Fatal("the selection fingerprint survived an enabled-flag change")
 	}
-	if _, err := service.LaunchPlaySelection(PlayRequest{CollectionIDs: []string{collection.Collection.ID}, Fingerprint: before.Fingerprint}); err == nil {
+	if _, err := service.LaunchPlaySelection(context.Background(), PlayRequest{CollectionIDs: []string{collection.Collection.ID}, Fingerprint: before.Fingerprint}); err == nil {
 		t.Fatal("a Play request carrying the pre-toggle fingerprint was accepted")
 	}
 

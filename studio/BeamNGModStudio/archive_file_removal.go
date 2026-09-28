@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -36,7 +37,10 @@ func (service *AppService) PlanArchiveFileRemoval(linkIDs []string) (ArchiveFile
 }
 
 func (service *AppService) DeleteArchiveFiles(linkIDs []string) (ModRemovalResult, error) {
-	return service.store.deleteArchiveFiles(context.Background(), linkIDs)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	if err := service.requireGameStopped(); err != nil { return ModRemovalResult{}, err }
+	return service.store.deleteArchiveFiles(context.Background(), linkIDs, service.retireArchiveReferences)
 }
 
 func (s *Store) archiveFileRemovalImpact(ctx context.Context, linkIDs []string) (ArchiveFileRemovalImpact, error) {
@@ -50,17 +54,19 @@ func (s *Store) archiveFileRemovalImpact(ctx context.Context, linkIDs []string) 
 	}
 	for _, record := range records {
 		target := record.target
-		info, regular := archiveFileInfo(target.ArchivePath)
-		if !regular {
-			target.Missing = true
-		} else if record.activeCount > 1 {
+		info, statErr := os.Stat(target.ArchivePath)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) { return impact, statErr }
+		target.Missing = errors.Is(statErr, os.ErrNotExist)
+		if !target.Missing && !info.Mode().IsRegular() { return impact, fmt.Errorf("%s is not a regular archive", target.ArchivePath) }
+		other, err := s.otherArchiveCopyAvailable(ctx, target)
+		if err != nil { return impact, err }
+		refused := record.activeCount <= 1 || (!target.Missing && !other)
+		if !target.Missing && !refused {
 			impact.ArchiveCount++
 			impact.ArchiveBytes += info.Size()
 		}
 		impact.Files = append(impact.Files, target)
-		if record.activeCount <= 1 {
-			impact.Refusals = append(impact.Refusals, archiveFileLastLinkRefusal(target))
-		}
+		if refused { impact.Refusals = append(impact.Refusals, archiveFileLastLinkRefusal(target)) }
 	}
 	return impact, nil
 }
@@ -134,7 +140,7 @@ func archiveFileRemovalFailure(target ArchiveFileTarget, err error) string {
 	return fmt.Sprintf("%s (%s): %v", name, target.ArchivePath, err)
 }
 
-func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string) (ModRemovalResult, error) {
+func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string, retireReferences func(context.Context, []string) error) (ModRemovalResult, error) {
 	ids, err := normalizeOrganizationIDs(linkIDs, "archive link IDs")
 	if err != nil {
 		return ModRemovalResult{}, err
@@ -144,11 +150,6 @@ func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string) (ModRe
 		return result, nil
 	}
 
-	// Keep the validation, recycle, and per-link transaction sequence together
-	// so another in-process writer cannot turn a selected link into an entity's
-	// last remaining archive between the check and the delete.
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	records, err := s.archiveFileRemovalRecords(ctx, ids)
 	if err != nil {
 		return result, err
@@ -162,7 +163,25 @@ func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string) (ModRe
 			result.Failures = append(result.Failures, archiveFileLastLinkRefusal(record.target))
 			continue
 		}
-		_, exists := archiveFileInfo(record.target.ArchivePath)
+		info, statErr := os.Stat(record.target.ArchivePath)
+		exists := statErr == nil
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, statErr)); continue
+		}
+		if exists && !info.Mode().IsRegular() {
+			result.Failures = append(result.Failures, fmt.Sprintf("%s is not a regular archive", record.target.ArchivePath)); continue
+		}
+		other, err := s.otherArchiveCopyAvailable(ctx, record.target)
+		if err != nil { return result, err }
+		if exists && !other {
+			result.Failures = append(result.Failures, archiveFileLastLinkRefusal(record.target)); continue
+		}
+		if retireReferences != nil {
+			if err := retireReferences(ctx, []string{record.target.EntityID}); err != nil {
+				result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, err))
+				continue
+			}
+		}
 		if exists {
 			if err := recycleFile(record.target.ArchivePath); err != nil {
 				result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, err))
@@ -180,6 +199,8 @@ func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string) (ModRe
 }
 
 func (s *Store) deleteArchiveFileLinkTx(ctx context.Context, target ArchiveFileTarget) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -217,4 +238,21 @@ func (s *Store) deleteArchiveFileLinkTx(ctx context.Context, target ArchiveFileT
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) otherArchiveCopyAvailable(ctx context.Context, target ArchiveFileTarget) (bool,error) {
+	paths, err := s.scanStrings(ctx, `SELECT path FROM archive_links WHERE entity_id=? AND active=1 AND id<>?`, target.EntityID, target.LinkID)
+	if err != nil { return false,err }
+	targetPath, _ := filepath.EvalSymlinks(target.ArchivePath)
+	targetIdentity, _ := inspectArchiveFile(target.ArchivePath)
+	for _, path := range paths {
+		otherPath, err := filepath.EvalSymlinks(path)
+		if err != nil || samePath(otherPath,targetPath) { continue }
+		identity, err := inspectArchiveFile(path)
+		if err != nil || !identity.Regular { continue }
+		if identity.IdentityKnown && targetIdentity.IdentityKnown &&
+			identity.VolumeID==targetIdentity.VolumeID && identity.FileID==targetIdentity.FileID && identity.Links<2 { continue }
+		return true,nil
+	}
+	return false,nil
 }

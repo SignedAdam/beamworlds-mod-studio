@@ -1570,6 +1570,7 @@ function App() {
                 onSave={saveSettings}
                 onOpenSetup={() => void openSetup()}
                 onNotify={notify}
+                onRefreshLibrary={() => void refreshAfterModRemoval()}
               />
             )}
           </div>

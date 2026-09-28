@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	storeSchemaVersion          = 6
+	storeSchemaVersion          = 7
 	legacyCatalogSchemaVersion  = 1
 	legacyCatalogImportMarker   = "legacy_catalog_imported"
 	legacyCatalogImportAbsent   = "absent"
@@ -200,11 +200,14 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if err := migrateGroupedTagsToCollectionsTx(ctx, tx); err != nil {
 		return fmt.Errorf("migrate grouped tags to collections: %w", err)
 	}
+	if err := ensureArchiveDeploymentSchemaTx(ctx, tx); err != nil {
+		return fmt.Errorf("initialize archive deployment ownership: %w", err)
+	}
 	if err := rebuildLibrarySearchFTSTx(ctx, tx); err != nil {
 		return fmt.Errorf("build library search index: %w", err)
 	}
 	if err := validateIntegrityTx(ctx, tx); err != nil {
-		return fmt.Errorf("validate SQLite v6 integrity: %w", err)
+		return fmt.Errorf("validate SQLite v%d integrity: %w", storeSchemaVersion, err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, strconv.Itoa(storeSchemaVersion)); err != nil {
 		return fmt.Errorf("record settings schema version: %w", err)
@@ -215,7 +218,7 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO library_index_metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, libraryFTSFreshnessKey, "1"); err != nil {
 		return fmt.Errorf("record FTS freshness: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `PRAGMA user_version=6`); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version=%d`, storeSchemaVersion)); err != nil {
 		return fmt.Errorf("record SQLite user version: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM schema_meta`); err != nil {

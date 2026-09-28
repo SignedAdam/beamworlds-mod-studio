@@ -10,7 +10,7 @@ For this built checkout:
 2. On first launch, review the automatically detected BeamNG installation and user folder.
 3. Choose the mod library and BeamWorlds staging location, then save the setup.
 
-The CMD file is the only supported launcher. It starts `studio/BeamNGModStudio/bin/beamngmodstudio.exe`; the first-run wizard persists machine-local paths outside version control. The chosen Studio storage directory contains SQLite metadata, content-addressed images, editable workspaces, mod-profile cache, and immutable exports.
+The CMD file is the only supported launcher. It starts `studio/BeamNGModStudio/bin/beamngmodstudio.exe`; the first-run wizard persists machine-local paths outside version control. The chosen Studio storage directory contains SQLite metadata, content-addressed images, editable workspaces, Play state, and immutable exports.
 
 `config.example.json` remains available for portable or managed deployments. The executable is generated build output and is not committed. A fresh clone must be built once before the launcher can run it.
 
@@ -72,6 +72,22 @@ Collections are the named sets; **Play** combines them into what launches.
 - The launch bar shows the result, for example `540 included − 76 left out = 464 mods`. It is worked out when you press **Play**, so mods you add later are included unless they are in a collection you left out.
 - **Save as new** keeps the combination as a profile you can switch back to.
 
+## Archive deployment and storage
+
+Your library archives are the only canonical copies. Play and collection folders deploy them directly; there is no intermediate ZIP cache.
+
+- **Settings → Storage and paths** (also offered in the setup wizard) chooses how external mods reach the game:
+  - **Automatic — recommended**: hardlink when the library and game share a volume, otherwise copy.
+  - **Hardlinks only**: never copy; mods on another volume block launch with the reason shown.
+  - **Copies — separate game files**: independent copies, reused on later launches instead of recopied.
+- Repository mods already inside BeamNG's mod folder are used in place.
+- Before anything is copied, Play shows the extra space needed and asks you to confirm. Insufficient space, changed archives, or unrecognized files in the managed folder block the launch with a specific reason.
+- Deployment is journaled. If Studio or Windows stops mid-change, the next start restores the previous selection or completes the new one; your library archives are never touched.
+- BeamNG must be closed while Studio changes the game's mods. Studio never closes it for you.
+- Removing or replacing a mod also retires its generated game and collection-folder copies. A copy that might be the last surviving data is kept for review instead.
+
+**Review storage** (in the same settings section) inventories library, game, collection-folder, and legacy-cache archives without changing anything. Hardlinked names are counted once. Only verified redundant copies are offered for removal, and each is checksum-verified against its library archive first. Archives with no surviving library copy can be recovered into the library. Exports, workspaces, backups, and unrecognized files are listed for context but never cleaned. Removing one name of a hardlinked file frees no space; results report what was actually removed.
+
 ## Library storage and caching
 
 Mod identities, archive locations, collection/tag memberships, ModMaker projects, and security analyses are separate related records. Full archive inspection documents remain in `artifacts`; they are not the library table's read model.
@@ -92,7 +108,7 @@ Full parsed manifests are cached on demand using artifact ID plus a unique metad
 - Every membership carries an enabled flag. A disabled mod keeps its place in the collection and stops shipping; a disabled child collection is not traversed from that parent. Enabled wins: a mod enabled in any reachable collection is included.
 - Successful scans disable collection entries whose last indexed archive was removed. Startup also repairs stale entries left by older scans. Membership and ordering remain intact; restore the archive and re-enable the mod to include it again. Another active source keeps the mod enabled, and failed or cancelled scans do not disable it.
 - On the first indexed library, the mods BeamNG already has enabled become one collection held by one profile, and that profile is selected. A fresh install therefore launches the mod set the user already had.
-- Play resolves the selected profile's collections into one deduplicated mod set. External archives are hardlinked or copied into `current/mods/beamworlds-managed`, BeamNG's native `db.json` active state is backed up and updated atomically, and normal settings, controls, and saves remain shared.
+- Play resolves the selected profile's collections into one deduplicated mod set, deploys it into `current/mods/beamworlds-managed` under the chosen deployment mode, and updates BeamNG's native `db.json` active state atomically. Normal settings, controls, and saves remain shared.
 - Profiles are named collection selections. Selecting, renaming, or deleting one never changes mod files or what BeamNG currently loads; only Play does.
 
 ## Build a fresh clone

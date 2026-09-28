@@ -403,7 +403,7 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 			return err
 		}
 		if entry.IsDir() {
-			if current != root && engine.skipDirectory(current, entry.Name()) {
+			if engine.skipDirectory(current, entry.Name()) {
 				return fs.SkipDir
 			}
 			if entry.Type()&osModeSymlink != 0 {
@@ -435,13 +435,25 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 const osModeSymlink = fs.ModeSymlink
 
 func (engine *LibraryEngine) skipDirectory(current, name string) bool {
+	for _, component := range strings.Split(filepath.ToSlash(filepath.Clean(current)), "/") {
+		component = strings.ToLower(component)
+		if component == managedModDirectoryName || strings.HasPrefix(component, ".beamworlds-") ||
+			strings.HasPrefix(component, managedModDirectoryName+"-") {
+			return true
+		}
+	}
+	for _, generated := range []string{engine.config.ProfileDir, engine.config.WorkspaceDir, engine.config.ImageCacheDir} {
+		if generated != "" && pathWithin(current, generated) { return true }
+	}
+	if engine.config.ExportDir != "" && pathWithin(current, filepath.Join(engine.config.ExportDir, collectionFolderDirectory)) { return true }
+	if engine.config.LibraryDir != "" && samePath(current, engine.config.LibraryDir) { return false }
 	lower := strings.ToLower(name)
 	switch lower {
 	case ".git", "node_modules", "backups", "temp", "$recycle.bin", "system volume information", "windows.old", "__macosx":
 		return true
 	}
-	if lower == managedModDirectoryName || strings.HasPrefix(lower, ".beamworlds-managed-") {
-		return true
+	if engine.config.LibraryDir != "" && (pathWithin(current, engine.config.LibraryDir) || pathWithin(engine.config.LibraryDir, current)) {
+		return false
 	}
 	for _, excluded := range []string{engine.config.ProjectRoot, engine.config.DataDir} {
 		if excluded != "" && pathWithin(current, excluded) {

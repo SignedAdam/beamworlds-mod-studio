@@ -23,7 +23,11 @@ func (service *AppService) GetCollection(collectionID string) (CollectionDetail,
 }
 
 func (service *AppService) UpdateCollection(collectionID, name, description string) (CollectionDetail, error) {
-	return service.store.UpdateCollection(context.Background(), collectionID, name, description)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	detail, err := service.store.UpdateCollection(context.Background(), collectionID, name, description)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return detail, err
 }
 
 func (service *AppService) DuplicateCollection(collectionID string) (CollectionDetail, error) {
@@ -35,23 +39,43 @@ func (service *AppService) GetCollectionDeleteImpact(collectionIDs []string) (Co
 }
 
 func (service *AppService) DeleteCollections(collectionIDs []string) (OrganizationState, error) {
-	return service.store.DeleteCollections(context.Background(), collectionIDs)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	state, err := service.store.DeleteCollections(context.Background(), collectionIDs)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return state, err
 }
 
 func (service *AppService) SetCollectionMods(collectionID string, entityIDs []string, included bool) (CollectionDetail, error) {
-	return service.store.SetCollectionMods(context.Background(), collectionID, entityIDs, included)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	detail, err := service.store.SetCollectionMods(context.Background(), collectionID, entityIDs, included)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return detail, err
 }
 
 func (service *AppService) SetCollectionChildren(collectionID string, childIDs []string, included bool) (CollectionDetail, error) {
-	return service.store.SetCollectionChildren(context.Background(), collectionID, childIDs, included)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	detail, err := service.store.SetCollectionChildren(context.Background(), collectionID, childIDs, included)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return detail, err
 }
 
 func (service *AppService) SetCollectionModsEnabled(collectionID string, entityIDs []string, enabled bool) (CollectionDetail, error) {
-	return service.store.SetCollectionModsEnabled(context.Background(), collectionID, entityIDs, enabled)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	detail, err := service.store.SetCollectionModsEnabled(context.Background(), collectionID, entityIDs, enabled)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return detail, err
 }
 
 func (service *AppService) SetCollectionChildrenEnabled(collectionID string, childIDs []string, enabled bool) (CollectionDetail, error) {
-	return service.store.SetCollectionChildrenEnabled(context.Background(), collectionID, childIDs, enabled)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	detail, err := service.store.SetCollectionChildrenEnabled(context.Background(), collectionID, childIDs, enabled)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return detail, err
 }
 
 func (service *AppService) ReorderCollectionMembers(collectionID string, entityIDs, childIDs []string) (CollectionDetail, error) {

@@ -43,7 +43,9 @@ type AppService struct {
 	gitRemoteMu        sync.Mutex
 	gitRemoteOps       map[string][]*appGitRemoteOperation
 	modImportMu        sync.Mutex
-	collectionFolderMu sync.Mutex
+	archivePolicyMu    sync.RWMutex
+	archiveHashMu      sync.Mutex
+	archiveHashes      map[archiveHashKey]string
 }
 
 type WorkspaceDetail struct {
@@ -117,7 +119,11 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 	return service
 }
 
-func (service *AppService) Config() AppConfig { return service.config }
+func (service *AppService) Config() AppConfig {
+	service.archivePolicyMu.RLock()
+	defer service.archivePolicyMu.RUnlock()
+	return service.config
+}
 
 func (service *AppService) Dashboard() (Dashboard, error) {
 	return service.store.Dashboard(context.Background(), service.config.DatabasePath)
@@ -139,6 +145,7 @@ func (service *AppService) ScanLibrary() (ScanSummary, error) {
 		// The first indexed library is what makes seeding possible: only then
 		// can BeamNG's enabled entries be matched to real mods.
 		service.seedDefaultPlayProfile(context.Background())
+		service.reportCollectionMirrorRetirement(context.Background())
 	}
 	return summary, err
 }
@@ -146,6 +153,8 @@ func (service *AppService) ScanLibrary() (ScanSummary, error) {
 func (service *AppService) CancelScan() bool { return service.library.Cancel() }
 
 func (service *AppService) CreateWorkspace(entityID string) (WorkspaceDetail, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
 	ctx := context.Background()
 	item, err := service.store.GetLibraryItem(ctx, entityID)
 	if err != nil {

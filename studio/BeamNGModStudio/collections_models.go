@@ -54,6 +54,7 @@ type CollectionUsage struct {
 
 type CollectionMod struct {
 	EntityID      string      `json:"entityId"`
+	ArtifactID    string      `json:"artifactId"`
 	DisplayName   string      `json:"displayName"`
 	Kind          modkit.Kind `json:"kind"`
 	ArchivePath   string      `json:"archivePath"`
@@ -131,9 +132,11 @@ type PlayState struct {
 }
 
 type PlayRequest struct {
-	CollectionIDs         []string `json:"collectionIds"`
-	ExcludedCollectionIDs []string `json:"excludedCollectionIds"`
-	Fingerprint           string   `json:"fingerprint"`
+	CollectionIDs           []string `json:"collectionIds"`
+	ExcludedCollectionIDs   []string `json:"excludedCollectionIds"`
+	Fingerprint             string   `json:"fingerprint"`
+	DeploymentFingerprint   string   `json:"deploymentFingerprint"`
+	AllowCopy               bool     `json:"allowCopy"`
 }
 
 type PlayProgress struct {
@@ -144,6 +147,7 @@ type PlayProgress struct {
 	Completed   int    `json:"completed"`
 	Total       int    `json:"total"`
 	BytesCopied int64  `json:"bytesCopied"`
+	BytesHashed int64  `json:"bytesHashed"`
 	TotalBytes  int64  `json:"totalBytes"`
 	Done        bool   `json:"done"`
 }

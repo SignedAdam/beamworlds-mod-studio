@@ -20,11 +20,19 @@ type ArchiveResult struct {
 }
 
 func (service *AppService) ArchiveMods(entityIDs []string) (ArchiveResult, error) {
-	return service.store.ArchiveMods(context.Background(), entityIDs)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	result, err := service.store.ArchiveMods(context.Background(), entityIDs)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return result, err
 }
 
 func (service *AppService) RestoreMods(entityIDs []string) (ArchiveResult, error) {
-	return service.store.RestoreMods(context.Background(), entityIDs)
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	result, err := service.store.RestoreMods(context.Background(), entityIDs)
+	if err == nil { service.reportCollectionMirrorRetirement(context.Background()) }
+	return result, err
 }
 
 func (s *Store) ArchiveMods(ctx context.Context, entityIDs []string) (ArchiveResult, error) {

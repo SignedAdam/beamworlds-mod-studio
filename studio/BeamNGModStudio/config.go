@@ -17,8 +17,9 @@ type AppConfig struct {
 	GameInstallDir  string   `json:"gameInstallDir"`
 	ScanRoots       []string `json:"scanRoots"`
 	ScanConcurrency int      `json:"scanConcurrency"`
-	DataDir         string   `json:"dataDir,omitempty"`
-	AIRuntimePath   string   `json:"-"`
+	DataDir                string   `json:"dataDir,omitempty"`
+	ArchiveDeploymentMode  string   `json:"archiveDeploymentMode,omitempty"`
+	AIRuntimePath          string   `json:"-"`
 
 	ConfigPath     string `json:"configPath"`
 	ProjectRoot    string `json:"projectRoot"`
@@ -66,6 +67,12 @@ func finalizeAppConfig(config AppConfig) (AppConfig, error) {
 	config.LibraryDir = cleanOptionalPath(config.LibraryDir)
 	config.GameInstallDir = cleanOptionalPath(config.GameInstallDir)
 	config.DataDir = cleanOptionalPath(config.DataDir)
+	if config.ArchiveDeploymentMode == "" {
+		config.ArchiveDeploymentMode = DeploymentModeAuto
+	}
+	if !ValidDeploymentMode(config.ArchiveDeploymentMode) {
+		return config, fmt.Errorf("invalid archive deployment mode: %q", config.ArchiveDeploymentMode)
+	}
 	if config.ScanConcurrency < 1 {
 		config.ScanConcurrency = 4
 	}

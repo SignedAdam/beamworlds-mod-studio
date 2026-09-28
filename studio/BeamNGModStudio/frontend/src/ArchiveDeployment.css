@@ -1,0 +1,239 @@
+/* Archive deployment mode selector and copy confirmation. */
+
+.deployment-mode {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 0;
+  background: var(--surface-soft);
+}
+
+.deployment-mode__legend {
+  font-size: var(--font-control);
+  font-weight: 600;
+  color: var(--text);
+  padding: 0 4px;
+}
+
+.deployment-mode__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.deployment-mode__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: var(--font-control);
+  line-height: 1.4;
+  transition: background 120ms;
+}
+
+.deployment-mode__option:hover {
+  background: var(--surface-raised);
+}
+
+.deployment-mode__option.is-selected {
+  background: color-mix(in srgb, var(--emphasis) 10%, transparent);
+}
+
+.deployment-mode__option.is-disabled {
+  color: var(--disabled);
+  cursor: default;
+}
+
+.deployment-mode__option.is-disabled:hover {
+  background: transparent;
+}
+
+.deployment-mode__option input[type="radio"] {
+  flex: none;
+  accent-color: var(--emphasis);
+}
+
+.deployment-mode__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.deployment-mode__disabled-reason {
+  flex: none;
+  font-size: var(--font-caption);
+  color: var(--text-3);
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--surface-raised);
+}
+
+.deployment-mode__status {
+  margin-top: 10px;
+  font-size: var(--font-caption);
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.deployment-mode__checking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+}
+
+.deployment-mode__error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+}
+
+.deployment-mode__summary {
+  color: var(--text-2);
+}
+
+.deployment-mode__warning {
+  margin-top: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+
+.deployment-mode__warning > svg {
+  flex: none;
+  color: var(--warning);
+  margin-top: 1px;
+}
+
+/* ── Capability details (mixed roots) ── */
+
+.deployment-capability-details {
+  margin-top: 4px;
+}
+
+.deployment-capability-details summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.deployment-capability-details summary:hover {
+  color: var(--emphasis);
+}
+
+.deployment-capability-details ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deployment-capability-details li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-caption);
+  color: var(--text-2);
+  flex-wrap: wrap;
+}
+
+.deployment-capability-path {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deployment-capability-badge {
+  flex: none;
+}
+
+.deployment-capability-free {
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+/* ── Copy confirmation ── */
+
+.copy-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.copy-confirmation__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-confirmation__header > svg {
+  flex: none;
+  color: var(--text-2);
+}
+
+.copy-confirmation__header strong {
+  font-size: var(--font-control);
+  color: var(--text);
+}
+
+.copy-confirmation__blockers {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--danger);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+
+.copy-confirmation__stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: var(--font-caption);
+}
+
+.copy-confirmation__stats > div {
+  display: contents;
+}
+
+.copy-confirmation__stats dt {
+  color: var(--text-3);
+}
+
+.copy-confirmation__stats dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.copy-confirmation__note {
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.copy-confirmation__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}

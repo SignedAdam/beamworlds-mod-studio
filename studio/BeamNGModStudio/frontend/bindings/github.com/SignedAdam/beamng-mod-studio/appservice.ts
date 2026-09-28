@@ -25,8 +25,37 @@ export function AnalyzeRuntime(workspaceID: string): $CancellablePromise<$models
     return $Call.ByID(2967954498, workspaceID);
 }
 
+/**
+ * ApplyStorageCleanup removes verified redundant archives. It validates the
+ * audit fingerprint, revalidates per-file identities, verifies canonical
+ * sources (SHA256 for independent copies), guards against a running game,
+ * persists per-item intent before each deletion and result afterward, and
+ * reports honest partial results. Finalization writes the journal outcome
+ * regardless of cancellation.
+ * 
+ * Caller must NOT hold modImportMu or store.writeMu.
+ */
+export function ApplyStorageCleanup(fingerprint: string, itemIDs: string[] | null): $CancellablePromise<$models.StorageCleanupResult> {
+    return $Call.ByID(1359898977, fingerprint, itemIDs);
+}
+
 export function ArchiveMods(entityIDs: string[] | null): $CancellablePromise<$models.ArchiveResult> {
     return $Call.ByID(2244110597, entityIDs);
+}
+
+/**
+ * AuditArchiveStorage performs a non-destructive, cancellable read-only
+ * inventory of archive storage. It scans configured source roots, the legacy
+ * archive cache, collection mirror directories, and the managed deployment
+ * directory. Each file is classified and deduplicated by physical identity.
+ * 
+ * All archive links (active AND inactive/archived) are included in the source
+ * catalog so retained versions are accounted for.
+ * 
+ * Caller does NOT need to hold modImportMu — this is read-only.
+ */
+export function AuditArchiveStorage(): $CancellablePromise<$models.StorageAudit> {
+    return $Call.ByID(3780483926);
 }
 
 /**
@@ -224,6 +253,14 @@ export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void
     return $Call.ByID(2373891276, sessionID);
 }
 
+/**
+ * GetArchiveDeploymentState reports the current mode, capabilities, and any
+ * warnings. Acquires archivePolicyMu for read.
+ */
+export function GetArchiveDeploymentState(): $CancellablePromise<$models.ArchiveDeploymentState> {
+    return $Call.ByID(290327004);
+}
+
 export function GetCollection(collectionID: string): $CancellablePromise<$models.CollectionDetail> {
     return $Call.ByID(116408958, collectionID);
 }
@@ -341,12 +378,8 @@ export function ModFamilies(): $CancellablePromise<$models.ModFamily[] | null> {
     return $Call.ByID(3872770186);
 }
 
-/**
- * OpenCollectionFolder refreshes the collection's folder mirror and opens it in
- * the native file manager.
- */
-export function OpenCollectionFolder(collectionID: string): $CancellablePromise<$models.CollectionFolder> {
-    return $Call.ByID(2615031338, collectionID);
+export function OpenCollectionFolder(collectionID: string, deploymentFingerprint: string, allowCopy: boolean): $CancellablePromise<$models.CollectionFolder> {
+    return $Call.ByID(2615031338, collectionID, deploymentFingerprint, allowCopy);
 }
 
 export function OpenGameDirectory(): $CancellablePromise<void> {
@@ -370,12 +403,27 @@ export function PlanArchiveFileRemoval(linkIDs: string[] | null): $CancellablePr
     return $Call.ByID(1157346201, linkIDs);
 }
 
+export function PlanCollectionFolder(collectionID: string): $CancellablePromise<$models.ArchiveDeploymentPlan> {
+    return $Call.ByID(2426582685, collectionID);
+}
+
 export function PlanModRemoval(entityIDs: string[] | null): $CancellablePromise<$models.ModRemovalImpact> {
     return $Call.ByID(627688409, entityIDs);
 }
 
 export function PlanModReplacement(keeperID: string, entityIDs: string[] | null): $CancellablePromise<$models.ModReplacementImpact> {
     return $Call.ByID(2816245377, keeperID, entityIDs);
+}
+
+/**
+ * PlanPlayDeployment builds a reviewed deployment plan for a Play selection.
+ * Does not mutate the filesystem or database. The plan includes a fingerprint
+ * that must be presented to apply it. OwnerID is the stable logical owner
+ * "active-play", not a per-invocation UUID; operationID is generated only at
+ * apply time.
+ */
+export function PlanPlayDeployment(request: $models.PlayRequest): $CancellablePromise<$models.ArchiveDeploymentPlan> {
+    return $Call.ByID(2943903888, request);
 }
 
 /**
@@ -397,6 +445,17 @@ export function PreviewLibraryArchiveMember(entityID: string, memberPath: string
     return $Call.ByID(1766868719, entityID, memberPath);
 }
 
+/**
+ * ProbeArchiveDeployment tests whether hardlinks are supported from sourceRoot
+ * to destinationRoot by creating a disposable probe file and attempting a link.
+ * It handles read-only sources by linking an existing file instead. Always
+ * cleans up probe artifacts. Does NOT create directories — probes the nearest
+ * existing ancestor of the destination instead.
+ */
+export function ProbeArchiveDeployment(sourceRoot: string, destinationRoot: string): $CancellablePromise<$models.ArchiveCapability> {
+    return $Call.ByID(4016566065, sourceRoot, destinationRoot);
+}
+
 export function PullWorkspaceGit(workspaceID: string, expectedFingerprint: string): $CancellablePromise<$models.GitOperationResult> {
     return $Call.ByID(2006851778, workspaceID, expectedFingerprint);
 }
@@ -407,6 +466,14 @@ export function PushWorkspaceGit(workspaceID: string): $CancellablePromise<$mode
 
 export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $CancellablePromise<$models.WorkspaceTextFile> {
     return $Call.ByID(3870910925, workspaceID, relativePath);
+}
+
+/**
+ * Recovery is an explicit import, not activation. Its source stays intact until
+ * verified canonical bytes, indexing, and the recovery journal are durable.
+ */
+export function RecoverStorageArchive(fingerprint: string, itemID: string): $CancellablePromise<$models.StorageCleanupResult> {
+    return $Call.ByID(3897181619, fingerprint, itemID);
 }
 
 /**
@@ -504,6 +571,17 @@ export function SearchWorkspace(workspaceID: string, options: $models.WorkspaceS
 
 export function SendVirgilMessage(sessionID: string, prompt: string, modelOverride: string): $CancellablePromise<$models.AgentRunRecord> {
     return $Call.ByID(311073238, sessionID, prompt, modelOverride);
+}
+
+/**
+ * SetArchiveDeploymentMode persists the new mode and returns the updated state.
+ * Acquires archivePolicyMu for write. Persists to disk BEFORE changing the
+ * in-memory value, so a crash after write but before memory update is safe
+ * (next startup reads the persisted value). Does not apply the mode; the next
+ * deployment uses it.
+ */
+export function SetArchiveDeploymentMode(mode: string): $CancellablePromise<$models.ArchiveDeploymentState> {
+    return $Call.ByID(4264004528, mode);
 }
 
 export function SetCollectionChildren(collectionID: string, childIDs: string[] | null, included: boolean): $CancellablePromise<$models.CollectionDetail> {

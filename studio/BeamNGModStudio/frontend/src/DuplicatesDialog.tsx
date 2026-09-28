@@ -453,8 +453,9 @@ function Outcome({
   if (isCopies(family)) {
     return (
       <p className="dup-outcome">
-        Deletes {others} extra {plural(others, "copy", "copies")}
-        {size}. Collections and tags are not affected.
+        Sends {others} extra {plural(others, "copy", "copies")} to the Recycle
+        Bin{size}. Any generated deployment aliases also retire. Collections and
+        tags are not affected.
       </p>
     );
   }
@@ -465,8 +466,9 @@ function Outcome({
   if (usageCount(places) === 0) {
     return (
       <p className="dup-outcome">
-        Deletes {subject}
-        {size}. {others === 1 ? "It isn\u2019t" : "They aren\u2019t"} in any
+        Sends {subject} to the Recycle Bin
+        {size}. Managed deployment aliases also retire.{" "}
+        {others === 1 ? "It isn\u2019t" : "They aren\u2019t"} in any
         collection or tag the kept version isn&rsquo;t already in.
       </p>
     );
@@ -474,17 +476,17 @@ function Outcome({
   if (decision === "replace") {
     return (
       <p className="dup-outcome">
-        Deletes {subject}
+        Sends {subject} to the Recycle Bin
         {size}. The kept version takes {others === 1 ? "its" : "their"} place
-        in {placesPhrase(places)}.
+        in {placesPhrase(places)}. Managed deployment aliases also retire.
       </p>
     );
   }
   return (
     <p className="dup-outcome">
-      Deletes {subject}
+      Sends {subject} to the Recycle Bin
       {size} and takes this mod out of {placesPhrase(places)}. The kept
-      version stays where it is.
+      version stays where it is. Managed deployment aliases also retire.
     </p>
   );
 }
@@ -975,7 +977,7 @@ export function DuplicatesDialog({
       const failures = result?.failures ?? [];
       const recycled = result?.recycled ?? 0;
       return {
-        summary: `Kept ${keptName}. Deleted ${recycled} extra ${plural(recycled, "copy", "copies")}.`,
+        summary: `Kept ${keptName}. Recycled ${recycled} extra ${plural(recycled, "copy", "copies")}. Any managed deployment links were also retired.`,
         warning:
           failures.length > 0
             ? `${failures.length} ${plural(failures.length, "copy", "copies")} couldn\u2019t be deleted: ${failures.join("; ")}`
@@ -1008,7 +1010,7 @@ export function DuplicatesDialog({
         ? " It took over their collections and tags."
         : "";
     return {
-      summary: `Kept ${keptName}. Deleted ${deleted} ${plural(deleted, "version", "versions")}${result.recycledBytes > 0 ? ` (${formatBytes(result.recycledBytes)})` : ""}.${moved}`,
+      summary: `Kept ${keptName}. Recycled ${deleted} ${plural(deleted, "version", "versions")}${result.recycledBytes > 0 ? ` (${formatBytes(result.recycledBytes)} sent to Recycle Bin)` : ""}. Generated deployment aliases also retired.${moved}`,
       warning:
         failures.length > 0
           ? `${failures.length} ${plural(failures.length, "version", "versions")} couldn\u2019t be deleted and ${plural(failures.length, "stays", "stay")} in the library: ${failures.join("; ")}`

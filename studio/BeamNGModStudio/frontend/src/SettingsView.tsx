@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Browser, Events } from '@wailsio/runtime'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
 import type { AIConnectionEvent, AIConnectionStart, AIConnectionState, AIProviderConnection, AIUsage, AppSettings, SettingsUpdate } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { DeploymentModeSelector } from './ArchiveDeployment'
+import { useArchiveCapability } from './useArchiveCapability'
+import type { DeploymentMode } from './archiveTypes'
+import { StorageReview } from './StorageReview'
 import { Icon } from './icons'
 import { Badge, Button, Page, Spinner } from './ui'
 
@@ -109,9 +113,10 @@ interface SettingsViewProps {
   onSave: (update: SettingsUpdate) => Promise<boolean>
   onOpenSetup: () => void
   onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void
+  onRefreshLibrary: () => void
 }
 
-export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }: SettingsViewProps) {
+export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, onRefreshLibrary }: SettingsViewProps) {
   const [draft, setDraft] = useState<AppSettings | null>(settings)
   const [keyDrafts, setKeyDrafts] = useState<KeyDrafts>(emptyKeyDrafts)
   const [saving, setSaving] = useState(false)
@@ -377,7 +382,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify }:
 
       <fieldset><legend>ModMaker</legend><label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span><strong>Files navigator</strong> · Show file sizes in the file navigator</span></label><label className="settings-field auto-format-delay-field"><span>Auto-format delay</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })} aria-describedby="auto-format-delay-help"/><small id="auto-format-delay-help">Format after typing stops for this many milliseconds (50–2,000).</small></label></fieldset>
       <fieldset><legend>New mod defaults</legend><label className="settings-field"><span>Author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Used by new mods" maxLength={80}/><small>The first author entered in the manual wizard becomes this default.</small></label></fieldset>
-      <fieldset><legend>Storage and paths</legend><div className="settings-row"><label>BeamNG and staging locations<span>Change the game, mod library, or BeamWorlds storage folders.</span></label><Button onClick={onOpenSetup}>Open setup</Button></div></fieldset>
+      <fieldset><legend>Storage and paths</legend><div className="settings-row"><label>BeamNG and staging locations<span>Change the game, mod library, or BeamWorlds storage folders.</span></label><Button onClick={onOpenSetup}>Open setup</Button></div><SettingsDeploymentMode onNotify={onNotify}/><SettingsStorageReview onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/></fieldset>
       <fieldset><legend>Status bar</legend><label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show authenticated provider usage after Virgil has been used</span></label>
         {usage?.hasRuns && <div className="usage-table"><div><span>ModMaker runs</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Recorded tokens</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p>{usage.usageError}</p>}</div>}
       </fieldset>
@@ -594,4 +599,38 @@ function clampAutoFormatDelay(value: number) {
 
 function ColorSetting({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return <label className="color-setting"><span>{label}</span><input type="color" value={value} onChange={event => onChange(event.target.value)}/><code>{value}</code></label>
+}
+
+function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void }) {
+  const cap = useArchiveCapability('', '')
+
+  const handleChange = async (mode: DeploymentMode) => {
+    const result = await cap.setMode(mode)
+    if (result) onNotify('Deployment mode updated. It takes effect on the next launch.', 'success')
+  }
+
+  return <div className="settings-row">
+    <DeploymentModeSelector
+      mode={cap.mode}
+      capabilities={cap.capabilities}
+      mixed={cap.mixed}
+      warning={cap.warning}
+      loading={cap.loading}
+      error={cap.error}
+      onChange={mode => void handleChange(mode)}
+      onRefresh={cap.refresh}
+    />
+  </div>
+}
+
+function SettingsStorageReview({ onNotify, onRefreshLibrary }: { onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void; onRefreshLibrary: () => void }) {
+  const [open, setOpen] = useState(false)
+
+  return <>
+    <div className="settings-row">
+      <label>Review storage<span>Audit archive deployment, identify redundant copies, and clean up safely.</span></label>
+      <Button onClick={() => setOpen(true)}>Review storage</Button>
+    </div>
+    {open && <StorageReview onClose={() => setOpen(false)} onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/>}
+  </>
 }

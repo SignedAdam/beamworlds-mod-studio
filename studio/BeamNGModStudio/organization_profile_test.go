@@ -509,9 +509,13 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 		}
 		return selection
 	}
-	reviewedPlay := func(label string, act func(PlayRequest) (PlayResult, error)) PlayResult {
+	reviewedPlay := func(label string, act func(context.Context, PlayRequest) (PlayResult, error)) PlayResult {
 		t.Helper()
-		result, err := act(PlayRequest{CollectionIDs: roots, Fingerprint: review().Fingerprint})
+		request := PlayRequest{CollectionIDs: roots, Fingerprint: review().Fingerprint, AllowCopy: true}
+		plan, err := service.PlanPlayDeployment(context.Background(), request)
+		if err != nil { t.Fatal(err) }
+		request.DeploymentFingerprint = plan.Fingerprint
+		result, err := act(context.Background(), request)
 		if err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
@@ -586,7 +590,7 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 	if len(progress) == 0 || !progress[len(progress)-1].Done || progress[len(progress)-1].Phase != "started" {
 		t.Fatalf("terminal launch progress missing: %#v", progress)
 	}
-	if _, err := service.LaunchPlaySelection(PlayRequest{CollectionIDs: roots, Fingerprint: "stale-review"}); err == nil {
+	if _, err := service.LaunchPlaySelection(context.Background(), PlayRequest{CollectionIDs: roots, Fingerprint: "stale-review"}); err == nil {
 		t.Fatal("a stale review fingerprint was activated without a fresh review")
 	}
 	for _, source := range []string{first.Workspace.SourcePath, second.Workspace.SourcePath} {
@@ -594,9 +598,11 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	reviewedPlay("content-addressed Play cache did not survive unavailable cross-root sources", service.LaunchPlaySelection)
+	if _, err := service.LaunchPlaySelection(context.Background(), PlayRequest{CollectionIDs: roots, Fingerprint: review().Fingerprint}); err == nil {
+		t.Fatal("missing canonical sources were silently replaced by a legacy cache fallback")
+	}
 
-	launch := reviewedPlay("launch reviewed Play selection", service.LaunchPlaySelection)
+	launch := applied
 	if !launch.Started || launch.Process.PID != 4242 || gotExecutable != service.config.GameExecutable || gotDirectory != service.config.GameInstallDir || len(gotArguments) != 2 || gotArguments[0] != "-userpath" || gotArguments[1] != launch.Activation.UserPath {
 		t.Fatalf("Play launch contract mismatch: launch=%#v executable=%q arguments=%#v directory=%q", launch, gotExecutable, gotArguments, gotDirectory)
 	}

@@ -95,6 +95,9 @@ type ArchiveMemberPreview struct {
 }
 
 func (service *AppService) UpdateLibraryItemDetails(entityID string, update LibraryItemDetailsUpdate) (EntityDetail, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	if err := service.requireGameStopped(); err != nil { return EntityDetail{}, err }
 	ctx := context.Background()
 	item, err := service.store.GetLibraryItem(ctx, strings.TrimSpace(entityID))
 	if err != nil {
@@ -113,7 +116,10 @@ func (service *AppService) UpdateLibraryItemDetails(entityID string, update Libr
 	putMetadataUpdate(updates, metadata, []string{"tag_line", "description", "Description"}, "description", optionalStringUpdate(update.Description))
 	putMetadataUpdate(updates, metadata, []string{"username", "author", "Author", "authors"}, "author", optionalStringUpdate(update.Author))
 	putMetadataUpdate(updates, metadata, []string{"version_string", "version", "Version"}, "version", optionalStringUpdate(update.Version))
-	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true); err != nil {
+	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true, func() error {
+		if err := service.retireArchiveReferences(ctx, []string{item.EntityID}); err != nil { return err }
+		return service.requireGameStopped()
+	}); err != nil {
 		return EntityDetail{}, err
 	}
 
@@ -126,6 +132,9 @@ func (service *AppService) UpdateLibraryItemDetails(entityID string, update Libr
 }
 
 func (service *AppService) UpdateLibraryVariant(entityID string, update LibraryVariantUpdate) (EntityDetail, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	if err := service.requireGameStopped(); err != nil { return EntityDetail{}, err }
 	ctx := context.Background()
 	item, err := service.store.GetLibraryItem(ctx, strings.TrimSpace(entityID))
 	if err != nil {
@@ -155,7 +164,10 @@ func (service *AppService) UpdateLibraryVariant(entityID string, update LibraryV
 	if err != nil {
 		return EntityDetail{}, err
 	}
-	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true); err != nil {
+	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true, func() error {
+		if err := service.retireArchiveReferences(ctx, []string{item.EntityID}); err != nil { return err }
+		return service.requireGameStopped()
+	}); err != nil {
 		return EntityDetail{}, err
 	}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 	"path/filepath"
@@ -19,6 +20,7 @@ func init() {
 	application.RegisterEvent[PlayProgress]("play:progress")
 	application.RegisterEvent[VirusScanProgress]("virus:scan")
 	application.RegisterEvent[AIConnectionEvent]("ai:connection")
+	application.RegisterEvent[StorageProgress]("storage:progress")
 }
 
 func main() {
@@ -43,6 +45,18 @@ func main() {
 		}
 	}
 	service := NewAppService(config, store, emit)
+	service.modImportMu.Lock()
+	if err := service.reconcileStorageJournals(context.Background()); err != nil {
+		log.Printf("archive storage recovery pending: %v", err)
+	} else if err := service.recoverArchiveDeployment(context.Background()); err != nil {
+		log.Printf("archive deployment recovery pending: %v", err)
+	} else {
+		if err := service.adoptExistingManagedEntries(context.Background()); err != nil {
+			log.Printf("legacy archive ownership review required: %v", err)
+		}
+		service.reportCollectionMirrorRetirement(context.Background())
+	}
+	service.modImportMu.Unlock()
 	embedded := application.AssetFileServerFS(assets)
 	app = application.New(application.Options{
 		Name:        "BeamWorlds Mod Studio",

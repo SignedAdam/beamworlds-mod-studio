@@ -7,6 +7,7 @@ import type {
 } from "react";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
+  ArchiveDeploymentPlan,
   CollectionDetail,
   CollectionReference,
   CollectionUsage,
@@ -14,6 +15,7 @@ import type {
   ModCollection,
   OrganizationState,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
+import { CopyConfirmation } from "./ArchiveDeployment";
 import { CollectionCoverEditor } from "./CollectionArtwork";
 import {
   CollectionCard,
@@ -525,22 +527,69 @@ export function CollectionsView({
     );
   };
 
-  // The folder is a mirror of the resolved selection, so it is refreshed on
-  // every open rather than kept in sync in the background.
+  // ── Collection folder with deployment plan / copy confirmation ──
+  const [folderPlan, setFolderPlan] = useState<ArchiveDeploymentPlan | null>(null);
+  const [folderPlanCollection, setFolderPlanCollection] = useState<ModCollection | null>(null);
+  const [folderBusy, setFolderBusy] = useState(false);
+
   const openCollectionFolder = async (collection: ModCollection) => {
     setContextMenu(null);
-    const folder = await runOperation("Opening collection folder", () =>
-      API.OpenCollectionFolder(collection.id),
-    );
-    if (!folder) return;
-    const skipped = folder.skippedMods?.length ?? 0;
-    const mods = `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? "" : "s"}`;
-    onNotify(
-      skipped > 0
-        ? `Opened “${folder.name}” with ${mods}; ${skipped.toLocaleString()} unavailable mod${skipped === 1 ? "" : "s"} skipped.`
-        : `Opened “${folder.name}” with ${mods}.`,
-      skipped > 0 ? "info" : "success",
-    );
+    setFolderBusy(true);
+    try {
+      const plan: ArchiveDeploymentPlan = await API.PlanCollectionFolder(collection.id);
+      const blockers = plan.blockers?.filter(Boolean) ?? [];
+      if (blockers.length > 0 || plan.requiresCopyConfirmation) {
+        setFolderPlan(plan);
+        setFolderPlanCollection(collection);
+        return;
+      }
+      // No confirmation needed — open directly.
+      const folder = await API.OpenCollectionFolder(
+        collection.id,
+        plan.fingerprint,
+        false,
+      );
+      if (!folder) return;
+      const skipped = folder.skippedMods?.length ?? 0;
+      const mods = `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? "" : "s"}`;
+      onNotify(
+        skipped > 0
+          ? `Opened "${folder.name}" with ${mods}; ${skipped.toLocaleString()} unavailable mod${skipped === 1 ? "" : "s"} skipped.`
+          : `Opened "${folder.name}" with ${mods}.`,
+        skipped > 0 ? "info" : "success",
+      );
+    } catch (error) {
+      onError(error);
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
+  const confirmFolderCopy = async () => {
+    if (!folderPlan || !folderPlanCollection) return;
+    setFolderBusy(true);
+    try {
+      const folder = await API.OpenCollectionFolder(
+        folderPlanCollection.id,
+        folderPlan.fingerprint,
+        true,
+      );
+      setFolderPlan(null);
+      setFolderPlanCollection(null);
+      if (!folder) return;
+      const skipped = folder.skippedMods?.length ?? 0;
+      const mods = `${folder.modCount.toLocaleString()} mod${folder.modCount === 1 ? "" : "s"}`;
+      onNotify(
+        skipped > 0
+          ? `Opened "${folder.name}" with ${mods}; ${skipped.toLocaleString()} unavailable mod${skipped === 1 ? "" : "s"} skipped.`
+          : `Opened "${folder.name}" with ${mods}.`,
+        skipped > 0 ? "info" : "success",
+      );
+    } catch (error) {
+      onError(error);
+    } finally {
+      setFolderBusy(false);
+    }
   };
 
   const openUsage = async (collection: ModCollection) => {
@@ -1223,6 +1272,7 @@ export function CollectionsView({
       {renderDialog()}
       {coverEditorCollection && <CollectionCoverEditor collection={coverEditorCollection} items={items} onSaved={(next) => void updateCoverDetail(next)} onClose={() => setCoverEditorCollection(null)} onError={onError} />}
       {contextMenu && <CollectionMenuPopup label="Collection actions" x={contextMenu.x} y={contextMenu.y} actions={contextActions} onClose={() => setContextMenu(null)} />}
+      {folderPlan && folderPlanCollection && <CollectionDialog title={`Open "${folderPlanCollection.name}" as folder`} onClose={() => { setFolderPlan(null); setFolderPlanCollection(null); }}><CopyConfirmation plan={folderPlan} purpose="Open folder" busy={folderBusy} onConfirm={() => void confirmFolderCopy()} onCancel={() => { setFolderPlan(null); setFolderPlanCollection(null); }} /></CollectionDialog>}
     </Page>;
   }
 
@@ -1234,6 +1284,7 @@ export function CollectionsView({
     {dialog && renderDialog()}
     {coverEditorCollection && <CollectionCoverEditor collection={coverEditorCollection} items={items} onSaved={(next) => void updateCoverDetail(next)} onClose={() => setCoverEditorCollection(null)} onError={onError} />}
     {contextMenu && <CollectionMenuPopup label="Collection actions" x={contextMenu.x} y={contextMenu.y} actions={contextActions} onClose={() => setContextMenu(null)} />}
+    {folderPlan && folderPlanCollection && <CollectionDialog title={`Open "${folderPlanCollection.name}" as folder`} onClose={() => { setFolderPlan(null); setFolderPlanCollection(null); }}><CopyConfirmation plan={folderPlan} purpose="Open folder" busy={folderBusy} onConfirm={() => void confirmFolderCopy()} onCancel={() => { setFolderPlan(null); setFolderPlanCollection(null); }} /></CollectionDialog>}
   </Page>;
 }
 

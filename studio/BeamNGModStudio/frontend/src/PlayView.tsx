@@ -12,6 +12,7 @@ import {
   CollectionDialog,
   CollectionMenuPopup,
 } from "./CollectionUI";
+import { CopyConfirmation } from "./ArchiveDeployment";
 import { Icon } from "./icons";
 import { Badge, Button, Page, Spinner, thumbUrl } from "./ui";
 import type { PlaySession } from "./usePlaySession";
@@ -167,7 +168,7 @@ export function PlayView({
       .sort((left, right) => (left.position - right.position) || left.name.localeCompare(right.name))
       .filter((collection) => !normalized || collection.name.toLowerCase().includes(normalized) || collection.description.toLowerCase().includes(normalized));
   }, [collections, query]);
-  const selectionBusy = Boolean(session.operationBusy || session.busy);
+  const selectionBusy = Boolean(session.operationBusy || session.busy || session.planningDeployment);
   const profilesExist = profiles.length > 0;
   const activeProfileName = profiles.find((profile) => profile.id === session.profileId)?.name ?? "Default";
   const dirtyProfileLabel = (profile: ModProfile) =>
@@ -176,7 +177,9 @@ export function PlayView({
 
   // Readiness line: shows arithmetic from the resolved selection.
   const pickedCollections = session.selection.filter((id) => id !== ALL_MODS_ID).length;
-  const readinessText = session.previewLoading
+  const readinessText = session.planningDeployment
+    ? "Planning deployment\u2026"
+    : session.previewLoading
     ? "Checking mods\u2026"
     : noModsSelected
       ? "No mods selected"
@@ -291,7 +294,37 @@ export function PlayView({
 
   const handlePlay = async () => {
     try {
-      const nextResult = await session.launchSelection();
+      // Plan the deployment first so we can show blockers or copy confirmation.
+      const plan = await session.planDeployment();
+      if (!plan) return; // error or superseded — error dialog shows on re-render
+      const blockers = plan.blockers?.filter(Boolean) ?? [];
+      if (blockers.length > 0) {
+        // Blockers are shown in the deployment plan dialog below.
+        return;
+      }
+      if (plan.requiresCopyConfirmation) {
+        // The copy confirmation dialog will handle launching after user accepts.
+        return;
+      }
+      // No blockers, no copy confirmation needed — launch directly.
+      const nextResult = await session.launchSelection(plan.fingerprint, false);
+      if (nextResult.error || !nextResult.applied || !nextResult.started) {
+        onNotify(resultSummary(nextResult), nextResult.processUncertain ? "error" : "info");
+      } else {
+        onNotify(resultSummary(nextResult), "success");
+      }
+    } catch (error) {
+      onError(error);
+    }
+  };
+
+  const handleConfirmCopy = async () => {
+    if (!session.deploymentPlan) return;
+    try {
+      const nextResult = await session.launchSelection(
+        session.deploymentPlan.fingerprint,
+        true,
+      );
       if (nextResult.error || !nextResult.applied || !nextResult.started) {
         onNotify(resultSummary(nextResult), nextResult.processUncertain ? "error" : "info");
       } else {
@@ -502,7 +535,7 @@ export function PlayView({
               type="button"
               className="play-launch-button"
               disabled={selectionBusy || session.previewLoading || !session.preview}
-              aria-busy={session.operationBusy === "launch"}
+              aria-busy={session.operationBusy === "launch" || session.planningDeployment}
               onClick={() => void handlePlay()}
             >
               {launchArt.previous && (
@@ -557,6 +590,31 @@ export function PlayView({
         <p className="play-dialog-copy">Only this saved selection will be deleted. Collections, mod archives, and the currently applied BeamNG selection remain untouched.</p>
         {deleteTarget.id === session.profileId && <div className="play-dialog-warning"><Icon name="warning" size={14} /><span>This is the active profile. Its current visible draft, including unsaved changes, will be detached into Default.</span></div>}
       </CollectionDialog>}
+
+      {session.deploymentPlanError && !session.deploymentPlan && (
+        <CollectionDialog title="Deployment check failed" onClose={() => session.clearDeploymentPlan()}>
+          <div className="play-dialog-warning"><Icon name="error" size={14} /><span>{session.deploymentPlanError}</span></div>
+          <footer style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 8 }}>
+            <Button onClick={() => session.clearDeploymentPlan()}>Close</Button>
+            <Button tone="primary" icon="refresh" onClick={() => void handlePlay()}>Retry</Button>
+          </footer>
+        </CollectionDialog>
+      )}
+
+      {session.deploymentPlan && (session.deploymentPlan.requiresCopyConfirmation || (session.deploymentPlan.blockers ?? []).length > 0) && (
+        <CollectionDialog
+          title="Deployment review"
+          onClose={() => session.clearDeploymentPlan()}
+        >
+          <CopyConfirmation
+            plan={session.deploymentPlan}
+            purpose="Play"
+            busy={session.operationBusy === "launch"}
+            onConfirm={() => void handleConfirmCopy()}
+            onCancel={() => session.clearDeploymentPlan()}
+          />
+        </CollectionDialog>
+      )}
 
     </Page>
   );

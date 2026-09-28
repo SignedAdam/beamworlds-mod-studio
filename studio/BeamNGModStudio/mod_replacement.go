@@ -42,7 +42,8 @@ func (service *AppService) PlanModReplacement(keeperID string, entityIDs []strin
 func (service *AppService) ReplaceModArchives(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
 	service.modImportMu.Lock()
 	defer service.modImportMu.Unlock()
-	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, true)
+	if err := service.requireGameStopped(); err != nil { return ModReplacementResult{}, err }
+	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, true, service.retireArchiveReferences)
 }
 
 // RemoveModVersions retires the old versions and drops their collection and
@@ -51,7 +52,8 @@ func (service *AppService) ReplaceModArchives(keeperID string, entityIDs []strin
 func (service *AppService) RemoveModVersions(keeperID string, entityIDs []string, fingerprint string) (ModReplacementResult, error) {
 	service.modImportMu.Lock()
 	defer service.modImportMu.Unlock()
-	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, false)
+	if err := service.requireGameStopped(); err != nil { return ModReplacementResult{}, err }
+	return service.store.retireModVersions(context.Background(), keeperID, entityIDs, fingerprint, false, service.retireArchiveReferences)
 }
 
 type replacementMembership struct {
@@ -304,9 +306,10 @@ func (archive *replacementArchive) readFileIdentity() error {
 
 // retireModVersions moves (transferUsages) or drops the old versions' usages in
 // one transaction, then recycles and forgets each old version.
-func (s *Store) retireModVersions(ctx context.Context, keeperID string, entityIDs []string, fingerprint string, transferUsages bool) (ModReplacementResult, error) {
+func (s *Store) retireModVersions(ctx context.Context, keeperID string, entityIDs []string, fingerprint string, transferUsages bool, retireReferences func(context.Context, []string) error) (ModReplacementResult, error) {
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	locked := true
+	defer func() { if locked { s.writeMu.Unlock() } }()
 	result := ModReplacementResult{Failures: []string{}}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -346,10 +349,18 @@ func (s *Store) retireModVersions(ctx context.Context, keeperID string, entityID
 	if err := tx.Commit(); err != nil {
 		return result, err
 	}
+	s.writeMu.Unlock()
+	locked = false
 	result.Replaced = len(plan.Entities) - 1
 	// Filesystem recycling cannot share a transaction with SQLite. The durable
 	// usage change above makes even a partial cleanup safe and reviewable on retry.
 	for _, source := range plan.Entities[1:] {
+		if retireReferences != nil {
+			if err := retireReferences(ctx, []string{source.ID}); err != nil {
+				result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", source.Name, err))
+				continue
+			}
+		}
 		if err := s.retireReplacementSource(ctx, source, &result); err != nil {
 			result.Failures = append(result.Failures, fmt.Sprintf("%s: %v", source.Name, err))
 		}
@@ -459,6 +470,8 @@ func dropRetiredReferencesTx(ctx context.Context, tx *sql.Tx, plan replacementPl
 }
 
 func (s *Store) retireReplacementSource(ctx context.Context, source replacementEntity, result *ModReplacementResult) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

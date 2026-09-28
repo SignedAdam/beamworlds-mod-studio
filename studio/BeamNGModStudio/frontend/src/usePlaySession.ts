@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import type {
+  ArchiveDeploymentPlan,
   ModProfile,
   OrganizationState,
   PlayProgress,
@@ -37,6 +38,12 @@ export interface PlaySession {
   runtime: PlayRuntimeState | null;
   result: PlayResult | null;
   hydrationReady: boolean;
+  /** Deployment plan from PlanPlayDeployment; null until planned. */
+  deploymentPlan: ArchiveDeploymentPlan | null;
+  /** True while PlanPlayDeployment is in flight. */
+  planningDeployment: boolean;
+  /** Error from the last PlanPlayDeployment call. */
+  deploymentPlanError: string;
   setSelection: (ids: string[]) => Promise<void>;
   toggleCollection: (id: string) => Promise<void>;
   toggleExclusion: (id: string) => Promise<void>;
@@ -49,9 +56,14 @@ export interface PlaySession {
   revertProfile: () => Promise<void>;
   renameProfile: (profileId: string, name: string) => Promise<ModProfile>;
   deleteProfile: (profileId: string) => Promise<void>;
-  launchSelection: () => Promise<PlayResult>;
+  /** Plan deployment and return the plan. The plan is also stored in session state. */
+  planDeployment: () => Promise<ArchiveDeploymentPlan | null>;
+  /** Launch with an explicit deployment fingerprint and copy allowance. */
+  launchSelection: (deploymentFingerprint?: string, allowCopy?: boolean) => Promise<PlayResult>;
   refreshPreview: () => Promise<void>;
   reloadState: () => Promise<void>;
+  /** Clear the current deployment plan (e.g. after selection change). */
+  clearDeploymentPlan: () => void;
 }
 
 function uniqueIDs(ids: readonly string[] | null | undefined): string[] {
@@ -140,6 +152,11 @@ export function usePlaySession(
   const [hydrationReady, setHydrationReady] = useState(false);
   const [hydrationApplied, setHydrationApplied] = useState(false);
   const [baselineOverrides, setBaselineOverrides] = useState<Record<string, ProfileBaseline>>({});
+  const [deploymentPlan, setDeploymentPlan] = useState<ArchiveDeploymentPlan | null>(null);
+  const [planningDeployment, setPlanningDeployment] = useState(false);
+  const [deploymentPlanError, setDeploymentPlanError] = useState("");
+  const deploymentPlanRef = useRef<ArchiveDeploymentPlan | null>(null);
+  const deploymentPlanVersionRef = useRef(0);
 
   const selectionRef = useRef<string[]>([]);
   const excludedSelectionRef = useRef<string[]>([]);
@@ -273,6 +290,9 @@ export function usePlaySession(
     }
     resultRef.current = null;
     setResult(null);
+    deploymentPlanRef.current = null;
+    setDeploymentPlan(null);
+    setDeploymentPlanError("");
     await Promise.all([persistState(), refreshPreviewFor(next, nextExcluded)]);
   }, [persistState, refreshPreviewFor]);
 
@@ -500,7 +520,69 @@ export function usePlaySession(
     }
   }, [beginBusy, finishBusy, persistState]);
 
-  const runPlayOperation = useCallback(async () => {
+  const planDeployment = useCallback(async (): Promise<ArchiveDeploymentPlan | null> => {
+    if (operationBusyRef.current || busyRef.current) throw new Error("Another Play operation is already in progress.");
+    const capturedSelection = [...selectionRef.current];
+    const capturedExcluded = [...excludedSelectionRef.current];
+    const version = ++deploymentPlanVersionRef.current;
+    setPlanningDeployment(true);
+    setDeploymentPlanError("");
+    try {
+      // Ensure the selection is resolved first.
+      let resolved = previewRef.current;
+      if (
+        !resolved ||
+        !sameSet(resolved.collectionIds ?? [], capturedSelection) ||
+        !sameSet(resolved.excludedCollectionIds ?? [], capturedExcluded)
+      ) {
+        resolved = await API.ResolvePlaySelection(capturedSelection, capturedExcluded);
+        if (!mountedRef.current || version !== deploymentPlanVersionRef.current) return null;
+        if (
+          !sameSet(capturedSelection, selectionRef.current) ||
+          !sameSet(capturedExcluded, excludedSelectionRef.current)
+        ) {
+          throw new Error("The Play selection changed while planning. Review it and try again.");
+        }
+        previewRef.current = resolved;
+        setPreviewState(resolved);
+        setPreviewError("");
+      }
+      const request: PlayRequest = {
+        collectionIds: capturedSelection,
+        excludedCollectionIds: capturedExcluded,
+        fingerprint: resolved.fingerprint,
+        deploymentFingerprint: "",
+        allowCopy: false,
+      };
+      const plan: ArchiveDeploymentPlan = await API.PlanPlayDeployment(request);
+      if (!mountedRef.current || version !== deploymentPlanVersionRef.current) return null;
+      deploymentPlanRef.current = plan;
+      setDeploymentPlan(plan);
+      return plan;
+    } catch (error) {
+      if (mountedRef.current && version === deploymentPlanVersionRef.current) {
+        setDeploymentPlanError(errorMessage(error));
+      }
+      return null;
+    } finally {
+      if (mountedRef.current && version === deploymentPlanVersionRef.current) {
+        setPlanningDeployment(false);
+      }
+    }
+  }, []);
+
+  const clearDeploymentPlan = useCallback(() => {
+    deploymentPlanVersionRef.current += 1;
+    deploymentPlanRef.current = null;
+    setDeploymentPlan(null);
+    setDeploymentPlanError("");
+    setPlanningDeployment(false);
+  }, []);
+
+  const runPlayOperation = useCallback(async (
+    deploymentFingerprint?: string,
+    allowCopy?: boolean,
+  ) => {
     if (operationBusyRef.current || busyRef.current) throw new Error("Another Play operation is already in progress.");
     const capturedSelection = [...selectionRef.current];
     const capturedExcluded = [...excludedSelectionRef.current];
@@ -530,11 +612,16 @@ export function usePlaySession(
         collectionIds: capturedSelection,
         excludedCollectionIds: capturedExcluded,
         fingerprint: resolved.fingerprint,
+        deploymentFingerprint: deploymentFingerprint ?? "",
+        allowCopy: allowCopy ?? false,
       };
       const nextResult = await API.LaunchPlaySelection(request);
       if (!mountedRef.current) return nextResult;
       resultRef.current = nextResult;
       setResult(nextResult);
+      // Clear the deployment plan after successful launch.
+      deploymentPlanRef.current = null;
+      setDeploymentPlan(null);
       try {
         const nextRuntime = await API.GetPlayRuntimeState();
         if (mountedRef.current) setRuntime(nextRuntime);
@@ -567,7 +654,7 @@ export function usePlaySession(
     }
   }, [appendNotice]);
 
-  const launchSelection = useCallback(() => runPlayOperation(), [runPlayOperation]);
+  const launchSelection = useCallback((depFingerprint?: string, depAllowCopy?: boolean) => runPlayOperation(depFingerprint, depAllowCopy), [runPlayOperation]);
 
   const refreshPreview = useCallback(async () => {
     await refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
@@ -758,6 +845,9 @@ export function usePlaySession(
     runtime,
     result,
     hydrationReady,
+    deploymentPlan,
+    planningDeployment,
+    deploymentPlanError,
     setSelection,
     toggleCollection,
     toggleExclusion,
@@ -770,26 +860,34 @@ export function usePlaySession(
     revertProfile,
     renameProfile,
     deleteProfile,
+    planDeployment,
     launchSelection,
     refreshPreview,
     reloadState,
+    clearDeploymentPlan,
   }), [
     addCollections,
     busy,
+    clearDeploymentPlan,
     clearSelection,
     createProfile,
     defaultSelection,
     deleteProfile,
+    deploymentPlan,
+    deploymentPlanError,
     dirty,
     excludedSelection,
     hydrationReady,
     launchSelection,
     notices,
     operationBusy,
+    planDeployment,
+    planningDeployment,
     preview,
     previewError,
     previewLoading,
     profileId,
+    progress,
     refreshPreview,
     reloadState,
     renameProfile,
@@ -803,7 +901,6 @@ export function usePlaySession(
     toggleCollection,
     toggleExclusion,
     updateProfile,
-    progress,
   ]);
 
   return session;

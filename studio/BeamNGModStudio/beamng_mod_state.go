@@ -14,91 +14,52 @@ import (
 const managedModDirectoryName = "beamworlds-managed"
 
 func applyBeamNGModSelection(activeModsDir string, selectedKeys []string) error {
-	selected := make(map[string]bool, len(selectedKeys))
-	for _, key := range selectedKeys {
-		key = strings.ToLower(strings.TrimSpace(key))
-		if key != "" {
-			selected[key] = true
-		}
-	}
-	databasePath := filepath.Join(activeModsDir, "db.json")
-	payload, err := os.ReadFile(databasePath)
-	if errors.Is(err, os.ErrNotExist) {
-		unknown, walkErr := unmanagedUnknownArchives(activeModsDir, selected, nil)
-		if walkErr != nil {
-			return walkErr
-		}
-		if len(unknown) > 0 {
-			return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection", filepath.Base(unknown[0]))
-		}
-		return nil
-	}
-	if err != nil {
+	original,updated,err:=prepareBeamNGModSelection(activeModsDir,selectedKeys)
+	if err!=nil || updated==nil{return err}
+	path:=filepath.Join(activeModsDir,"db.json")
+	if err:=writeFileAtomic(path+".beamworlds-backup",original,0644);err!=nil{return fmt.Errorf("back up BeamNG mod database: %w",err)}
+	if err:=writeFileAtomic(path,updated,0644);err!=nil{
+		if restoreErr:=writeFileAtomic(path,original,0644);restoreErr!=nil{return fmt.Errorf("update BeamNG mod database: %w (restore failed: %v)",err,restoreErr)}
 		return err
-	}
-	payload = bytes.TrimPrefix(payload, []byte{0xef, 0xbb, 0xbf})
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &document); err != nil {
-		return fmt.Errorf("parse BeamNG mod database: %w", err)
-	}
-	var mods map[string]json.RawMessage
-	if raw := document["mods"]; len(raw) > 0 {
-		if err := json.Unmarshal(raw, &mods); err != nil {
-			return fmt.Errorf("parse BeamNG mod entries: %w", err)
-		}
-	}
-	if mods == nil {
-		mods = map[string]json.RawMessage{}
-	}
-	known := make(map[string]bool, len(mods))
-	for key, raw := range mods {
-		normalized := strings.ToLower(strings.TrimSpace(key))
-		known[normalized] = true
-		var entry map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &entry); err != nil {
-			return fmt.Errorf("parse BeamNG mod %s: %w", key, err)
-		}
-		if entry == nil {
-			entry = map[string]json.RawMessage{}
-		}
-		if selected[normalized] {
-			entry["active"] = json.RawMessage("true")
-		} else {
-			entry["active"] = json.RawMessage("false")
-		}
-		updated, err := json.Marshal(entry)
-		if err != nil {
-			return err
-		}
-		mods[key] = updated
-	}
-	unknown, err := unmanagedUnknownArchives(activeModsDir, selected, known)
-	if err != nil {
-		return err
-	}
-	if len(unknown) > 0 {
-		return fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection", filepath.Base(unknown[0]))
-	}
-	updatedMods, err := json.Marshal(mods)
-	if err != nil {
-		return err
-	}
-	document["mods"] = updatedMods
-	updatedDocument, err := json.MarshalIndent(document, "", "  ")
-	if err != nil {
-		return err
-	}
-	updatedDocument = append(updatedDocument, '\n')
-	if err := writeFileAtomic(databasePath+".beamworlds-backup", append([]byte(nil), payload...), 0o644); err != nil {
-		return fmt.Errorf("back up BeamNG mod database: %w", err)
-	}
-	if err := writeFileAtomic(databasePath, updatedDocument, 0o644); err != nil {
-		if restoreErr := writeFileAtomic(databasePath, payload, 0o644); restoreErr != nil {
-			return fmt.Errorf("update BeamNG mod database: %w (restoring the original also failed: %v)", err, restoreErr)
-		}
-		return fmt.Errorf("update BeamNG mod database: %w", err)
 	}
 	return nil
+}
+
+// The preview and commit share one parser and exact-selection validation path.
+// Preparing native state does not modify db.json or its backup.
+func prepareBeamNGModSelection(activeModsDir string,selectedKeys []string)([]byte,[]byte,error){
+	selected:=make(map[string]bool,len(selectedKeys))
+	for _,key:=range selectedKeys{if key=strings.ToLower(strings.TrimSpace(key));key!=""{selected[key]=true}}
+	original,err:=os.ReadFile(filepath.Join(activeModsDir,"db.json"))
+	if errors.Is(err,os.ErrNotExist){
+		unknown,err:=unmanagedUnknownArchives(activeModsDir,selected,nil)
+		if err!=nil{return nil,nil,err}
+		if len(unknown)>0{return nil,nil,fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection",filepath.Base(unknown[0]))}
+		return nil,nil,nil
+	}
+	if err!=nil{return nil,nil,err}
+	var document map[string]json.RawMessage
+	if err:=json.Unmarshal(bytes.TrimPrefix(original,[]byte{0xef,0xbb,0xbf}),&document);err!=nil{return nil,nil,fmt.Errorf("parse BeamNG mod database: %w",err)}
+	if document==nil{return nil,nil,errors.New("BeamNG mod database must be a JSON object")}
+	mods:=map[string]json.RawMessage{}
+	if raw:=document["mods"];len(raw)>0{
+		if err:=json.Unmarshal(raw,&mods);err!=nil{return nil,nil,fmt.Errorf("parse BeamNG mod entries: %w",err)}
+	}
+	if mods==nil{mods=map[string]json.RawMessage{}}
+	known:=make(map[string]bool,len(mods))
+	for key,raw:=range mods{
+		normalized:=strings.ToLower(strings.TrimSpace(key));known[normalized]=true
+		var entry map[string]json.RawMessage
+		if err:=json.Unmarshal(raw,&entry);err!=nil{return nil,nil,fmt.Errorf("parse BeamNG mod %s: %w",key,err)}
+		if entry==nil{entry=map[string]json.RawMessage{}}
+		if selected[normalized]{entry["active"]=json.RawMessage("true")}else{entry["active"]=json.RawMessage("false")}
+		encoded,err:=json.Marshal(entry);if err!=nil{return nil,nil,err};mods[key]=encoded
+	}
+	unknown,err:=unmanagedUnknownArchives(activeModsDir,selected,known);if err!=nil{return nil,nil,err}
+	if len(unknown)>0{return nil,nil,fmt.Errorf("BeamNG has not registered %s; start BeamNG once before applying an exact Play selection",filepath.Base(unknown[0]))}
+	encoded,err:=json.Marshal(mods);if err!=nil{return nil,nil,err};document["mods"]=encoded
+	updated,err:=json.MarshalIndent(document,"","  ");if err!=nil{return nil,nil,err}
+	return original,append(updated,'\n'),nil
 }
 
 // restoreBeamNGModDatabase rolls back a failed apply from the pre-write backup.

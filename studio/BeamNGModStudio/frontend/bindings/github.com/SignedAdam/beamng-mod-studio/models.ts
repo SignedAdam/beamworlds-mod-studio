@@ -93,6 +93,7 @@ export interface AppConfig {
     "scanRoots": string[] | null;
     "scanConcurrency": number;
     "dataDir"?: string;
+    "archiveDeploymentMode"?: string;
     "configPath": string;
     "projectRoot": string;
     "databasePath": string;
@@ -132,6 +133,98 @@ export interface AppSettings {
     "hasOpenRouterApiKey": boolean;
     "hasOpenAIApiKey": boolean;
     "hasAnthropicApiKey": boolean;
+}
+
+/**
+ * ArchiveCapability records the result of probing a source→destination pair
+ * for hardlink support and copy feasibility.
+ */
+export interface ArchiveCapability {
+    "sourceRoot": string;
+    "destinationRoot": string;
+    "sourceVolumeId": string;
+    "destinationVolumeId": string;
+    "hardlinks": boolean;
+    "checked": boolean;
+    "copyPossible": boolean;
+    "reasonCode": string;
+    "reason": string;
+    "checkedAt": string;
+    "freeBytes": number;
+}
+
+/**
+ * ArchiveDeploymentEntry describes one archive in a deployment plan or result.
+ */
+export interface ArchiveDeploymentEntry {
+    "entityId": string;
+    "artifactId": string;
+    "sourcePath": string;
+    "destinationPath": string;
+    "reusePath"?: string;
+    "sha256": string;
+    "method": string;
+    "reuse": boolean;
+    "verifySource": boolean;
+    "sizeBytes": number;
+    "sourceIdentity": ArchiveFileIdentity;
+    "targetIdentity": ArchiveFileIdentity;
+}
+
+/**
+ * ArchiveDeploymentPlan is the reviewed, fingerprinted plan for deploying a set
+ * of archives into the game's managed directory.
+ */
+export interface ArchiveDeploymentPlan {
+    "fingerprint": string;
+    "selectionFingerprint": string;
+    "mode": string;
+    "purpose": string;
+    "ownerId": string;
+    "destinationRoot": string;
+    "collectionIds": string[] | null;
+    "excludedCollectionIds": string[] | null;
+    "entries": ArchiveDeploymentEntry[] | null;
+    "capabilities": ArchiveCapability[] | null;
+    "copyBytes": number;
+    "hashBytes": number;
+    "retiring": OwnedArchiveEntry[] | null;
+    "ownershipFingerprint": string;
+    "peakBytes": number;
+    "additionalBytes": number;
+    "reusedCount": number;
+    "linkedCount": number;
+    "inPlaceCount": number;
+    "requiresCopyConfirmation": boolean;
+    "merge": boolean;
+    "blockers": string[] | null;
+}
+
+/**
+ * ArchiveDeploymentState reports the current deployment policy and capabilities.
+ */
+export interface ArchiveDeploymentState {
+    "mode": string;
+    "capabilities": ArchiveCapability[] | null;
+    "mixed": boolean;
+    "warning": string;
+}
+
+/**
+ * ArchiveFileIdentity captures authoritative volume, file identity, size, and
+ * allocation information from the platform. IDs are opaque strings so 64/128-
+ * bit identities survive JSON and JavaScript without precision loss.
+ */
+export interface ArchiveFileIdentity {
+    "volumeId": string;
+    "fileId": string;
+    "sizeBytes": number;
+    "allocatedBytes": number;
+    "allocationKnown": boolean;
+    "identityKnown": boolean;
+    "links": number;
+    "modifiedNs": string;
+    "regular": boolean;
 }
 
 export interface ArchiveFileRemovalImpact {
@@ -223,10 +316,9 @@ export interface CollectionDetail {
 }
 
 /**
- * CollectionFolder describes the on-disk mirror of one collection: a plain
- * folder holding every resolved mod archive. Entries are hard links into the
- * library (symlink, then copy, as fallbacks) so the mirror costs no extra disk
- * space yet can be zipped, copied, or dragged out like any other folder.
+ * CollectionFolder is an app-owned generated view, not a user export. Its
+ * entries follow the deployment policy and are tracked individually so user
+ * files placed beside them are never swept away during refresh or rename.
  */
 export interface CollectionFolder {
     "collectionId": string;
@@ -253,6 +345,7 @@ export interface CollectionMember {
 
 export interface CollectionMod {
     "entityId": string;
+    "artifactId": string;
     "displayName": string;
     "kind": modkit$0.Kind;
     "archivePath": string;
@@ -916,6 +1009,27 @@ export interface OrganizationState {
     "profiles": ModProfile[] | null;
 }
 
+/**
+ * OwnedArchiveEntry records an app-owned generated file with its purpose,
+ * source identity, and lifecycle state. Ownership records survive source
+ * disappearance and must not be cascade-deleted with entity/artifact removal.
+ */
+export interface OwnedArchiveEntry {
+    "id": string;
+    "purpose": string;
+    "ownerId": string;
+    "entityId": string;
+    "artifactId": string;
+    "sha256": string;
+    "sourcePath": string;
+    "targetRoot": string;
+    "relativePath": string;
+    "method": string;
+    "state": string;
+    "sourceIdentity": ArchiveFileIdentity;
+    "targetIdentity": ArchiveFileIdentity;
+}
+
 export interface PlayActivation {
     "operationId": string;
     "modCount": number;
@@ -935,6 +1049,7 @@ export interface PlayProgress {
     "completed": number;
     "total": number;
     "bytesCopied": number;
+    "bytesHashed": number;
     "totalBytes": number;
     "done": boolean;
 }
@@ -943,6 +1058,8 @@ export interface PlayRequest {
     "collectionIds": string[] | null;
     "excludedCollectionIds": string[] | null;
     "fingerprint": string;
+    "deploymentFingerprint": string;
+    "allowCopy": boolean;
 }
 
 export interface PlayResult {
@@ -1074,6 +1191,7 @@ export interface SetupInput {
     "gameInstallDir": string;
     "dataDir": string;
     "additionalScanRoots": string[] | null;
+    "archiveDeploymentMode": string;
 }
 
 export interface SetupResult {
@@ -1087,6 +1205,88 @@ export interface SetupState {
     "configPath": string;
     "nativeModCount": number;
     "nativeEnabledCount": number;
+}
+
+/**
+ * StorageAudit is the read-only result of a full storage audit including
+ * physical identity deduplication, classification, and allocation accounting.
+ */
+export interface StorageAudit {
+    "fingerprint": string;
+    "checkedAt": string;
+    "items": StorageAuditItem[] | null;
+    "apparentBytes": number;
+    "uniqueAllocatedBytes": number;
+    "sharedBytes": number;
+    "requiredCopyBytes": number;
+    "redundantBytes": number;
+    "retainedBytes": number;
+    "warnings": string[] | null;
+    "protectedCategories": StorageCategorySummary[] | null;
+    "allocationEstimated": boolean;
+}
+
+/**
+ * StorageAuditItem describes one audited file with its classification,
+ * identity, source relationship, and cleanup eligibility.
+ */
+export interface StorageAuditItem {
+    "id": string;
+    "path": string;
+    "sourcePath": string;
+    "entityId": string;
+    "artifactId": string;
+    "sha256": string;
+    "purpose": string;
+    "classification": string;
+    "reason": string;
+    "logicalBytes": number;
+    "allocatedBytes": number;
+    "reclaimableBytes": number;
+    "linkCount": number;
+    "identity": ArchiveFileIdentity;
+    "sourceIdentity": ArchiveFileIdentity;
+    "cleanupAllowed": boolean;
+    "recoveryAllowed": boolean;
+}
+
+export interface StorageCategorySummary {
+    "category": string;
+    "root": string;
+    "fileCount": number;
+    "apparentBytes": number;
+    "allocatedBytes": number;
+    "unknownFiles": number;
+}
+
+/**
+ * StorageCleanupResult reports the outcome of applying a storage cleanup or
+ * recovery operation including honest partial results.
+ */
+export interface StorageCleanupResult {
+    "operationId": string;
+    "removedLinks": number;
+    "removedCopies": number;
+    "recovered": number;
+    "reclaimedBytes": number;
+    "reclaimedEstimate": boolean;
+    "failures": string[] | null;
+    "retainedPaths": string[] | null;
+}
+
+/**
+ * StorageProgress reports progress for storage audit/cleanup operations.
+ */
+export interface StorageProgress {
+    "operationId": string;
+    "phase": string;
+    "current": string;
+    "completed": number;
+    "total": number;
+    "bytesProcessed": number;
+    "done": boolean;
+    "error": string;
+    "result"?: StorageCleanupResult | null;
 }
 
 export interface TestInstallRecord {

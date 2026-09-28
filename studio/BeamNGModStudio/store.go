@@ -195,8 +195,17 @@ func OpenStore(filename string, legacyCatalogPath ...string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	backupPath, err := store.backupBeforeDeploymentMigration(context.Background())
+	if err != nil {
+		return fail(err)
+	}
 	if err := store.migrate(context.Background()); err != nil {
 		return fail(err)
+	}
+	if backupPath != "" {
+		if err := store.AppendEvent(context.Background(), "", "archive_deployment_database_backup", map[string]any{"path": backupPath, "schemaVersion": storeSchemaVersion}); err != nil {
+			return fail(err)
+		}
 	}
 	if err := store.recoverInterruptedScans(context.Background()); err != nil {
 		return fail(fmt.Errorf("recover interrupted scans: %w", err))

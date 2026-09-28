@@ -42,6 +42,7 @@ type collectionModProvenance struct {
 
 type collectionModMetadata struct {
 	entityID     string
+	artifactID   string
 	displayName  string
 	kind         modkit.Kind
 	archivePath  string
@@ -1596,6 +1597,7 @@ func resolveCollectionSelectionGraphTx(ctx context.Context, tx *sql.Tx, graph co
 		sort.SliceStable(entry.rootIDs, func(i, j int) bool { return rootOrder[entry.rootIDs[i]] < rootOrder[entry.rootIDs[j]] })
 		mod := CollectionMod{
 			EntityID:      meta.entityID,
+			ArtifactID:    meta.artifactID,
 			DisplayName:   meta.displayName,
 			Kind:          meta.kind,
 			ArchivePath:   meta.archivePath,
@@ -1725,14 +1727,14 @@ func collectionSelectionFingerprint(selection PlaySelection) string {
 	type fingerprintMod struct {
 		EntityID      string   `json:"entityId"`
 		ArchivePath   string   `json:"archivePath"`
-		SHA256        string   `json:"sha256"`
+		ArtifactID    string   `json:"artifactId"`
 		Available     bool     `json:"available"`
 		CollectionIDs []string `json:"collectionIds"`
 		RootIDs       []string `json:"rootIds"`
 	}
 	mods := make([]fingerprintMod, 0, len(selection.Mods))
 	for _, mod := range selection.Mods {
-		mods = append(mods, fingerprintMod{EntityID: mod.EntityID, ArchivePath: mod.ArchivePath, SHA256: mod.SHA256, Available: mod.Available, CollectionIDs: mod.CollectionIDs, RootIDs: mod.RootIDs})
+		mods = append(mods, fingerprintMod{EntityID: mod.EntityID, ArchivePath: mod.ArchivePath, ArtifactID: mod.ArtifactID, Available: mod.Available, CollectionIDs: mod.CollectionIDs, RootIDs: mod.RootIDs})
 	}
 	payload, _ := json.Marshal(struct {
 		CollectionIDs         []string         `json:"collectionIds"`
@@ -1761,7 +1763,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for index, id := range chunk {
 			args[index] = id
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.modified_at,''),COALESCE(l.active,0),COALESCE(e.archived_at,''),COALESCE(ast.sha256,'')
+		rows, err := tx.QueryContext(ctx, `SELECT e.id,e.display_name,e.kind,COALESCE(l.path,''),COALESCE(a.sha256,''),COALESCE(l.size_bytes,0),COALESCE(l.modified_at,''),COALESCE(l.active,0),COALESCE(e.archived_at,''),COALESCE(ast.sha256,''),COALESCE(a.id,'')
 			FROM entities e
 			LEFT JOIN archive_links l ON l.id=(SELECT l2.id FROM archive_links l2 WHERE l2.entity_id=e.id ORDER BY l2.active DESC,l2.last_seen_at DESC,l2.id DESC LIMIT 1)
 			LEFT JOIN artifacts a ON a.id=l.artifact_id
@@ -1774,7 +1776,7 @@ func collectionMetadataTx(ctx context.Context, tx *sql.Tx, entityIDs []string) (
 		for rows.Next() {
 			var meta collectionModMetadata
 			var kind string
-			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.modifiedAt, &meta.active, &meta.archivedAt, &meta.thumbnailSHA); err != nil {
+			if err := rows.Scan(&meta.entityID, &meta.displayName, &kind, &meta.archivePath, &meta.sha256, &meta.sizeBytes, &meta.modifiedAt, &meta.active, &meta.archivedAt, &meta.thumbnailSHA, &meta.artifactID); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}

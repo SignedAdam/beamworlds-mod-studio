@@ -14,12 +14,13 @@ import (
 )
 
 type SetupInput struct {
-	BeamNGRoot          string   `json:"beamngRoot"`
-	ActiveModsDir       string   `json:"activeModsDir"`
-	LibraryDir          string   `json:"libraryDir"`
-	GameInstallDir      string   `json:"gameInstallDir"`
-	DataDir             string   `json:"dataDir"`
-	AdditionalScanRoots []string `json:"additionalScanRoots"`
+	BeamNGRoot            string   `json:"beamngRoot"`
+	ActiveModsDir         string   `json:"activeModsDir"`
+	LibraryDir            string   `json:"libraryDir"`
+	GameInstallDir        string   `json:"gameInstallDir"`
+	DataDir               string   `json:"dataDir"`
+	AdditionalScanRoots   []string `json:"additionalScanRoots"`
+	ArchiveDeploymentMode string   `json:"archiveDeploymentMode"`
 }
 
 type SetupState struct {
@@ -36,14 +37,15 @@ type SetupResult struct {
 }
 
 type persistedAppConfig struct {
-	SetupComplete   bool     `json:"setupComplete"`
-	BeamNGRoot      string   `json:"beamngRoot"`
-	ActiveModsDir   string   `json:"activeModsDir"`
-	LibraryDir      string   `json:"libraryDir"`
-	GameInstallDir  string   `json:"gameInstallDir"`
-	ScanRoots       []string `json:"scanRoots"`
-	ScanConcurrency int      `json:"scanConcurrency"`
-	DataDir         string   `json:"dataDir"`
+	SetupComplete         bool     `json:"setupComplete"`
+	BeamNGRoot            string   `json:"beamngRoot"`
+	ActiveModsDir         string   `json:"activeModsDir"`
+	LibraryDir            string   `json:"libraryDir"`
+	GameInstallDir        string   `json:"gameInstallDir"`
+	ScanRoots             []string `json:"scanRoots"`
+	ScanConcurrency       int      `json:"scanConcurrency"`
+	DataDir               string   `json:"dataDir"`
+	ArchiveDeploymentMode string   `json:"archiveDeploymentMode,omitempty"`
 }
 
 type beamNGPathHints struct {
@@ -53,11 +55,14 @@ type beamNGPathHints struct {
 }
 
 func (service *AppService) GetSetupState() SetupState {
+	service.archivePolicyMu.RLock()
+	defer service.archivePolicyMu.RUnlock()
 	hints := detectBeamNGPaths()
 	suggested := SetupInput{
 		BeamNGRoot:     firstPath(service.config.BeamNGRoot, hints.UserFolder),
 		GameInstallDir: firstPath(service.config.GameInstallDir, hints.InstallPath),
 		DataDir:        service.config.DataDir,
+		ArchiveDeploymentMode: archiveDeploymentModeFromConfig(service.config),
 	}
 	if suggested.BeamNGRoot != "" {
 		suggested.ActiveModsDir = firstPath(service.config.ActiveModsDir, filepath.Join(suggested.BeamNGRoot, "current", "mods"))
@@ -99,6 +104,10 @@ func (service *AppService) PickDirectory(title, initialDirectory string) (string
 }
 
 func (service *AppService) SaveSetup(input SetupInput) (SetupResult, error) {
+	service.modImportMu.Lock()
+	defer service.modImportMu.Unlock()
+	service.archivePolicyMu.Lock()
+	defer service.archivePolicyMu.Unlock()
 	config, err := validateSetup(service.config, input)
 	if err != nil {
 		return SetupResult{}, err
@@ -110,14 +119,15 @@ func (service *AppService) SaveSetup(input SetupInput) (SetupResult, error) {
 	config.ConfigPath = configPath
 	config.ProjectRoot = filepath.Dir(configPath)
 	persisted := persistedAppConfig{
-		SetupComplete:   true,
-		BeamNGRoot:      config.BeamNGRoot,
-		ActiveModsDir:   config.ActiveModsDir,
-		LibraryDir:      config.LibraryDir,
-		GameInstallDir:  config.GameInstallDir,
-		ScanRoots:       append([]string(nil), config.ScanRoots...),
-		ScanConcurrency: config.ScanConcurrency,
-		DataDir:         config.DataDir,
+		SetupComplete:         true,
+		BeamNGRoot:            config.BeamNGRoot,
+		ActiveModsDir:         config.ActiveModsDir,
+		LibraryDir:            config.LibraryDir,
+		GameInstallDir:        config.GameInstallDir,
+		ScanRoots:             append([]string(nil), config.ScanRoots...),
+		ScanConcurrency:       config.ScanConcurrency,
+		DataDir:               config.DataDir,
+		ArchiveDeploymentMode: config.ArchiveDeploymentMode,
 	}
 	payload, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
@@ -159,6 +169,12 @@ func validateSetup(base AppConfig, input SetupInput) (AppConfig, error) {
 	config.LibraryDir = cleanOptionalPath(input.LibraryDir)
 	config.GameInstallDir = cleanOptionalPath(input.GameInstallDir)
 	config.DataDir = cleanOptionalPath(input.DataDir)
+	if input.ArchiveDeploymentMode != "" {
+		if !ValidDeploymentMode(input.ArchiveDeploymentMode) {
+			return config, fmt.Errorf("invalid archive deployment mode: %q", input.ArchiveDeploymentMode)
+		}
+		config.ArchiveDeploymentMode = input.ArchiveDeploymentMode
+	}
 	if config.BeamNGRoot == "" || config.ActiveModsDir == "" || config.LibraryDir == "" || config.GameInstallDir == "" || config.DataDir == "" {
 		return config, errors.New("all setup locations are required")
 	}

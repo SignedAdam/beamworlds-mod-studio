@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppService as API } from '../bindings/github.com/SignedAdam/beamng-mod-studio/index.js'
-import type { SetupInput, SetupState } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import type { ArchiveCapability, SetupInput, SetupState } from '../bindings/github.com/SignedAdam/beamng-mod-studio/models.js'
+import { DeploymentModeSelector } from './ArchiveDeployment'
+import type { DeploymentMode } from './archiveTypes'
+import { DEPLOYMENT_MODE_LABELS } from './archiveTypes'
 import { BeamWorldsMark, Icon } from './icons'
 import { Button } from './ui'
 
@@ -16,15 +19,75 @@ const steps = ['BeamNG', 'Mods', 'Storage', 'Review']
 export function SetupWizard({ state, required, onCancel, onError }: SetupWizardProps) {
   const [step, setStep] = useState(0)
   const [draft, setDraft] = useState<SetupInput>(normalizeSetup(state.suggested))
+  // Deployment mode is kept in local draft state only; persisted through SaveSetup.
+  const [draftMode, setDraftMode] = useState<DeploymentMode>('auto')
   const [saving, setSaving] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [error, setError] = useState('')
+
+  // Capability probe for the draft paths.
+  const [capabilities, setCapabilities] = useState<ArchiveCapability[]>([])
+  const [capMixed, setCapMixed] = useState(false)
+  const [capWarning, setCapWarning] = useState('')
+  const [capLoading, setCapLoading] = useState(false)
+  const [capError, setCapError] = useState('')
+  const probeVersionRef = useRef(0)
+  const inflightRef = useRef<{ cancel(): void } | null>(null)
 
   useEffect(() => {
     setDraft(normalizeSetup(state.suggested))
     setStep(0)
     setError('')
   }, [state])
+
+  // Probe capabilities when draft paths change (targeted probe).
+  const probeCapabilities = useCallback((src: string, dst: string) => {
+    if (inflightRef.current) {
+      inflightRef.current.cancel()
+      inflightRef.current = null
+    }
+    if (!src.trim() || !dst.trim()) {
+      setCapabilities([])
+      setCapLoading(false)
+      setCapError('')
+      return
+    }
+    const version = ++probeVersionRef.current
+    setCapLoading(true)
+    setCapError('')
+    const request = API.ProbeArchiveDeployment(src, dst)
+    inflightRef.current = request
+    request
+      .then((result) => {
+        if (version !== probeVersionRef.current) return
+        inflightRef.current = null
+        // ProbeArchiveDeployment returns a single ArchiveCapability.
+        setCapabilities([result as ArchiveCapability])
+        setCapMixed(false)
+        setCapWarning('')
+        setCapLoading(false)
+      })
+      .catch((err: unknown) => {
+        if (version !== probeVersionRef.current) return
+        inflightRef.current = null
+        if (/cancel/i.test(String(err))) {
+          setCapLoading(false)
+          return
+        }
+        setCapError(err instanceof Error ? err.message : 'Could not check capabilities.')
+        setCapLoading(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    probeCapabilities(draft.libraryDir, draft.activeModsDir)
+    return () => {
+      if (inflightRef.current) {
+        inflightRef.current.cancel()
+        inflightRef.current = null
+      }
+    }
+  }, [draft.libraryDir, draft.activeModsDir, probeCapabilities])
 
   const choose = async (field: keyof Pick<SetupInput, 'beamngRoot' | 'activeModsDir' | 'gameInstallDir' | 'libraryDir' | 'dataDir'>, title: string) => {
     try {
@@ -50,7 +113,8 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
     setSaving(true)
     setError('')
     try {
-      await API.SaveSetup(draft)
+      // archiveDeploymentMode is persisted through SaveSetup alongside the paths.
+      await API.SaveSetup({ ...draft, archiveDeploymentMode: draftMode } as SetupInput)
       setRestarting(true)
       await API.RestartApplication()
     } catch (reason) {
@@ -85,8 +149,18 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
         </>}
 
         {step === 2 && <>
-          <SetupTitle eyebrow="BeamWorlds storage" title="Choose the staging drive" detail="Use a drive with enough space for workspaces and one cached copy of archives staged from other drives."/>
-          <DirectoryField label="Studio data and profile staging" detail="Database, previews, editable workspaces, exports, archive cache, and managed profile files." value={draft.dataDir} onChange={value => setDraft({ ...draft, dataDir: value })} onBrowse={() => void choose('dataDir', 'Choose BeamWorlds storage')}/>
+          <SetupTitle eyebrow="BeamWorlds storage" title="Storage and deployment" detail="Choose where BeamWorlds stores its working data, and how mod archives reach the game."/>
+          <DirectoryField label="Studio data and profile staging" detail="Database, previews, editable workspaces, exports, and managed profile files." value={draft.dataDir} onChange={value => setDraft({ ...draft, dataDir: value })} onBrowse={() => void choose('dataDir', 'Choose BeamWorlds storage')}/>
+          <DeploymentModeSelector
+            mode={draftMode}
+            capabilities={capabilities}
+            mixed={capMixed}
+            warning={capWarning}
+            loading={capLoading}
+            error={capError}
+            onChange={setDraftMode}
+            onRefresh={() => probeCapabilities(draft.libraryDir, draft.activeModsDir)}
+          />
           <div className="setup-note"><Icon name="folder"/><p>This is not another BeamNG user profile. Settings, controls, and saves continue using <strong>{draft.beamngRoot || 'your BeamNG user folder'}</strong>.</p></div>
         </>}
 
@@ -98,6 +172,7 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
             <SummaryRow label="Current mods" value={draft.activeModsDir}/>
             <SummaryRow label="Library" value={draft.libraryDir}/>
             <SummaryRow label="Studio storage" value={draft.dataDir}/>
+            <SummaryRow label="Archive deployment" value={DEPLOYMENT_MODE_LABELS[draftMode] ?? 'Automatic'}/>
           </dl>
           <div className="setup-note setup-note--accent"><Icon name="play"/><p>A mod profile is the union of its reusable presets and its individually selected mods. It changes only the loaded mod set.</p></div>
         </>}

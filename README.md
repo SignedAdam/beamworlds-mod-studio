@@ -109,3 +109,7 @@ wails3 build
 The production executable is written to `studio/BeamNGModStudio/bin/beamngmodstudio.exe`.
 
 For isolated manual testing, set `BEAMWORLDS_HOME` to a hidden folder in the repository, such as `.sandbox/<name>`. The app reads `config.json` and stores all data there, and hidden folders are ignored by Git.
+
+## Planning
+
+See the [2026-09-27 implementation roadmap](docs/roadmap-2026-09-27.md) for the consolidated requests, canonical specifications, dependency order, and verification gates. Planned features are not claims of shipped behavior; `specs/new`, `specs/done`, and `docs/ideas` retain their separate roles.

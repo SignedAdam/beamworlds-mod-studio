@@ -1,0 +1,551 @@
+.index-card-tabs {
+  --index-card-tabs-tab-height: var(--control-height, 34px);
+  --index-card-tabs-edge: clamp(5px, calc(6px * var(--interface-scale, 1)), 8px);
+  --index-card-tabs-overlap: clamp(3px, calc(4px * var(--interface-scale, 1)), 6px);
+  --index-card-tabs-gutter: var(--space-2, 8px);
+  --index-card-tabs-gap: clamp(3px, calc(4px * var(--interface-scale, 1)), 5px);
+  --index-card-tabs-close-size: clamp(24px, calc(26px * var(--interface-scale, 1)), 26px);
+  --index-card-tabs-border: color-mix(
+    in srgb,
+    var(--line-strong) 84%,
+    transparent
+  );
+  --index-card-tabs-border-soft: color-mix(
+    in srgb,
+    var(--line) 82%,
+    transparent
+  );
+  --index-card-tabs-surface: color-mix(
+    in srgb,
+    var(--surface) 96%,
+    var(--bg)
+  );
+  --index-card-tabs-surface-hover: color-mix(
+    in srgb,
+    var(--surface-raised) 90%,
+    var(--surface)
+  );
+  --index-card-tabs-panel: var(--surface-solid);
+  --index-card-tabs-text: var(--text);
+  --index-card-tabs-text-muted: var(--text-2);
+  --index-card-tabs-text-subtle: var(--text-3);
+  --index-card-tabs-accent: var(--active-tab, var(--accent-neutral, #3f93c5));
+  --index-card-tabs-focus: var(--active-tab, var(--accent-neutral, #3f93c5));
+  --index-card-tabs-status-accent: var(--active-tab, var(--accent-neutral, #3f93c5));
+  --index-card-tabs-status-success: var(--success, #47bd75);
+  --index-card-tabs-status-warning: var(--warning, #ffb12c);
+  --index-card-tabs-status-danger: var(--danger, #ed4d45);
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--index-card-tabs-text);
+}
+
+html[data-theme="light"] .index-card-tabs {
+  --index-card-tabs-border: color-mix(
+    in srgb,
+    var(--line-strong) 90%,
+    var(--surface)
+  );
+  --index-card-tabs-border-soft: color-mix(
+    in srgb,
+    var(--line) 92%,
+    var(--surface)
+  );
+  --index-card-tabs-surface: color-mix(
+    in srgb,
+    var(--surface) 98%,
+    var(--bg)
+  );
+  --index-card-tabs-surface-hover: color-mix(
+    in srgb,
+    var(--surface-raised) 96%,
+    var(--surface)
+  );
+  --index-card-tabs-panel: var(--surface-solid);
+}
+
+.index-card-tabs--compact {
+  --index-card-tabs-tab-height: var(--control-height-small, 32px);
+  --index-card-tabs-edge: clamp(4px, calc(5px * var(--interface-scale, 1)), 7px);
+  --index-card-tabs-overlap: clamp(2px, calc(3px * var(--interface-scale, 1)), 4px);
+  --index-card-tabs-close-size: clamp(24px, calc(24px * var(--interface-scale, 1)), 26px);
+}
+
+.index-card-tabs__bar {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  background: var(--index-card-tabs-surface);
+}
+
+.index-card-tabs__actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(42%, 360px);
+  min-height: var(--index-card-tabs-tab-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--index-card-tabs-gap);
+  padding: 0 var(--index-card-tabs-gutter);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.index-card-tabs__actions > * {
+  flex: 0 0 auto;
+}
+
+.index-card-tabs__actions :focus-visible {
+  outline: 2px solid var(--index-card-tabs-focus);
+  outline-offset: -2px;
+}
+
+.index-card-tabs__list {
+  flex: 1 1 auto;
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  width: auto;
+  height: var(--index-card-tabs-tab-height);
+  min-height: var(--index-card-tabs-tab-height);
+  display: flex;
+  align-items: stretch;
+  padding: 0 var(--index-card-tabs-gutter);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  isolation: isolate;
+}
+
+.index-card-tabs__item {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  min-width: max(76px, calc(64px * var(--interface-scale, 1)));
+  max-width: min(320px, 42vw);
+  height: var(--index-card-tabs-tab-height);
+  min-height: var(--index-card-tabs-tab-height);
+  display: flex;
+  align-items: stretch;
+  margin: 0 calc(-1 * var(--index-card-tabs-overlap)) 0 0;
+  isolation: isolate;
+  scroll-snap-align: start;
+  --index-card-tabs-item-border: var(--index-card-tabs-border);
+}
+
+.index-card-tabs__item:first-child {
+  margin-inline-start: 0;
+}
+
+.index-card-tabs__item::before,
+.index-card-tabs__item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  clip-path: polygon(
+    var(--index-card-tabs-edge) 0,
+    calc(100% - var(--index-card-tabs-edge)) 0,
+    100% 100%,
+    0 100%
+  );
+}
+
+.index-card-tabs__item::before {
+  z-index: -2;
+  background: var(--index-card-tabs-item-border);
+  transition: background-color 140ms ease;
+}
+
+.index-card-tabs__item::after {
+  z-index: -1;
+  inset: 1px 1px 0;
+  clip-path: polygon(
+    calc(var(--index-card-tabs-edge) + 1px) 0,
+    calc(100% - var(--index-card-tabs-edge) - 1px) 0,
+    calc(100% - 1px) 100%,
+    1px 100%
+  );
+  background: var(--index-card-tabs-surface);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background-color 140ms ease;
+}
+
+.index-card-tabs__item:not(.is-selected):hover:not(.is-disabled)::after {
+  background: var(--index-card-tabs-surface-hover);
+}
+
+.index-card-tabs__item:not(.is-selected):active:not(.is-disabled)::after {
+  background: var(--index-card-tabs-surface);
+}
+
+.index-card-tabs__item.is-selected {
+  z-index: 4;
+  --index-card-tabs-item-border: var(--index-card-tabs-accent);
+}
+
+.index-card-tabs__item.status-accent {
+  --index-card-tabs-item-border: var(--index-card-tabs-status-accent);
+}
+
+.index-card-tabs__item.status-success {
+  --index-card-tabs-item-border: var(--index-card-tabs-status-success);
+}
+
+.index-card-tabs__item.status-warning {
+  --index-card-tabs-item-border: var(--index-card-tabs-status-warning);
+}
+
+.index-card-tabs__item.status-danger {
+  --index-card-tabs-item-border: var(--index-card-tabs-status-danger);
+}
+
+.index-card-tabs__item.is-selected::after {
+  inset: 1px 1px 0;
+  background: var(--index-card-tabs-panel);
+}
+
+.index-card-tabs__item.is-disabled {
+  z-index: 1;
+  opacity: 0.58;
+}
+
+
+.index-card-tabs__tab,
+.index-card-tabs__close {
+  position: relative;
+  z-index: 0;
+  appearance: none;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--index-card-tabs-text-muted);
+  font: inherit;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.index-card-tabs__tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--index-card-tabs-gap);
+  padding: 0 calc(var(--index-card-tabs-edge) + var(--space-1, 4px));
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  font-size: var(--font-control, 13px);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  line-height: 1.2;
+}
+
+.index-card-tabs__item:has(> .index-card-tabs__close) > .index-card-tabs__tab {
+  padding-inline-end: var(--space-1, 4px);
+}
+
+.index-card-tabs__tab > .index-card-tabs__icon,
+.index-card-tabs__tab > .index-card-tabs__label,
+.index-card-tabs__tab > .index-card-tabs__count {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.index-card-tabs__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.index-card-tabs__tab > .index-card-tabs__icon {
+  flex: 0 0 auto;
+}
+
+.index-card-tabs__tab > .index-card-tabs__label {
+  flex: 1 1 auto;
+}
+
+.index-card-tabs__tab > .index-card-tabs__count {
+  flex: 0 0 auto;
+  color: var(--index-card-tabs-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.index-card-tabs__tab:hover:not(:disabled) {
+  color: var(--index-card-tabs-text);
+}
+
+.index-card-tabs__tab:active:not(:disabled) {
+  color: var(--index-card-tabs-text);
+}
+
+.index-card-tabs__item.is-selected .index-card-tabs__tab,
+.index-card-tabs__item.is-selected .index-card-tabs__close,
+.index-card-tabs__tab[aria-selected="true"] {
+  color: var(--index-card-tabs-text);
+}
+
+.index-card-tabs__tab:disabled,
+.index-card-tabs__close:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.index-card-tabs__close {
+  flex: 0 0 var(--index-card-tabs-close-size);
+  width: var(--index-card-tabs-close-size);
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0 var(--space-1, 4px);
+  color: var(--index-card-tabs-text-subtle);
+  transition: color 120ms ease;
+}
+
+.index-card-tabs__close::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--index-card-tabs-status-danger) 28%,
+    var(--index-card-tabs-border-soft)
+  );
+  border-radius: 7px 9px 8px 6px;
+  background: color-mix(
+    in srgb,
+    var(--index-card-tabs-status-danger) 6%,
+    var(--index-card-tabs-surface)
+  );
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-7deg) scale(0.9);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    border-radius 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.index-card-tabs__close > span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled),
+.index-card-tabs__item > .index-card-tabs__close:focus-visible,
+.index-card-tabs__item > .index-card-tabs__close:active:not(:disabled) {
+  color: var(--index-card-tabs-status-danger);
+}
+
+.index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled)::before,
+.index-card-tabs__item > .index-card-tabs__close:focus-visible::before {
+  border-color: color-mix(
+    in srgb,
+    var(--index-card-tabs-status-danger) 62%,
+    var(--index-card-tabs-border)
+  );
+  border-radius: 8px 6px 7px 9px;
+  background: color-mix(
+    in srgb,
+    var(--index-card-tabs-status-danger) 17%,
+    var(--index-card-tabs-surface-hover)
+  );
+  transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
+}
+
+.index-card-tabs__close:focus-visible {
+  z-index: 2;
+  outline: none;
+}
+
+.index-card-tabs__close:focus-visible::before {
+  outline: 2px solid var(--index-card-tabs-status-danger);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.index-card-tabs__item > .index-card-tabs__close:active:not(:disabled)::before {
+  border-color: var(--index-card-tabs-status-danger);
+  border-radius: 9px 7px 8px 6px;
+  background: color-mix(
+    in srgb,
+    var(--index-card-tabs-status-danger) 25%,
+    var(--index-card-tabs-surface)
+  );
+  transform: translate(-50%, -50%) rotate(4deg) scale(0.92);
+}
+
+.index-card-tabs__tab:focus-visible {
+  z-index: 2;
+  outline: 2px solid var(--index-card-tabs-focus);
+  outline-offset: -3px;
+}
+
+.index-card-tabs__icon > svg {
+  flex: 0 0 auto;
+  width: var(--icon-control-size, 18px);
+  height: var(--icon-control-size, 18px);
+}
+
+.index-card-tabs__close > svg {
+  flex: 0 0 auto;
+  width: var(--icon-small-size, 16px);
+  height: var(--icon-small-size, 16px);
+}
+
+.index-card-tabs__panel,
+.index-card-tabs__empty {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--index-card-tabs-border);
+  background: var(--index-card-tabs-panel);
+  color: var(--index-card-tabs-text);
+}
+
+.index-card-tabs__panel[hidden] {
+  display: none;
+}
+
+.index-card-tabs__panel:focus-visible {
+  outline: 2px solid var(--index-card-tabs-focus);
+  outline-offset: -2px;
+}
+
+@media (max-width: 520px) {
+  .index-card-tabs {
+    --index-card-tabs-gutter: var(--space-1, 4px);
+  }
+
+  .index-card-tabs__list {
+    scroll-snap-type: x proximity;
+  }
+
+  .index-card-tabs__item {
+    min-width: clamp(96px, 43vw, 188px);
+    max-width: 76vw;
+  }
+
+  .index-card-tabs__tab {
+    padding-inline: calc(var(--index-card-tabs-edge) + var(--space-1, 4px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .index-card-tabs__item,
+  .index-card-tabs__item::before,
+  .index-card-tabs__item::after,
+  .index-card-tabs__tab,
+  .index-card-tabs__close,
+  .index-card-tabs__close::before {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .index-card-tabs__list {
+    background: var(--index-card-tabs-surface);
+  }
+
+  .index-card-tabs__item::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--index-card-tabs-surface);
+  }
+
+  .index-card-tabs__item.is-selected::after,
+  .index-card-tabs__panel {
+    background: var(--index-card-tabs-panel);
+  }
+}
+
+@media (forced-colors: active) {
+  .index-card-tabs__list {
+    background: Canvas;
+    border-color: CanvasText;
+    scrollbar-color: CanvasText Canvas;
+  }
+
+  .index-card-tabs__item::before {
+    background: CanvasText;
+  }
+
+  .index-card-tabs__item::after,
+  .index-card-tabs__item.is-selected::after,
+  .index-card-tabs__panel {
+    background: Canvas;
+  }
+
+  .index-card-tabs__item.is-selected::before {
+    background: Highlight;
+  }
+
+  .index-card-tabs__tab,
+  .index-card-tabs__close {
+    color: CanvasText;
+  }
+
+  .index-card-tabs__close::before {
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled)::before,
+  .index-card-tabs__item > .index-card-tabs__close:focus-visible::before,
+  .index-card-tabs__item > .index-card-tabs__close:active:not(:disabled)::before {
+    border-color: Highlight;
+    background: Canvas;
+  }
+
+  .index-card-tabs__close:focus-visible::before {
+    outline-color: Highlight;
+  }
+
+  .index-card-tabs__item.is-selected .index-card-tabs__tab,
+  .index-card-tabs__item.is-selected .index-card-tabs__close,
+  .index-card-tabs__tab[aria-selected="true"] {
+    color: HighlightText;
+  }
+
+  .index-card-tabs__tab:focus-visible,
+  .index-card-tabs__panel:focus-visible {
+    outline-color: Highlight;
+  }
+}

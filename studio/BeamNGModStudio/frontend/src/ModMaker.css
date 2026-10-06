@@ -1,0 +1,379 @@
+.source-control-utility {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.maker-content.has-utility.has-source-utility {
+  grid-template-rows: minmax(0, 1fr) clamp(280px, 45%, 560px);
+}
+
+.modmaker-editor-actions {
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+}
+
+.source-editor--shared-tabs > .modmaker-tabs > .index-card-tabs__bar {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 var(--index-card-tabs-tab-height);
+  height: var(--index-card-tabs-tab-height);
+  min-height: var(--index-card-tabs-tab-height);
+  max-height: var(--index-card-tabs-tab-height);
+  align-items: flex-start;
+  background: var(--index-card-tabs-surface);
+}
+
+.modmaker-tabs > .index-card-tabs__bar > .index-card-tabs__actions {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: auto;
+  max-width: none;
+  height: var(--index-card-tabs-tab-height);
+  min-height: var(--index-card-tabs-tab-height);
+  max-height: var(--index-card-tabs-tab-height);
+  justify-content: flex-start;
+  padding: 0 3px;
+  overflow: visible;
+}
+
+.file-browser {
+  grid-template-rows: var(--control-height-small, 32px) minmax(0, 1fr) auto;
+  border: 0;
+  background: var(--surface);
+}
+
+.file-browser__toolbar {
+  height: var(--control-height-small, 32px);
+  padding: 0 5px 0 0;
+  border: 0;
+  background: var(--surface);
+}
+
+.file-browser__toolbar > .search-box {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.editor-layout {
+  background: var(--surface-solid);
+}
+
+.editor-layout__resizer {
+  background: var(--surface-solid);
+}
+
+.editor-layout__resizer::after {
+  left: 3px;
+  width: 2px;
+  background: var(--line-strong);
+  transition: background-color 120ms ease;
+}
+
+.editor-layout__resizer:hover::after,
+.editor-layout__resizer:focus-visible::after,
+.editor-layout.is-resizing .editor-layout__resizer::after {
+  left: 3px;
+  width: 2px;
+  background: var(--active-tab);
+}
+
+.source-editor--shared-tabs > .modmaker-tabs > .index-card-tabs__panel,
+.source-editor--shared-tabs > .modmaker-tabs > .index-card-tabs__empty {
+  border: 0;
+}
+
+.source-editor--shared-tabs > .modmaker-tabs {
+  border: 0;
+  background: var(--surface-solid);
+}
+
+.maker-main .file-browser .project-tree {
+  scrollbar-gutter: stable;
+}
+
+.maker-main .file-browser .project-tree__row {
+  transition: background-color 120ms ease;
+}
+
+.maker-main .file-browser .project-tree__row .tree-node span {
+  font-weight: 600;
+  font-synthesis: none;
+}
+
+.maker-main .file-browser .project-tree__row:hover {
+  background: color-mix(in srgb, var(--active-tab) 7%, var(--surface));
+}
+
+.maker-main .file-browser .project-tree__row.is-active {
+  background: color-mix(in srgb, var(--active-tab) 12%, var(--surface));
+  box-shadow: inset 2px 0 var(--active-tab);
+}
+
+.maker-main
+  .file-browser
+  .project-tree__row.is-active:not(.is-error):not(.is-warning)
+  .tree-node
+  span {
+  color: var(--text);
+}
+
+.maker-main .file-browser .project-tree__row.is-active.is-error {
+  box-shadow: inset 2px 0 var(--danger);
+}
+
+.maker-main .file-browser .project-tree__row.is-active.is-warning {
+  box-shadow: inset 2px 0 var(--warning);
+}
+
+.modmaker-editor-action-shell {
+  position: relative;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.modmaker-editor-action {
+  flex: 0 0 auto;
+}
+
+.modmaker-editor-action--icon {
+  width: 24px;
+  min-width: 24px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.modmaker-editor-action--icon:hover:not(:disabled) {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  filter: brightness(1.18);
+}
+
+.modmaker-editor-action--icon:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.modmaker-editor-action--icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.modmaker-editor-action--icon.is-loading {
+  color: var(--active-tab);
+}
+
+.modmaker-editor-action--save.is-saved:disabled {
+  border: 0;
+  background: transparent;
+  color: var(--success);
+  opacity: 1;
+}
+
+.modmaker-editor-action--save.is-dirty {
+  border: 0;
+  background: transparent;
+  color: var(--warning);
+  opacity: 1;
+  animation: modmaker-save-dirty-pulse 2.2s ease-in-out infinite;
+}
+
+.modmaker-editor-action--contextual {
+  width: 24px;
+  min-width: 24px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.modmaker-editor-action--clone {
+  color: var(--modmaker-file-action);
+}
+
+.modmaker-editor-action--clone:hover:not(:disabled) {
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--modmaker-file-action) 72%, white);
+}
+
+.modmaker-editor-action--reload {
+  color: var(--warning);
+}
+
+.modmaker-editor-action--reload:hover:not(:disabled) {
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--warning) 76%, white);
+}
+
+.modmaker-editor-action--new-file {
+  color: var(--modmaker-file-action);
+}
+
+.modmaker-editor-action--new-file:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--modmaker-file-action) 72%, white);
+}
+
+.modmaker-editor-action--new-session {
+  color: var(--emphasis);
+}
+
+.modmaker-editor-action--new-session:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--emphasis) 78%, white);
+}
+
+.modmaker-editor-action-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  right: 0;
+  width: max-content;
+  max-width: 240px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm, 3px);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.modmaker-editor-action-tooltip kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  font: inherit;
+  font-weight: 500;
+}
+
+.modmaker-editor-action-shell:hover > .modmaker-editor-action-tooltip,
+.modmaker-editor-action-shell:focus-within > .modmaker-editor-action-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+@keyframes modmaker-save-dirty-pulse {
+  0%,
+  100% {
+    color: color-mix(in srgb, var(--warning) 82%, var(--text-2));
+    opacity: 0.78;
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    color: var(--warning);
+    opacity: 1;
+    filter: drop-shadow(
+      0 0 3px color-mix(in srgb, var(--warning) 45%, transparent)
+    );
+  }
+}
+
+.source-editor--shared-tabs
+  > .modmaker-tabs
+  > .index-card-tabs__panel:not([hidden])
+  > .source-save-toast {
+  top: 8px;
+}
+
+.source-editor--shared-tabs
+  > .modmaker-tabs
+  > .index-card-tabs__panel:not([hidden])
+  > .code-mirror-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modmaker-editor-action--save.is-dirty {
+    animation: none;
+    color: var(--warning);
+    opacity: 1;
+    filter: none;
+  }
+}
+
+.maker-header__delete {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.maker-header__delete:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--line-strong));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.maker-header__delete:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.maker-header__delete:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+
+@media (forced-colors: active) {
+  .modmaker-editor-action--icon {
+    border: 0;
+    background: transparent;
+    color: ButtonText;
+  }
+
+  .modmaker-editor-action--save.is-dirty {
+    animation: none;
+  }
+
+  .modmaker-editor-action-tooltip {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .modmaker-editor-action--icon:focus-visible {
+    outline-color: Highlight;
+  }
+}

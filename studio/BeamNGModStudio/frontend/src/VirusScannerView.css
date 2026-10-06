@@ -1,0 +1,327 @@
+/* Virus Scanner light theme. Every rule stays under the scanner root so library and dark surfaces are untouched. */
+html[data-theme="light"] .virus-scanner {
+  --scanner-page: #F6FBFF;
+  --scanner-surface: #FFFFFF;
+  --scanner-header: #EAF4FF;
+  --scanner-hover: #F0F8FF;
+  --scanner-selected: #DDEEFF;
+  --scanner-selected-hover: #D3E8FF;
+  --scanner-divider: #CFE1F0;
+  --scanner-primary: #142338;
+  --scanner-secondary: #405A74;
+  --scanner-focus: var(--user-emphasis, #155E91);
+  --scanner-info: #155E91;
+  --scanner-safe: #166534;
+  --scanner-warning: #9A3412;
+  --scanner-danger: #B42318;
+
+  color-scheme: light;
+  background: var(--scanner-page);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner > .page-shell__header {
+  background: var(--scanner-page);
+  border-bottom-color: var(--scanner-divider);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner > .page-shell__header h1 {
+  color: var(--scanner-primary);
+}
+
+
+/* Scanner actions and controls have stable one-pixel borders and non-shifting focus rings. */
+html[data-theme="light"] .virus-scanner .button {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+  box-shadow: none;
+}
+
+html[data-theme="light"] .virus-scanner .button:hover:not(:disabled) {
+  border-color: var(--scanner-focus);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+  filter: none;
+}
+
+html[data-theme="light"] .virus-scanner .button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .button:disabled {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+  box-shadow: none;
+}
+
+html[data-theme="light"] .virus-scanner .button--primary {
+  border-color: var(--scanner-primary);
+  background: var(--scanner-primary);
+  color: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .button--primary:hover:not(:disabled) {
+  border-color: var(--scanner-secondary);
+  background: var(--scanner-secondary);
+  color: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .button--primary:disabled {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+/* Queue and history use white rest surfaces with the blue header strip. */
+html[data-theme="light"] .virus-scanner .scan-queue,
+html[data-theme="light"] .virus-scanner .scanner-library,
+html[data-theme="light"] .virus-scanner .scan-history {
+  border-top-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue > header,
+html[data-theme="light"] .virus-scanner .scanner-library > header,
+html[data-theme="light"] .virus-scanner .scan-history > header {
+  background: var(--scanner-header);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue > header h2,
+html[data-theme="light"] .virus-scanner .scan-history > header h2 {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue > header span,
+html[data-theme="light"] .virus-scanner .eyebrow {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue > div,
+html[data-theme="light"] .virus-scanner .scan-history__rows {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row {
+  border-bottom-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row > svg {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row--complete > svg {
+  color: var(--scanner-safe);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row--failed > svg {
+  color: var(--scanner-danger);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__identity strong {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__identity span,
+html[data-theme="light"] .virus-scanner .scan-queue__row > b {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-progress {
+  background: var(--scanner-divider);
+}
+
+html[data-theme="light"] .virus-scanner .scan-progress > span {
+  background: var(--scanner-info);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row--complete .scan-progress > span {
+  background: var(--scanner-safe);
+}
+
+html[data-theme="light"] .virus-scanner .scan-queue__row--failed .scan-progress > span {
+  background: var(--scanner-danger);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history > header > button {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history > header > button:hover:not(:disabled) {
+  border-color: var(--scanner-focus);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history > header > button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__rows {
+  border-top-color: var(--scanner-divider);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__rows article {
+  border-bottom-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__rows article > svg {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__row--safe > svg {
+  color: var(--scanner-safe);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__row--review > svg {
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__row--threat > svg,
+html[data-theme="light"] .virus-scanner .scan-history__row--broken > svg,
+html[data-theme="light"] .virus-scanner .scan-history__row--scan_failed > svg {
+  color: var(--scanner-danger);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__row--scanning > svg {
+  color: var(--scanner-info);
+}
+
+html[data-theme="light"] .virus-scanner .health-text--safe {
+  color: var(--scanner-safe);
+}
+
+html[data-theme="light"] .virus-scanner .health-text--review {
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"] .virus-scanner .health-text--threat,
+html[data-theme="light"] .virus-scanner .health-text--broken,
+html[data-theme="light"] .virus-scanner .health-text--scan_failed {
+  color: var(--scanner-danger);
+}
+
+html[data-theme="light"] .virus-scanner .health-text--scanning {
+  color: var(--scanner-info);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__rows strong {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-history__rows span,
+html[data-theme="light"] .virus-scanner .scan-history__rows time {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-loading,
+html[data-theme="light"] .virus-scanner .scan-history__empty {
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+/* Search field and scan-depth dialog follow the same surfaces without changing dimensions. */
+html[data-theme="light"] .virus-scanner .scanner-search {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-search:focus-within {
+  border-color: var(--scanner-focus);
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 1px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-search input,
+html[data-theme="light"] .virus-scanner .scanner-search input:focus {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--scanner-primary);
+  outline: 0;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-search input::placeholder {
+  color: var(--scanner-secondary);
+  opacity: 1;
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-backdrop {
+  background: rgba(20, 35, 56, 0.28);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-dialog {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+  box-shadow: 0 24px 70px rgba(20, 35, 56, 0.22);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-dialog h2,
+html[data-theme="light"] .virus-scanner .scan-mode-dialog strong {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-dialog > header > button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-dialog > header > button:hover:not(:disabled) {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-dialog > header > button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option:hover:not(:disabled),
+html[data-theme="light"] .virus-scanner .scan-mode-option:focus-visible {
+  border-color: var(--scanner-focus);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option:disabled {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+  opacity: 0.58;
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option > svg:first-child {
+  color: var(--scanner-info);
+}
+
+html[data-theme="light"] .virus-scanner .scan-mode-option p,
+html[data-theme="light"] .virus-scanner .scan-mode-option span {
+  color: var(--scanner-secondary);
+}

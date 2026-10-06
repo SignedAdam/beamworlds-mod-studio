@@ -1,0 +1,53 @@
+# Machine-local configuration and runtime state
+config.json
+studio-data/
+
+# Hidden directories are local state: toolchains, worktrees, and the
+# BEAMWORLDS_HOME sandboxes used for isolated manual testing.
+/.*/
+!/.github/
+studio/BeamNGModStudio/.*/
+studio/BeamNGModStudio/_sandbox/
+studio/BeamNGModStudio/frontend/.bindings-tmp-*/
+
+# Internal planning and conversations stay outside public source snapshots.
+/docs/
+/specs/
+/plans/
+/todos/
+/TODO.md
+/TODO.txt
+/PLAN.md
+/AGENTS.md
+
+# Dependencies and generated frontend output
+node_modules/
+**/node_modules/
+**/dist/
+
+# Wails build output and generated task state
+studio/BeamNGModStudio/bin/
+studio/BeamNGModStudio/build/linux/appimage/build/
+studio/BeamNGModStudio/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+studio/BeamNGModStudio/build/ios/xcode/overlay.json
+studio/BeamNGModStudio/build/ios/xcode/gen/
+studio/BeamNGModStudio/build/android/overlay.json
+studio/BeamNGModStudio/build/android/gen/
+
+# Local databases, logs, archives, and secrets
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.log
+*.zip
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

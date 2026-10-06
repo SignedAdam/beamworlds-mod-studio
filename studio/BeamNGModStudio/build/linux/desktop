@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=BeamWorlds Mod Studio
+Comment=Local-first BeamNG mod library and ModMaker
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/beamngmodstudio.exe %u
+Terminal=false
+Type=Application
+Icon=beamngmodstudio.exe
+Categories=Utility;
+StartupWMClass=beamngmodstudio.exe
+
+ 

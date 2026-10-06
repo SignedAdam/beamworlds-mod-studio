@@ -1,0 +1,114 @@
+.library-search .library-search__popup {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 39px;
+  z-index: 240;
+  max-width: min(100%, calc(100vw - 16px));
+  max-height: min(430px, calc(100vh - 150px));
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-solid);
+  box-shadow: 0 18px 48px rgba(0,0,0,.48);
+  animation: search-suggestions-in .13s cubic-bezier(.2,.8,.2,1);
+}
+
+.library-search .library-search__popup > .search-suggestions {
+  position: static;
+  left: auto;
+  right: auto;
+  top: auto;
+  z-index: auto;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+
+.library-search .search-suggestions > button {
+  overflow: hidden;
+}
+
+.library-search .search-suggestions > button > .library-search__suggestion-icon {
+  color: var(--suggestion-color, var(--text-3));
+}
+
+.library-search .search-suggestions > button > .library-search__suggestion-icon-empty {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.library-search .search-suggestions > button.is-active {
+  box-shadow: inset 2px 0 var(--suggestion-color, var(--active-tab));
+}
+
+.library-search .search-suggestions > button:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.library-search .library-search__empty {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--text-3);
+  font-size: var(--font-control);
+}
+
+.library-search .library-search__popup > .library-search__help {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 4px -5px -5px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.library-search .library-search__popup > .library-search__help span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.library-search .library-search__popup > .library-search__help kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface-soft);
+  font: inherit;
+}
+
+html[data-theme="light"] .library-view .library-search .search-box:focus-within {
+  border-color: color-mix(in srgb, var(--library-accent) 70%, var(--line-strong));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--library-accent) 20%, transparent);
+}
+
+html[data-theme="light"] .library-view .library-search .library-search__popup {
+  border-color: var(--library-table-divider);
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .library-view .library-search .search-suggestions > button.is-active {
+  background: color-mix(in srgb, var(--library-accent) 12%, var(--library-table-surface));
+  box-shadow: inset 2px 0 var(--suggestion-color, var(--library-accent));
+}
+
+html[data-theme="light"] .library-view .library-search .search-suggestions > button.is-active > .library-search__suggestion-icon {
+  color: var(--suggestion-color, var(--library-accent));
+}
+
+html[data-theme="light"] .library-view .library-search .search-suggestions > button:focus-visible {
+  outline: 2px solid var(--library-accent);
+}

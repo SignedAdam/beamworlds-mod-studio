@@ -1,0 +1,991 @@
+.mod-table tbody tr {
+  user-select: none;
+}
+
+.mod-table-panel .mod-table tbody tr:focus-visible,
+.mod-table-panel .mod-table tbody tr.is-selected:focus-visible {
+  outline: 2px solid var(--emphasis);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table tbody tr.is-selected {
+  background: color-mix(in srgb, var(--emphasis) 18%, var(--surface-solid));
+}
+
+/* Library table presentation is scoped here so scanner and ModMaker tables keep their palette. */
+html[data-theme="light"] .library-view {
+  --library-table-canvas: #f3f9ff;
+  --library-table-surface: #ffffff;
+  --library-table-header: #e8f3ff;
+  --library-table-hover: #eef7ff;
+  --library-table-selected: #dceeff;
+  --library-table-selected-hover: #d2e8ff;
+  --library-table-divider: #c9dff2;
+  --library-table-primary-text: #142338;
+  --library-table-secondary-text: #405a74;
+  --library-accent: #1d4ed8;
+  --library-table-safe: #166534;
+  --library-table-warning: #9a3412;
+  --library-table-danger: #b42318;
+  --library-table-info: #155e91;
+}
+
+html[data-theme="light"] .mod-table-panel--library {
+  --library-table-focus: var(--library-accent);
+
+  min-width: 0;
+  min-height: 0;
+  background: var(--library-table-canvas);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .mod-table-wrap {
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table {
+  background: var(--library-table-surface);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table thead,
+html[data-theme="light"] .mod-table-panel--library .mod-table th {
+  background: var(--library-table-header);
+  border-color: var(--library-table-divider);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table th button {
+  background: transparent;
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table th button:hover {
+  background: var(--library-table-hover);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  th
+  button:focus-visible,
+html[data-theme="light"] .mod-table-panel--library .mod-table th:focus-within {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__column-label {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table td {
+  background: transparent;
+  border-right-color: var(--library-table-divider);
+  border-bottom-color: var(--library-table-divider);
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody {
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr:nth-child(even) {
+  background: var(--library-table-surface);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:hover {
+  background: var(--library-table-hover);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table tbody tr:focus {
+  background: var(--library-table-hover);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr.is-selected {
+  background: var(--library-table-selected);
+  outline: 1px solid var(--library-table-focus);
+  outline-offset: -1px;
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr.is-selected:hover,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr.is-selected:focus {
+  background: var(--library-table-selected-hover);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  tbody
+  tr.is-selected:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__name strong {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table .mod-table__path,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  .mod-table__tags
+  em,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  .mod-table__workspace-status,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  .mod-table__virgil-status {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table
+  .mod-table__source {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--library-table-secondary-text);
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__source > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table .badge--neutral {
+  border-color: var(--library-table-divider);
+  background: var(--library-table-header);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__selection input {
+  accent-color: var(--library-table-focus);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table__selection
+  input:focus-visible {
+  outline: 2px solid var(--library-table-focus);
+  outline-offset: 2px;
+}
+
+/* The status label stays in one compact, shrinkable line at every column width. */
+.mod-table-panel--library .mod-table__status {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mod-table-panel--library .health-status {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mod-table-panel--library .health-status__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mod-table-panel--library .mod-table__tags {
+  min-width: 0;
+}
+
+.mod-table-panel--library .mod-tag {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.mod-table-panel--library .mod-tag__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-tag {
+  border-color: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 56%,
+    var(--library-table-divider)
+  );
+  background: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 9%,
+    var(--library-table-surface)
+  );
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-tag > svg {
+  color: color-mix(
+    in srgb,
+    var(--mod-tag-color, var(--library-table-focus)) 62%,
+    var(--library-table-primary-text)
+  );
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-status {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-status--safe {
+  color: var(--library-table-safe);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-status--review {
+  color: var(--library-table-warning);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-status--threat,
+html[data-theme="light"] .mod-table-panel--library .health-status--broken,
+html[data-theme="light"] .mod-table-panel--library .health-status--scan_failed {
+  color: var(--library-table-danger);
+}
+
+html[data-theme="light"] .mod-table-panel--library .health-status--scanning {
+  color: var(--library-table-info);
+}
+
+html[data-theme="light"] .mod-table-panel--library .column-resizer::after {
+  background: var(--library-table-divider);
+}
+
+html[data-theme="light"] .mod-table-panel--library .column-resizer:hover::after,
+html[data-theme="light"]
+  .mod-table-panel--library
+  .column-resizer:focus-visible::after {
+  background: var(--library-table-focus);
+}
+
+html[data-theme="light"] .mod-table-panel--library > .pagination {
+  border-top-color: var(--library-table-divider);
+  background: var(--library-table-canvas);
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  > .pagination
+  .pagination__summary,
+html[data-theme="light"] .mod-table-panel--library > .pagination .page-size {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  > .pagination
+  .page-size
+  button {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  > .pagination
+  .page-size
+  button:hover,
+html[data-theme="light"]
+  .mod-table-panel--library
+  > .pagination
+  .page-size
+  button.is-active {
+  color: var(--library-table-focus);
+}
+
+html[data-theme="light"] .mod-table-panel--library .center-loader,
+html[data-theme="light"] .mod-table-panel--library .empty-state {
+  color: var(--library-table-secondary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .empty-state h3 {
+  color: var(--library-table-primary-text);
+}
+
+html[data-theme="light"] .mod-table-panel--library .empty-state__icon,
+html[data-theme="light"] .mod-table-panel--library .center-loader svg {
+  color: var(--library-table-focus);
+  border-color: var(--library-table-divider);
+  background: var(--library-table-header);
+}
+
+/* Virus Scanner table colors stay scoped to the scanner surface. */
+html[data-theme="light"] .virus-scanner .scanner-mod-table {
+  background: var(--scanner-surface);
+  border-color: var(--scanner-divider);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .mod-table-wrap {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table {
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table thead,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table thead tr,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table th {
+  background: var(--scanner-header);
+  border-color: var(--scanner-divider);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  th
+  button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  th
+  button:hover:not(:disabled) {
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  th
+  button:focus-visible,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  th:focus-within {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__column-label {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table td {
+  background-color: inherit;
+  border-right-color: var(--scanner-divider);
+  border-bottom-color: var(--scanner-divider);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table tbody tr,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr:nth-child(odd),
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr:nth-child(even) {
+  background: var(--scanner-surface);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr:hover,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr:focus {
+  background: var(--scanner-hover);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-disabled,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-disabled:nth-child(odd),
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-disabled:nth-child(even),
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-disabled:hover,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-disabled:focus {
+  background: var(--scanner-surface);
+  opacity: 1;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected {
+  background: var(--scanner-selected);
+  outline: 1px solid var(--scanner-focus);
+  outline-offset: -1px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected:hover,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected:focus {
+  background: var(--scanner-selected-hover);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected:focus-visible {
+  background: var(--scanner-selected-hover);
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected.is-disabled,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected.is-disabled:hover,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected.is-disabled:focus {
+  background: var(--scanner-selected);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__name
+  strong {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__path,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__tags em,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__workspace-status,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__virgil-status {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .mod-table__icon {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-primary);
+  box-shadow: 0 16px 44px rgba(20, 35, 56, 0.18);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  > header {
+  border-bottom-color: var(--scanner-divider);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  > label {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  > label:hover {
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  > label
+  > svg {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  .icon-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  .icon-button:hover:not(:disabled) {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-hover);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  .icon-button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 1px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .badge--neutral {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .badge--warning {
+  border-color: var(--scanner-warning);
+  background: var(--scanner-header);
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--safe {
+  color: var(--scanner-safe);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--review {
+  color: var(--scanner-warning);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--threat,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--broken,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--scan_failed {
+  color: var(--scanner-danger);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  .health-status--scanning {
+  color: var(--scanner-info);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table
+  tbody
+  tr.is-selected.is-disabled:focus-visible {
+  background: var(--scanner-selected);
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: -2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__selection
+  input {
+  accent-color: var(--scanner-focus);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__selection
+  input:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .column-menu input {
+  accent-color: var(--scanner-focus);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-menu
+  input:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .mod-table__selection
+  input:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-resizer::after {
+  background: var(--scanner-divider);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-resizer:hover::after,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  .column-resizer:focus-visible::after {
+  background: var(--scanner-focus);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table > .pagination {
+  border-top-color: var(--scanner-divider);
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .pagination__summary,
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .page-size {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .page-size
+  button {
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .page-size
+  button:hover {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .page-size
+  button.is-active {
+  border-bottom-color: var(--scanner-primary);
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"]
+  .virus-scanner
+  .scanner-mod-table
+  > .pagination
+  .page-size
+  button:focus-visible {
+  outline: 2px solid var(--scanner-focus);
+  outline-offset: 2px;
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state {
+  background: var(--scanner-surface);
+  color: var(--scanner-secondary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state h3 {
+  color: var(--scanner-primary);
+}
+
+html[data-theme="light"] .virus-scanner .scanner-mod-table .empty-state__icon,
+html[data-theme="light"] .virus-scanner .scanner-mod-table .center-loader svg {
+  border-color: var(--scanner-divider);
+  background: var(--scanner-header);
+  color: var(--scanner-focus);
+}
+.mod-table__enabled {
+  white-space: nowrap;
+}
+
+.mod-table__enabled-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.mod-table__enabled-control input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--emphasis);
+  cursor: pointer;
+}
+
+.mod-table__enabled-control input:disabled {
+  cursor: default;
+}
+
+.mod-row--disabled {
+  opacity: 0.58;
+}
+.mod-table__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+}
+
+.mod-table__icon img {
+  display: block;
+  width: 30px;
+  height: 30px;
+  object-fit: cover;
+}
+
+.mod-table__name-content {
+  min-width: 0;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+}
+
+.mod-table__name-content strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mod-table__family-badge {
+  flex: none;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--warning) 64%, var(--line-strong));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--warning);
+  font-size: var(--font-caption);
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mod-table__family-badge:hover {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.mod-table__family-badge:focus-visible {
+  outline: 2px solid var(--warning);
+  outline-offset: 1px;
+}
+
+html[data-theme="light"] .mod-table-panel--library .mod-table__family-badge {
+  border-color: color-mix(
+    in srgb,
+    var(--library-table-warning) 64%,
+    var(--library-table-divider)
+  );
+  background: color-mix(
+    in srgb,
+    var(--library-table-warning) 8%,
+    var(--library-table-surface)
+  );
+  color: var(--library-table-warning);
+}
+
+html[data-theme="light"]
+  .mod-table-panel--library
+  .mod-table__family-badge:hover {
+  border-color: var(--library-table-warning);
+  background: color-mix(
+    in srgb,
+    var(--library-table-warning) 15%,
+    var(--library-table-surface)
+  );
+}
+
+/* Archived mods are greyed wherever they appear — unmistakably dormant, still legible. */
+/* Measured on the archived view: 0.5 gives 4.77:1 against the dark table but
+   only 3.19:1 against the light one, which fails body-text contrast, so the
+   light theme dims less. */
+.mod-row--archived {
+  opacity: 0.55;
+}
+
+html[data-theme="light"] .mod-row--archived {
+  opacity: 0.74;
+}
+
+/* Preview cards inherit the archived treatment from the library scope class. */
+.library-view--archived .library-preview-card {
+  opacity: 0.5;
+}
+

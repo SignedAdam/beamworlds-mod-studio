@@ -1,0 +1,935 @@
+.github-publish-entry {
+  display: inline-flex;
+  min-width: 0;
+}
+.github-publish-entry:focus {
+  outline: 2px solid var(--active-tab);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.github-publish-entry .button {
+  max-width: 100%;
+}
+
+.github-publish-dialog {
+  width: min(760px, calc(100vw - 24px));
+  max-width: none;
+  max-height: min(820px, calc(100vh - 24px));
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  color: var(--text);
+  box-shadow: 0 24px 76px rgba(0, 0, 0, .58);
+}
+
+.github-publish-dialog::backdrop {
+  background: rgba(0, 0, 0, .58);
+  backdrop-filter: blur(3px);
+}
+
+.github-publish-dialog:focus {
+  outline: none;
+}
+
+.github-publish-dialog__form {
+  display: flex;
+  min-height: 0;
+  max-height: min(820px, calc(100vh - 24px));
+  flex-direction: column;
+}
+
+.github-publish-dialog__header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4, 16px);
+  padding: var(--space-4, 16px) var(--space-5, 20px) var(--space-3, 12px);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface-solid));
+}
+
+.github-publish-dialog__header > div {
+  min-width: 0;
+}
+
+.github-publish-dialog__header h2 {
+  margin: var(--space-1, 4px) 0 0;
+  color: var(--text);
+  font-size: var(--font-title, 20px);
+  font-weight: 760;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+}
+
+.github-publish-dialog__header p {
+  max-width: 620px;
+  margin: var(--space-2, 8px) 0 0;
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.45;
+}
+
+.github-publish-dialog__header code,
+.github-publish-dialog__card code,
+.github-publish-dialog__verified-strip code {
+  color: var(--text);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: .94em;
+}
+
+.github-publish-dialog__eyebrow {
+  color: var(--active-tab, var(--emphasis));
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: .09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.github-publish-dialog__close {
+  flex: none;
+  min-width: var(--hit-target, 36px);
+  padding-inline: var(--space-2, 8px);
+}
+
+.github-publish-dialog__body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4, 16px) var(--space-5, 20px);
+}
+
+.github-publish-dialog__body[aria-busy="true"] {
+  cursor: progress;
+}
+
+.github-publish-dialog__config-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--active-tab, var(--emphasis));
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.45;
+}
+
+.github-publish-dialog__notice > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--active-tab, var(--emphasis));
+}
+
+.github-publish-dialog__notice > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.github-publish-dialog__notice strong {
+  color: var(--text);
+}
+
+.github-publish-dialog__notice-action {
+  color: var(--text-2);
+}
+
+.github-publish-dialog__notice.is-success {
+  border-left-color: var(--success);
+}
+
+.github-publish-dialog__notice.is-success > svg {
+  color: var(--success);
+}
+
+.github-publish-dialog__notice.is-warning {
+  border-left-color: var(--warning);
+}
+
+.github-publish-dialog__notice.is-warning > svg {
+  color: var(--warning);
+}
+
+.github-publish-dialog__notice.is-error {
+  border-left-color: var(--danger);
+}
+
+.github-publish-dialog__notice.is-error > svg {
+  color: var(--danger);
+}
+
+.github-publish-dialog__card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .025);
+}
+.github-publish-dialog__progress-card:focus {
+  outline: 2px solid color-mix(in srgb, var(--active-tab) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.github-publish-dialog__card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+}
+
+.github-publish-dialog__card-heading > div {
+  min-width: 0;
+}
+
+.github-publish-dialog__card h3 {
+  margin: var(--space-1, 4px) 0 0;
+  color: var(--text);
+  font-size: var(--font-body, 14px);
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.github-publish-dialog__card-copy {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.5;
+}
+
+.github-publish-dialog__loading {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2, 8px);
+  padding: var(--space-5, 20px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.github-publish-dialog__loading strong {
+  color: var(--text);
+  font-size: var(--font-control, 13px);
+}
+
+.github-publish-dialog__auth-status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  font-size: var(--font-control, 13px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__auth-status > svg,
+.github-publish-dialog__auth-status > .spinner {
+  flex: none;
+  margin-top: 1px;
+}
+
+.github-publish-dialog__auth-status.is-authenticated {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+  color: var(--text);
+}
+
+.github-publish-dialog__auth-status.is-authenticated > svg {
+  color: var(--success);
+}
+
+.github-publish-dialog__auth-status.is-error,
+.github-publish-dialog__auth-status.is-denied,
+.github-publish-dialog__auth-status.is-expired,
+.github-publish-dialog__auth-status.is-insufficient_permission {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+
+.github-publish-dialog__device-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.github-publish-dialog__device-instructions p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.5;
+}
+
+.github-publish-dialog__device-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3, 12px);
+  min-height: 58px;
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid color-mix(in srgb, var(--active-tab, var(--emphasis)) 55%, var(--line-strong));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--active-tab, var(--emphasis)) 9%, var(--surface-solid));
+}
+
+.github-publish-dialog__device-code span {
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  font-weight: 650;
+}
+
+.github-publish-dialog__device-code code {
+  color: var(--text);
+  font: 760 1.35em/1.1 "Cascadia Mono", "Consolas", monospace;
+  letter-spacing: .13em;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.github-publish-dialog__device-code.is-missing {
+  color: var(--text-3);
+}
+
+.github-publish-dialog__device-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.github-publish-dialog__scope-note,
+.github-publish-dialog__auth-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__scope-note strong,
+.github-publish-dialog__auth-recovery strong {
+  color: var(--text);
+  font-size: var(--font-caption, 12px);
+}
+
+.github-publish-dialog__account-card,
+.github-publish-dialog__verified-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__account-card > svg,
+.github-publish-dialog__verified-strip > svg {
+  flex: none;
+  color: var(--success);
+}
+
+.github-publish-dialog__account-card > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.github-publish-dialog__account-card strong,
+.github-publish-dialog__verified-strip strong {
+  color: var(--text);
+}
+
+.github-publish-dialog__inline-actions,
+.github-publish-dialog__recovery-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+}
+
+.github-publish-dialog__muted {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+}
+
+.github-publish-dialog__form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+.github-publish-dialog__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.github-publish-dialog__field--wide {
+  grid-column: 1 / -1;
+}
+
+.github-publish-dialog__field > span,
+.github-publish-dialog__visibility legend {
+  color: var(--text-2);
+  font-size: var(--font-control, 13px);
+  font-weight: 700;
+}
+
+.github-publish-dialog__field em {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.github-publish-dialog__field input,
+.github-publish-dialog__field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-control, 13px);
+}
+
+.github-publish-dialog__field input {
+  height: var(--control-height-small, 32px);
+  padding: 0 var(--space-2, 8px);
+}
+
+.github-publish-dialog__field textarea {
+  min-height: 72px;
+  padding: var(--space-2, 8px);
+  resize: vertical;
+}
+
+.github-publish-dialog__field input:focus,
+.github-publish-dialog__field textarea:focus {
+  border-color: var(--active-tab);
+  outline: 2px solid color-mix(in srgb, var(--active-tab) 25%, transparent);
+  outline-offset: 0;
+}
+
+.github-publish-dialog__field small,
+.github-publish-dialog__visibility-note {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__field-error {
+  color: var(--danger) !important;
+}
+
+.github-publish-dialog__visibility {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3, 12px);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.github-publish-dialog__visibility legend {
+  padding-inline: var(--space-1, 4px);
+}
+
+.github-publish-dialog__visibility-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2, 8px);
+}
+
+.github-publish-dialog__visibility-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  min-height: var(--hit-target, 36px);
+  padding: var(--space-2, 8px);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.github-publish-dialog__visibility-option:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.github-publish-dialog__visibility-option.is-selected {
+  border-color: var(--active-tab);
+  background: color-mix(in srgb, var(--active-tab) 10%, var(--surface));
+  color: var(--text);
+}
+
+.github-publish-dialog__visibility-option input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--active-tab, var(--emphasis));
+}
+
+.github-publish-dialog__visibility-option input:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: 2px;
+}
+
+.github-publish-dialog__visibility-option > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+
+.github-publish-dialog__visibility-option strong {
+  color: var(--text);
+  font-size: var(--font-control, 13px);
+}
+
+.github-publish-dialog__visibility-option small {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.35;
+}
+
+.github-publish-dialog__visibility-note {
+  margin: var(--space-2, 8px) 0 0;
+}
+
+.github-publish-dialog__summary {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+
+.github-publish-dialog__summary-row {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+  padding: var(--space-2, 8px) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.github-publish-dialog__summary-row dt {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  font-weight: 650;
+}
+
+.github-publish-dialog__summary-row dd {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__summary-row dd strong {
+  color: var(--text);
+}
+
+.github-publish-dialog__summary-row a {
+  color: var(--active-tab);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.github-publish-dialog__summary-row code {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.github-publish-dialog__summary-subnote {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+}
+
+.github-publish-dialog__final-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  border: 1px solid color-mix(in srgb, var(--active-tab) 55%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--active-tab) 9%, var(--surface));
+}
+
+.github-publish-dialog__final-confirm > svg {
+  flex: none;
+  color: var(--active-tab);
+}
+
+.github-publish-dialog__final-confirm > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.4;
+}
+
+.github-publish-dialog__final-confirm strong {
+  color: var(--text);
+}
+
+.github-publish-dialog__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.github-publish-dialog__steps li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-2, 8px) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.github-publish-dialog__step-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--text-3);
+}
+
+.github-publish-dialog__step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.github-publish-dialog__steps li.is-running .github-publish-dialog__step-icon {
+  border-color: var(--active-tab);
+  color: var(--active-tab);
+}
+
+.github-publish-dialog__steps li.is-succeeded .github-publish-dialog__step-icon {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.github-publish-dialog__steps li.is-failed .github-publish-dialog__step-icon,
+.github-publish-dialog__steps li.is-unknown .github-publish-dialog__step-icon {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.github-publish-dialog__steps li.is-cancelled .github-publish-dialog__step-icon {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.github-publish-dialog__step-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.github-publish-dialog__step-content strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-control, 13px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-publish-dialog__step-content span {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.github-publish-dialog__step-state {
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+  white-space: nowrap;
+}
+
+.github-publish-dialog__steps li.is-running .github-publish-dialog__step-state {
+  color: var(--active-tab);
+}
+
+.github-publish-dialog__steps li.is-succeeded .github-publish-dialog__step-state {
+  color: var(--success);
+}
+
+.github-publish-dialog__steps li.is-failed .github-publish-dialog__step-state,
+.github-publish-dialog__steps li.is-unknown .github-publish-dialog__step-state {
+  color: var(--danger);
+}
+
+.github-publish-dialog__partial-card {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--line-strong));
+}
+
+.github-publish-dialog__complete-card {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3, 12px);
+  border-color: color-mix(in srgb, var(--success) 52%, var(--line-strong));
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+}
+
+.github-publish-dialog__complete-card > svg {
+  color: var(--success);
+}
+
+.github-publish-dialog__complete-card h3 {
+  margin: 0;
+}
+
+.github-publish-dialog__complete-card p {
+  margin: var(--space-2, 8px) 0 0;
+  color: var(--text-2);
+  font-size: var(--font-caption, 12px);
+  line-height: 1.5;
+}
+
+.github-publish-dialog__footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  min-height: var(--control-height, 34px);
+  padding: var(--space-3, 12px) var(--space-5, 20px) var(--space-4, 16px);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.github-publish-dialog__footer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  margin-right: auto;
+  color: var(--text-3);
+  font-size: var(--font-caption, 12px);
+}
+
+.github-publish-dialog__footer-status .spinner {
+  flex: none;
+}
+
+@media (max-width: 620px) {
+  .github-publish-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+
+  .github-publish-dialog__form {
+    max-height: calc(100vh - 16px);
+  }
+
+  .github-publish-dialog__header,
+  .github-publish-dialog__body,
+  .github-publish-dialog__footer {
+    padding-inline: var(--space-3, 12px);
+  }
+
+  .github-publish-dialog__form-grid,
+  .github-publish-dialog__visibility-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .github-publish-dialog__summary-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1, 4px);
+  }
+
+  .github-publish-dialog__steps li {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .github-publish-dialog__step-state {
+    grid-column: 2;
+  }
+
+  .github-publish-dialog__footer {
+    align-items: stretch;
+  }
+
+  .github-publish-dialog__footer > .button {
+    flex: 1 1 auto;
+  }
+
+  .github-publish-dialog__footer-status {
+    flex: 1 1 100%;
+    margin-right: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .github-publish-dialog {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    forced-color-adjust: auto;
+  }
+
+  .github-publish-dialog::backdrop {
+    background: Canvas;
+    opacity: .8;
+  }
+
+  .github-publish-dialog__header,
+  .github-publish-dialog__footer,
+  .github-publish-dialog__card,
+  .github-publish-dialog__notice,
+  .github-publish-dialog__auth-status,
+  .github-publish-dialog__device-code,
+  .github-publish-dialog__scope-note,
+  .github-publish-dialog__auth-recovery,
+  .github-publish-dialog__account-card,
+  .github-publish-dialog__verified-strip,
+  .github-publish-dialog__visibility,
+  .github-publish-dialog__visibility-option,
+  .github-publish-dialog__final-confirm,
+  .github-publish-dialog__loading {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .github-publish-dialog__header h2,
+  .github-publish-dialog__card h3,
+  .github-publish-dialog__field > span,
+  .github-publish-dialog__visibility legend,
+  .github-publish-dialog__visibility-option strong,
+  .github-publish-dialog__step-content strong,
+  .github-publish-dialog__final-confirm strong,
+  .github-publish-dialog__device-code code,
+  .github-publish-dialog__summary-row dd strong {
+    color: CanvasText;
+  }
+
+  .github-publish-dialog__eyebrow,
+  .github-publish-dialog__notice > svg,
+  .github-publish-dialog__account-card > svg,
+  .github-publish-dialog__verified-strip > svg,
+  .github-publish-dialog__final-confirm > svg {
+    color: Highlight;
+  }
+
+  .github-publish-dialog__field input,
+  .github-publish-dialog__field textarea {
+    border-color: CanvasText;
+    background: Field;
+    color: FieldText;
+  }
+
+  .github-publish-dialog__visibility-option.is-selected {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .github-publish-dialog__visibility-option.is-selected strong,
+  .github-publish-dialog__visibility-option.is-selected small {
+    color: HighlightText;
+  }
+
+  .github-publish-dialog__button,
+  .github-publish-dialog .button {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+
+  .github-publish-dialog .button--primary {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .github-publish-dialog .button:disabled {
+    border-color: GrayText;
+    color: GrayText;
+  }
+
+  .github-publish-dialog a {
+    color: LinkText;
+  }
+
+  .github-publish-dialog__steps li {
+    border-color: CanvasText;
+  }
+}

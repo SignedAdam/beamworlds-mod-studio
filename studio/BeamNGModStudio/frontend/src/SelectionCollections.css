@@ -1,0 +1,140 @@
+/* Reserve selection controls and collection chips without moving the results. */
+.library-selection-row {
+  flex: none;
+  height: calc(max(var(--control-height), var(--tag-chip-height)) + 2 * var(--space-1) + 14px);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.library-selection-row > .library-selection {
+  margin-left: 0;
+}
+
+.selection-collections {
+  flex: 1 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  row-gap: var(--space-1);
+  column-gap: var(--space-1);
+  padding: var(--space-1) 0;
+  background: var(--surface);
+  user-select: none;
+}
+
+/* Each chip: label button, add button, remove button. */
+.sc-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: var(--tag-chip-height);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.sc-chip__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 2px 0 0 2px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sc-chip__label:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.sc-chip__label:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+
+.sc-chip__count {
+  color: var(--text-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.sc-chip__action {
+  width: 22px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.sc-chip__action:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.sc-chip__action:last-child {
+  border-radius: 0 2px 2px 0;
+}
+.sc-chip__action:focus-visible {
+  outline: 2px solid var(--active-tab);
+  outline-offset: -2px;
+}
+.sc-chip__action--remove:hover {
+  color: var(--danger);
+}
+
+/* Light theme: borrow the library accent so chips stay visible against
+   the warm white surface, matching the selection count chip. */
+html[data-theme="light"] .selection-collections {
+  background: var(--surface);
+  border-bottom-color: var(--line);
+}
+html[data-theme="light"] .sc-chip {
+  border-color: var(--line);
+}
+html[data-theme="light"] .sc-chip__label {
+  color: var(--library-table-secondary-text, var(--text-2));
+}
+html[data-theme="light"] .sc-chip__label:hover {
+  color: var(--library-table-primary-text, var(--text));
+}
+html[data-theme="light"] .sc-chip__count {
+  color: var(--library-table-secondary-text, var(--text-3));
+}
+html[data-theme="light"] .sc-chip__action {
+  color: var(--library-table-secondary-text, var(--text-3));
+  border-left-color: var(--line);
+}
+html[data-theme="light"] .sc-chip__action:hover {
+  color: var(--library-table-primary-text, var(--text));
+}
+html[data-theme="light"] .sc-chip__action--remove:hover {
+  color: var(--danger);
+}
+html[data-theme="light"] .sc-chip__label:focus-visible,
+html[data-theme="light"] .sc-chip__action:focus-visible {
+  outline-color: var(--library-accent, var(--active-tab));
+}
+
+/* Responsive: at narrow widths, tighten padding but never hide chips. */
+@media (max-width: 1000px) {
+  .selection-collections {
+    padding: var(--space-1) var(--space-3);
+  }
+  .sc-chip__label {
+    padding: 0 5px;
+  }
+}

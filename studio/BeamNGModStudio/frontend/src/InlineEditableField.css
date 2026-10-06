@@ -1,0 +1,300 @@
+.inline-editable-field {
+  --inline-editable-field-gap: clamp(4px, calc(5px * var(--interface-scale, 1)), 7px);
+  --inline-editable-field-control-height: calc(var(--control-height-small, 30px) + 2px);
+  --inline-editable-field-heading-height: max(22px, calc(24px * var(--interface-scale, 1)));
+  --inline-editable-field-label-size: var(--font-control, 13px);
+  --inline-editable-field-value-size: var(--font-control, 13px);
+  --inline-editable-field-message-size: var(--font-caption, 12px);
+  --inline-editable-field-value-height: var(--inline-editable-field-control-height);
+  --inline-editable-field-value-padding: max(6px, calc(8px * var(--interface-scale, 1)));
+  --inline-editable-field-accent: var(--inspector-accent, var(--active-tab, var(--emphasis, #e8e4d8)));
+  --inline-editable-field-border: var(--line, rgba(255, 255, 255, 0.15));
+  --inline-editable-field-border-strong: var(--line-strong, rgba(255, 255, 255, 0.3));
+  --inline-editable-field-surface: var(--field, rgba(0, 0, 0, 0.62));
+  --inline-editable-field-text: var(--text, #f2f0ea);
+  --inline-editable-field-text-muted: var(--text-2, #c8c5bc);
+  --inline-editable-field-text-subtle: var(--text-3, #a09d95);
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  grid-template-areas:
+    "heading"
+    "value"
+    "message";
+  color: var(--inline-editable-field-text);
+  font-size: var(--inline-editable-field-value-size);
+}
+
+/* Multi-line fields keep one stable taller row instead of growing while edited. */
+.inline-editable-field.inline-editable-field--multiline {
+  --inline-editable-field-value-height: max(var(--inline-editable-field-control-height), calc(4.4em + 12px));
+}
+
+.inline-editable-field__heading {
+  min-width: 0;
+  height: var(--inline-editable-field-heading-height);
+  display: flex;
+  grid-area: heading;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--inline-editable-field-gap);
+}
+
+.inline-editable-field__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--inline-editable-field-text-muted);
+  font-size: var(--inline-editable-field-label-size);
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+/* Display and edit controls share the heading row, so no state changes field height. */
+.inline-editable-field__controls {
+  flex: none;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--inline-editable-field-gap);
+}
+
+.inline-editable-field__edit,
+.inline-editable-field__action {
+  flex: none;
+  height: 100%;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--inline-editable-field-text-subtle);
+  font-family: inherit;
+  font-size: var(--inline-editable-field-message-size);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.inline-editable-field__action {
+  border-color: var(--inline-editable-field-border);
+}
+
+.inline-editable-field__edit:hover:not(:disabled),
+.inline-editable-field__action:hover:not(:disabled) {
+  border-color: var(--inline-editable-field-border-strong);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.055));
+  color: var(--inline-editable-field-text);
+}
+
+.inline-editable-field__edit:focus-visible,
+.inline-editable-field__action:focus-visible {
+  outline: 2px solid var(--inline-editable-field-accent);
+  outline-offset: 1px;
+}
+
+.inline-editable-field__edit:disabled,
+.inline-editable-field__action:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.inline-editable-field__action--save {
+  border-color: var(--inline-editable-field-accent);
+  background: color-mix(in srgb, var(--inline-editable-field-accent) 13%, transparent);
+  color: var(--inline-editable-field-text);
+}
+
+/* The value box is the field: identical geometry in display and edit states. */
+.inline-editable-field__value {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+  height: var(--inline-editable-field-value-height);
+  display: flex;
+  grid-area: value;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 var(--inline-editable-field-value-padding);
+  border: 1px solid var(--inline-editable-field-border);
+  border-radius: 3px;
+  background: var(--inline-editable-field-surface);
+  color: var(--inline-editable-field-text);
+  font-size: var(--inline-editable-field-value-size);
+  line-height: 1.4;
+}
+
+.inline-editable-field--multiline .inline-editable-field__value {
+  align-items: stretch;
+  padding: 5px var(--inline-editable-field-value-padding);
+}
+
+.inline-editable-field__value:focus-within {
+  border-color: var(--inline-editable-field-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--inline-editable-field-accent) 30%, transparent);
+}
+
+.inline-editable-field__value > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inline-editable-field__value > :not(:is(input, select, textarea)) {
+  max-height: 100%;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+/* Editors are chromeless: the wrapper owns border, background, and focus ring. */
+.inline-editable-field__value :where(input, select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--inline-editable-field-text);
+  font: inherit;
+  font-size: var(--inline-editable-field-value-size);
+  line-height: inherit;
+}
+
+.inline-editable-field__value :where(input, select, textarea):focus,
+.inline-editable-field__value :where(input, select, textarea):focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.inline-editable-field__value textarea {
+  resize: none;
+  overflow: auto;
+  line-height: 1.4;
+}
+
+.inline-editable-field__message {
+  min-width: 0;
+  display: flex;
+  grid-area: message;
+  align-items: flex-start;
+  color: var(--inline-editable-field-text-subtle);
+  font-size: var(--inline-editable-field-message-size);
+  line-height: 1.35;
+}
+
+.inline-editable-field__message:not(:empty) {
+  margin-top: 4px;
+}
+
+/* The live region stays mounted; it only takes space once it carries a message. */
+.inline-editable-field__message:empty {
+  height: 0;
+  overflow: hidden;
+}
+
+.inline-editable-field__error {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--danger, #ed4d45);
+}
+
+.inline-editable-field--saving .inline-editable-field__action--save {
+  border-color: var(--inline-editable-field-border-strong);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.055));
+}
+
+.inline-editable-field--disabled,
+.inline-editable-field--locked {
+  --inline-editable-field-text: var(--disabled, #73716c);
+  --inline-editable-field-text-muted: var(--disabled, #73716c);
+}
+
+.inline-editable-field--has-error .inline-editable-field__value {
+  border-color: color-mix(in srgb, var(--danger, #ed4d45) 65%, var(--inline-editable-field-border));
+}
+
+.inspector {
+  container-type: inline-size;
+  container-name: inspector;
+}
+
+.variant-selection-panel__inner {
+  container-type: inline-size;
+  container-name: variant-pane;
+}
+.inline-editable-field-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--inline-editable-grid-gap, clamp(10px, calc(12px * var(--interface-scale, 1)), 18px)) var(--inline-editable-grid-column-gap, clamp(12px, calc(16px * var(--interface-scale, 1)), 24px));
+}
+
+.inline-editable-field-grid > .inline-editable-field {
+  min-width: 0;
+}
+
+@container inspector (max-width: 32em) {
+  .inspector .inspector__actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector .inspector-action-region--security {
+    grid-column: 1;
+  }
+}
+
+@container inspector (max-width: 32em) {
+  .inspector .variant-fields,
+  .inspector .inline-editable-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector .variant-field--description {
+    grid-column: auto;
+  }
+}
+
+@container variant-pane (max-width: 32em) {
+  .variant-fields,
+  .inline-editable-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .variant-field--description {
+    grid-column: auto;
+  }
+}
+
+@container (max-width: 560px) {
+  .inline-editable-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .inline-editable-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-editable-field__edit {
+    transition: none;
+  }
+}

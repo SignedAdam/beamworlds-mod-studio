@@ -543,6 +543,7 @@ html[data-theme="light"] .provider-row__control .text-button.is-active{color:col
 .setup-field input,.setup-summary dd{font-size:var(--font-control)}
 .splash{background:var(--bg)}
 .toast--info{border-left-color:var(--active-tab)}
+.toast--warning{border-left:3px solid var(--warning)}
 .app-shell small,.app-shell dt,.app-shell time{font-size:var(--font-caption)!important}
 @media(max-width:1120px){
   .app-shell{--sidebar:176px}
@@ -1089,6 +1090,7 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
 .app-statusbar__scan{min-width:0;display:flex;align-items:center;gap:9px;line-height:1.2}
 .app-statusbar__scan>svg{flex:none;align-self:center}
 .app-statusbar__scan>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-statusbar__scan--warning>svg{color:var(--warning)}
 @media(max-width:680px){
   .app-statusbar{grid-template-columns:240px minmax(0,1fr)}
 }

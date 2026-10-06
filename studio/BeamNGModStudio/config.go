@@ -141,6 +141,9 @@ func findConfigFrom(candidate string) (string, string) {
 	return "", ""
 }
 
+// effectiveScanRoots keeps configured roots even when they are missing right
+// now: dropping an offline drive here would hide it from the scan's warning
+// and, once settings are saved, from the configuration itself.
 func effectiveScanRoots(config AppConfig) []string {
 	candidates := config.ScanRoots
 	if len(candidates) == 0 {
@@ -157,10 +160,8 @@ func effectiveScanRoots(config AppConfig) []string {
 		if seen[key] {
 			return
 		}
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			seen[key] = true
-			roots = append(roots, candidate)
-		}
+		seen[key] = true
+		roots = append(roots, candidate)
 	}
 	for _, candidate := range candidates {
 		if samePath(candidate, config.BeamNGRoot) {

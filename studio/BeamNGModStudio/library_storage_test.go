@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func applyLibraryArchives(tb testing.TB, store *Store, root string, archives []S
 	if err != nil {
 		tb.Fatalf("begin library scan: %v", err)
 	}
-	items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, archives, len(archives), len(archives), 0)
+	items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, archives, len(archives), len(archives), 0)
 	if err != nil {
 		tb.Fatalf("apply library scan: %v", err)
 	}
@@ -563,7 +564,7 @@ func TestLibraryScanBatchRollbackPreservesPriorSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ApplyScanBatch(ctx, scanID, []string{root}, bad, len(bad), 0, 1); err == nil {
+	if _, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, bad, len(bad), 0, 1); err == nil {
 		t.Fatal("rollback fixture unexpectedly committed")
 	} else if finishErr := store.FinishScan(ctx, scanID, []string{root}, 1, 0, 1, err); finishErr != nil {
 		t.Fatalf("record failed scan: %v", finishErr)
@@ -834,6 +835,63 @@ func TestLibraryEngineClassifiesRepositoryAndUserSources(t *testing.T) {
 	}
 }
 
+// An unplugged drive or offline share must not read as deleted mods: they
+// stay in the library and in their collections, and the scan names the folder.
+func TestLibraryScanLeavesUnreachableRootUntouched(t *testing.T) {
+	service := newTestAppService(t)
+	ctx := context.Background()
+	drive := filepath.Join(t.TempDir(), "external")
+	writeLibraryScanArchive(t, filepath.Join(drive, "truck.zip"), "Truck")
+	config := service.config
+	config.ScanRoots = []string{drive}
+	engine := NewLibraryEngine(service.store, config, func(string, any) {})
+	if _, err := engine.Scan(ctx); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.store.ListLibrary(ctx, "all", "all", "", "all", "active")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("indexed %d mods, err %v", len(items), err)
+	}
+	collection, err := service.CreateCollection("Weekend", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetCollectionMods(collection.Collection.ID, []string{items[0].EntityID}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	unplugged := drive + "-unplugged"
+	if err := os.Rename(drive, unplugged); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := engine.Scan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []UnreachableFolder{{Path: drive, Mods: 1}}; !slices.Equal(summary.Unreachable, want) {
+		t.Fatalf("unreachable = %v, want %v", summary.Unreachable, want)
+	}
+	items, err = service.store.ListLibrary(ctx, "all", "all", "", "all", "active")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("offline drive removed its mods: %d left, err %v", len(items), err)
+	}
+	detail, err := service.GetCollection(collection.Collection.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Members) != 1 || !detail.Members[0].Enabled {
+		t.Fatalf("offline drive changed the collection: %+v", detail.Members)
+	}
+
+	if err := os.Rename(unplugged, drive); err != nil {
+		t.Fatal(err)
+	}
+	summary, err = engine.Scan(ctx)
+	if err != nil || len(summary.Unreachable) != 0 {
+		t.Fatalf("reconnected scan: unreachable %v, err %v", summary.Unreachable, err)
+	}
+}
+
 func TestLibraryListUsesOneSnapshotAcrossCoordinatedScanCommit(t *testing.T) {
 	store, root := openLibraryStorage(t)
 	ctx := context.Background()
@@ -872,7 +930,7 @@ func TestLibraryListUsesOneSnapshotAcrossCoordinatedScanCommit(t *testing.T) {
 	}
 	commitDone := make(chan error, 1)
 	go func() {
-		_, err := store.ApplyScanBatch(ctx, scanID, []string{}, afterArchives, 2, 2, 0)
+		_, err := store.ApplyScanBatch(ctx, scanID, []string{}, nil, afterArchives, 2, 2, 0)
 		commitDone <- err
 	}()
 	if err := <-commitDone; err != nil {
@@ -1509,7 +1567,7 @@ func BenchmarkSQLiteIncrementalLibraryScan(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			items, err := store.ApplyScanBatch(context.Background(), scanID, []string{root}, archives, fixtureSize, fixtureSize, 0)
+			items, err := store.ApplyScanBatch(context.Background(), scanID, []string{root}, nil, archives, fixtureSize, fixtureSize, 0)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -1557,7 +1615,7 @@ func BenchmarkSQLiteFullLibraryScan(b *testing.B) {
 					b.StopTimer()
 					b.Fatal(err)
 				}
-				items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, archives, fixtureSize, fixtureSize, 0)
+				items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, archives, fixtureSize, fixtureSize, 0)
 				if err != nil {
 					b.StopTimer()
 					b.Fatal(err)

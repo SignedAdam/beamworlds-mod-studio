@@ -63,7 +63,7 @@ func TestArchiveScannerExcludesExplicitGeneratedRoots(t *testing.T) {
 	for _,root:=range []string{generated,work,service.config.LibraryDir} {
 		jobs:=make(chan archiveJob,10)
 		var discovered atomic.Int64
-		if err:=engine.discoverRoot(context.Background(),root,jobs,&discovered,func(string,string,bool,error){});err!=nil {t.Fatal(err)}
+		if _,err:=engine.discoverRoot(context.Background(),root,jobs,&discovered,func(string,string,bool,error){});err!=nil {t.Fatal(err)}
 		close(jobs)
 		if root==service.config.LibraryDir {
 			if discovered.Load()!=1 {t.Fatal("canonical library nested in Studio data was not scanned")}

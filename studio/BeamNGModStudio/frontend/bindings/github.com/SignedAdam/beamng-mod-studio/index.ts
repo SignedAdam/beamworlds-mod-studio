@@ -111,6 +111,7 @@ export type {
     StorageCleanupResult,
     StorageProgress,
     TestInstallRecord,
+    UnreachableFolder,
     UsageLimit,
     VirgilSessionRecord,
     VirgilSessionSummary,

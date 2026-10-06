@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -669,8 +670,9 @@ func (s *Store) UpsertArchive(ctx context.Context, scanID, root, archivePath str
 // ApplyScanBatch applies the complete scan snapshot and marks its scan row
 // complete in the same transaction. A caller sees either the previous
 // snapshot or this one; returned items are hydrated before the transaction
-// commits, so a hydration error can only roll the batch back.
-func (s *Store) ApplyScanBatch(ctx context.Context, scanID string, roots []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
+// commits, so a hydration error can only roll the batch back. Links under an
+// unreachable folder are left active: the scan could not see whether they exist.
+func (s *Store) ApplyScanBatch(ctx context.Context, scanID string, roots, unreachable []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
 	if strings.TrimSpace(scanID) == "" {
 		return nil, errors.New("scan ID is required")
 	}
@@ -679,10 +681,10 @@ func (s *Store) ApplyScanBatch(ctx context.Context, scanID string, roots []strin
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return s.applyScanBatchTx(ctx, scanID, roots, archives, discovered, analyzed, failed)
+	return s.applyScanBatchTx(ctx, scanID, roots, unreachable, archives, discovered, analyzed, failed)
 }
 
-func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
+func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots, unreachable []string, archives []ScanArchive, discovered, analyzed, failed int) ([]LibraryItem, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -773,6 +775,9 @@ func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []str
 			return nil, err
 		}
 		for _, link := range missing {
+			if slices.ContainsFunc(unreachable, func(folder string) bool { return pathWithin(link.path, folder) }) {
+				continue
+			}
 			result, err := deactivateStmt.ExecContext(ctx, link.id)
 			if err != nil {
 				return nil, err
@@ -844,6 +849,41 @@ func (s *Store) applyScanBatchTx(ctx context.Context, scanID string, roots []str
 		return nil, err
 	}
 	return items, nil
+}
+
+// indexedModsUnder counts the mods with an active archive under each folder
+// and leaves out folders that hold none.
+func (s *Store) indexedModsUnder(ctx context.Context, folders []string) ([]UnreachableFolder, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_id, path FROM archive_links WHERE active=1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	mods := make([]map[string]struct{}, len(folders))
+	for index := range mods {
+		mods[index] = map[string]struct{}{}
+	}
+	for rows.Next() {
+		var entityID, path string
+		if err := rows.Scan(&entityID, &path); err != nil {
+			return nil, err
+		}
+		for index, folder := range folders {
+			if pathWithin(path, folder) {
+				mods[index][entityID] = struct{}{}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result := []UnreachableFolder{}
+	for index, folder := range folders {
+		if len(mods[index]) > 0 {
+			result = append(result, UnreachableFolder{Path: folder, Mods: len(mods[index])})
+		}
+	}
+	return result, nil
 }
 
 // disableMissingCollectionModsTx reconciles saved selections only after the

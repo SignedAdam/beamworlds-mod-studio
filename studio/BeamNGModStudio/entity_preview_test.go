@@ -68,7 +68,7 @@ func TestEntityPreviewArchiveRoundTripAndManualRescan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := store.ApplyScanBatch(ctx, scanID, []string{filepath.Dir(archivePath)}, []ScanArchive{{
+	items, err := store.ApplyScanBatch(ctx, scanID, []string{filepath.Dir(archivePath)}, nil, []ScanArchive{{
 		Root:        filepath.Dir(archivePath),
 		ArchivePath: archivePath,
 		SizeBytes:   info.Size(),
@@ -109,7 +109,7 @@ func TestEntityPreviewArchiveRoundTripAndManualRescan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rescannedItems, err := store.ApplyScanBatch(ctx, rescanned, []string{filepath.Dir(archivePath)}, []ScanArchive{{
+	rescannedItems, err := store.ApplyScanBatch(ctx, rescanned, []string{filepath.Dir(archivePath)}, nil, []ScanArchive{{
 		Root:        filepath.Dir(archivePath),
 		ArchivePath: archivePath,
 		SizeBytes:   info.Size(),

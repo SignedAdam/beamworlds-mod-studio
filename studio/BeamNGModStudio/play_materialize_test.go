@@ -116,11 +116,11 @@ func TestPlayAfterRemovedArchiveReconciliation(t *testing.T) {
 
 			switch mode {
 			case "rescan":
-				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, remaining, 2, 2, 0)
+				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, nil, remaining, 2, 2, 0)
 			case "scan completion":
-				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, remaining, 2, 2, 0)
+				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, nil, remaining, 2, 2, 0)
 			case "startup":
-				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, remaining, 2, 2, 0)
+				_, err = service.store.ApplyScanBatch(ctx, scanID, []string{root}, nil, remaining, 2, 2, 0)
 			}
 			if err != nil {
 				t.Fatal(err)

@@ -1149,6 +1149,13 @@ export interface ScanSummary {
     "failed": number;
     "cancelled": boolean;
     "error"?: string;
+
+    /**
+     * Unreachable lists folders the scan could not read (an unplugged drive, an
+     * offline share, denied access) that hold indexed mods. Those mods were
+     * left exactly as they were.
+     */
+    "unreachable": UnreachableFolder[] | null;
 }
 
 export interface SettingsUpdate {
@@ -1300,6 +1307,11 @@ export interface TestInstallRecord {
     "logPath": string;
     "logOffset": number;
     "active": boolean;
+}
+
+export interface UnreachableFolder {
+    "path": string;
+    "mods": number;
 }
 
 export interface UsageLimit {

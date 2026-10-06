@@ -18,7 +18,7 @@ func applyRevisionScan(tb testing.TB, store *Store, roots []string, archives []S
 	if err != nil {
 		tb.Fatalf("begin revision scan: %v", err)
 	}
-	items, err := store.ApplyScanBatch(ctx, scanID, roots, archives, len(archives), len(archives), 0)
+	items, err := store.ApplyScanBatch(ctx, scanID, roots, nil, archives, len(archives), len(archives), 0)
 	if err != nil {
 		tb.Fatalf("apply revision scan: %v", err)
 	}

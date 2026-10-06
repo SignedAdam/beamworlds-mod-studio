@@ -19,6 +19,7 @@ import type {
   ScanProgress,
   SettingsUpdate,
   SetupState,
+  UnreachableFolder,
   WorkspaceDetail,
   WorkspaceRecord,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
@@ -68,7 +69,7 @@ type View =
   | "scanner"
   | "activity"
   | "settings";
-type ToastTone = "success" | "error" | "info";
+type ToastTone = "success" | "error" | "info" | "warning";
 type InterfaceSize = "compact" | "default" | "comfortable" | "large";
 type TextSize = "small" | "default" | "large" | "extra-large";
 
@@ -181,6 +182,10 @@ function App() {
   });
   const [scan, setScan] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
+  // Folders the last scan couldn't read; their mods were left as they were.
+  const [unreachableFolders, setUnreachableFolders] = useState<
+    UnreachableFolder[]
+  >([]);
   const [writeBlocked, setWriteBlocked] = useState(false);
   const [virusScanRequest, setVirusScanRequest] = useState<{
     entityIDs: string[];
@@ -467,6 +472,8 @@ function App() {
     try {
       const summary = await API.ScanLibrary();
       successful = !summary.cancelled && !summary.error;
+      const unreachable = summary.unreachable ?? [];
+      if (!summary.cancelled) setUnreachableFolders(unreachable);
       if (!successful) {
         scanInFlightRef.current = false;
         setScanning(false);
@@ -482,10 +489,26 @@ function App() {
         writeBlockedRef.current = false;
         setWriteBlocked(false);
       }
-      notify(
-        `Processed ${summary.analyzed.toLocaleString()} archives${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} cached` : ""}`,
-        summary.failed ? "info" : "success",
-      );
+      if (unreachable.length > 0) {
+        const mods = unreachable.reduce((sum, folder) => sum + folder.mods, 0);
+        const kept =
+          mods > 0
+            ? `${mods.toLocaleString()} ${mods === 1 ? "mod" : "mods"} there ${mods === 1 ? "was" : "were"}`
+            : unreachable.length === 1
+              ? "Its mods were"
+              : "Their mods were";
+        notify(
+          unreachable.length === 1
+            ? `Couldn't reach ${unreachable[0].path}. ${kept} left as they are; reconnect it and rescan.`
+            : `Couldn't reach ${unreachable.length} library folders. ${kept} left as they are; reconnect them and rescan.`,
+          "warning",
+        );
+      } else {
+        notify(
+          `Processed ${summary.analyzed.toLocaleString()} archives${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} cached` : ""}`,
+          summary.failed ? "info" : "success",
+        );
+      }
     } catch (error) {
       scanInFlightRef.current = false;
       setScanning(false);
@@ -1619,15 +1642,38 @@ function App() {
 
       <footer className="app-statusbar" aria-label="Application status">
         <div
-          className={`app-statusbar__scan${scanning ? " app-statusbar__scan--active" : ""}`}
+          className={`app-statusbar__scan${scanning ? " app-statusbar__scan--active" : ""}${!scanning && unreachableFolders.length > 0 ? " app-statusbar__scan--warning" : ""}`}
+          title={
+            !scanning && unreachableFolders.length > 0
+              ? `Couldn't reach:\n${unreachableFolders.map((folder) => (folder.mods > 0 ? `${folder.path} (${folder.mods} ${folder.mods === 1 ? "mod" : "mods"})` : folder.path)).join("\n")}\nThose mods were left as they are. Reconnect and rescan.`
+              : undefined
+          }
         >
-          <Icon name={scanning ? "scan" : "check"} size={14} />
+          <Icon
+            name={
+              scanning
+                ? "scan"
+                : unreachableFolders.length > 0
+                  ? "warning"
+                  : "check"
+            }
+            size={14}
+          />
           <span>
             {scanning
               ? `Scanning ${scan?.analyzed ?? 0}/${scan?.discovered ?? 0}`
-              : lastSuccessfulScanAt
-                ? `Last scan: ${formatDate(lastSuccessfulScanAt)}`
-                : "No successful scan"}
+              : unreachableFolders.length > 0
+                ? `Can't reach ${
+                    unreachableFolders.length === 1
+                      ? (unreachableFolders[0].path
+                          .split(/[\\/]/)
+                          .filter(Boolean)
+                          .pop() ?? unreachableFolders[0].path)
+                      : `${unreachableFolders.length} folders`
+                  }`
+                : lastSuccessfulScanAt
+                  ? `Last scan: ${formatDate(lastSuccessfulScanAt)}`
+                  : "No successful scan"}
           </span>
         </div>
         <div>
@@ -1689,7 +1735,9 @@ function App() {
               ? "error"
               : toast.tone === "success"
                 ? "check"
-                : "activity"
+                : toast.tone === "warning"
+                  ? "warning"
+                  : "activity"
           }
           size={17}
         />

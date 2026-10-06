@@ -41,6 +41,15 @@ type ScanSummary struct {
 	Failed     int       `json:"failed"`
 	Cancelled  bool      `json:"cancelled"`
 	Error      string    `json:"error,omitempty"`
+	// Unreachable lists folders the scan could not read (an unplugged drive, an
+	// offline share, denied access) that hold indexed mods. Those mods were
+	// left exactly as they were.
+	Unreachable []UnreachableFolder `json:"unreachable"`
+}
+
+type UnreachableFolder struct {
+	Path string `json:"path"`
+	Mods int    `json:"mods"`
 }
 
 type archiveJob struct {
@@ -269,10 +278,14 @@ func (engine *LibraryEngine) Scan(parent context.Context) (ScanSummary, error) {
 		recordProcessingError(fmt.Errorf("prepare archive source classification: %w", sourceErr))
 	}
 
+	// Written only by the discovery goroutine; read after its result arrives.
+	unreachable := []string{}
 	go func() {
 		defer close(jobs)
 		for _, root := range engine.config.ScanRoots {
-			if err := engine.discoverRoot(ctx, root, jobs, &discovered, progress); err != nil {
+			missed, err := engine.discoverRoot(ctx, root, jobs, &discovered, progress)
+			unreachable = append(unreachable, missed...)
+			if err != nil {
 				discoveryResult <- err
 				return
 			}
@@ -351,7 +364,7 @@ func (engine *LibraryEngine) Scan(parent context.Context) (ScanSummary, error) {
 		archivesMu.Lock()
 		batch := append([]ScanArchive(nil), archives...)
 		archivesMu.Unlock()
-		committedItems, finishErr = engine.store.ApplyScanBatch(ctx, scanID, engine.config.ScanRoots, batch, int(discovered.Load()), int(analyzed.Load()), int(failed.Load()))
+		committedItems, finishErr = engine.store.ApplyScanBatch(ctx, scanID, engine.config.ScanRoots, unreachable, batch, int(discovered.Load()), int(analyzed.Load()), int(failed.Load()))
 		if finishErr != nil {
 			discoverErr = finishErr
 			finishErr = engine.store.FinishScan(context.Background(), scanID, engine.config.ScanRoots, int(discovered.Load()), int(analyzed.Load()), int(failed.Load()), discoverErr)
@@ -366,7 +379,21 @@ func (engine *LibraryEngine) Scan(parent context.Context) (ScanSummary, error) {
 	summary := ScanSummary{
 		ScanID: scanID, StartedAt: started, FinishedAt: finished,
 		Discovered: int(discovered.Load()), Analyzed: int(analyzed.Load()), Cached: int(cached.Load()), Failed: int(failed.Load()),
-		Cancelled: errors.Is(discoverErr, context.Canceled),
+		Cancelled:   errors.Is(discoverErr, context.Canceled),
+		Unreachable: []UnreachableFolder{},
+	}
+	// A folder with no indexed mods (say, a library folder not created yet)
+	// has nothing at stake, so it is not reported. If the count itself fails,
+	// report every folder without a count rather than stay silent.
+	if len(unreachable) > 0 {
+		folders, countErr := engine.store.indexedModsUnder(context.Background(), unreachable)
+		if countErr != nil {
+			folders = make([]UnreachableFolder, 0, len(unreachable))
+			for _, path := range unreachable {
+				folders = append(folders, UnreachableFolder{Path: path})
+			}
+		}
+		summary.Unreachable = folders
 	}
 	if discoverErr != nil {
 		summary.Error = discoverErr.Error()
@@ -390,10 +417,19 @@ func (engine *LibraryEngine) Cancel() bool {
 	return true
 }
 
-func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs chan<- archiveJob, discovered *atomic.Int64, progress func(string, string, bool, error)) error {
+// discoverRoot queues every archive under root and returns the folders and
+// files it could not read. Those are reported rather than treated as empty, so
+// an unplugged drive or offline share never looks like deleted mods.
+func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs chan<- archiveJob, discovered *atomic.Int64, progress func(string, string, bool, error)) ([]string, error) {
 	root = filepath.Clean(root)
-	return filepath.WalkDir(root, func(current string, entry fs.DirEntry, walkErr error) error {
+	unreachable := []string{}
+	err := filepath.WalkDir(root, func(current string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			// Something deleted mid-scan is simply gone; the root itself, or
+			// anything that exists but cannot be read, is unreachable.
+			if current == root || !errors.Is(walkErr, fs.ErrNotExist) {
+				unreachable = append(unreachable, current)
+			}
 			if entry != nil && entry.IsDir() {
 				return fs.SkipDir
 			}
@@ -401,6 +437,12 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if current == root && !entry.IsDir() {
+			// A root that is not a walkable folder (for example a junction)
+			// would otherwise scan as empty.
+			unreachable = append(unreachable, current)
+			return nil
 		}
 		if entry.IsDir() {
 			if engine.skipDirectory(current, entry.Name()) {
@@ -415,7 +457,13 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 			return nil
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				unreachable = append(unreachable, current)
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 		count := discovered.Add(1)
@@ -430,6 +478,7 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 			return ctx.Err()
 		}
 	})
+	return unreachable, err
 }
 
 const osModeSymlink = fs.ModeSymlink

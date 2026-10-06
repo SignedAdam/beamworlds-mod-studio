@@ -60,7 +60,7 @@ func migrationApplyBatch(tb testing.TB, store *Store, root string, archives []Sc
 	if err != nil {
 		tb.Fatalf("begin scan: %v", err)
 	}
-	items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, archives, discovered, analyzed, failed)
+	items, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, archives, discovered, analyzed, failed)
 	if err != nil {
 		tb.Fatalf("apply scan batch: %v", err)
 	}
@@ -1768,7 +1768,7 @@ func TestSQLiteFailedAnalysisPreservesExistingLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, 1, 0, 1); err == nil {
+	if _, err := store.ApplyScanBatch(ctx, scanID, []string{root}, nil, nil, 1, 0, 1); err == nil {
 		t.Fatal("failed analysis batch unexpectedly committed")
 	}
 	if err := store.FinishScan(ctx, scanID, []string{root}, 1, 0, 1, errors.New("archive analysis failed")); err != nil {
@@ -1820,7 +1820,7 @@ func TestSQLiteCommittedScanDoesNotBecomeFailureWhenHydrationContextCancels(t *t
 			}
 		}
 	}()
-	items, applyErr := store.ApplyScanBatch(cancelCtx, scanID, []string{root}, archives, len(archives), len(archives), 0)
+	items, applyErr := store.ApplyScanBatch(cancelCtx, scanID, []string{root}, nil, archives, len(archives), len(archives), 0)
 	select {
 	case <-cancelled:
 	case <-time.After(10 * time.Second):

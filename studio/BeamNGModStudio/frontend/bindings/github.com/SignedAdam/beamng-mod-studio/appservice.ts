@@ -253,6 +253,13 @@ export function ForgetVirgilSession(sessionID: string): $CancellablePromise<void
 }
 
 /**
+ * GameRenderer returns the renderer every Studio launch of BeamNG uses.
+ */
+export function GameRenderer(): $CancellablePromise<string> {
+    return $Call.ByID(3636345695);
+}
+
+/**
  * GetArchiveDeploymentState reports the current mode, capabilities, and any
  * warnings. Acquires archivePolicyMu for read.
  */
@@ -651,6 +658,14 @@ export function SetEntityPreviewFromArchive(entityID: string, memberPath: string
 
 export function SetEntityPreviewFromFile(entityID: string, sourcePath: string): $CancellablePromise<$models.LibraryItem> {
     return $Call.ByID(602868577, entityID, sourcePath);
+}
+
+/**
+ * SetGameRenderer remembers the renderer for every later launch: Play,
+ * workspace tests and isolated game tests.
+ */
+export function SetGameRenderer(renderer: string): $CancellablePromise<string> {
+    return $Call.ByID(3175939071, renderer);
 }
 
 export function SetLibraryItemTags(entityID: string, tagIDs: string[] | null): $CancellablePromise<$models.LibraryItem> {

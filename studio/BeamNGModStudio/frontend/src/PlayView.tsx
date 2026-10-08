@@ -8,6 +8,7 @@ import type {
   OrganizationState,
   PlayResult,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
+import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import {
   CollectionCard,
   CollectionDialog,
@@ -19,6 +20,16 @@ import { Icon } from "./icons";
 import { Badge, Button, Page, Spinner, thumbUrl } from "./ui";
 import type { PlaySession } from "./usePlaySession";
 import "./PlayView.css";
+
+// The renderers BeamNG's own launcher offers. "default" lets BeamNG choose:
+// DirectX 12, falling back to DirectX 11, like the launcher's main button.
+const RENDERERS = [
+  { id: "default", label: "Default (DirectX 12)" },
+  { id: "vulkan", label: "Vulkan" },
+  { id: "d3d12", label: "DirectX 12, no fallback" },
+  { id: "d3d11", label: "DirectX 11" },
+];
+const rendererHelp = "The graphics API BeamNG starts with. Default lets BeamNG use DirectX 12 and fall back to DirectX 11, like the main button in BeamNG's launcher. Studio remembers your choice for every launch.";
 
 export interface PlayViewProps {
   organization: OrganizationState | null;
@@ -151,6 +162,23 @@ export function PlayView({
   }, [gameStatus?.running, session.result]);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameError, setRenameError] = useState("");
+  // Saved in Studio and passed to BeamNG on every launch.
+  const [renderer, setRenderer] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    API.GameRenderer()
+      .then((saved) => { if (active) setRenderer(saved); })
+      .catch(onError);
+    return () => { active = false; };
+  }, [onError]);
+  const chooseRenderer = (next: string) => {
+    const previous = renderer;
+    setRenderer(next);
+    API.SetGameRenderer(next).catch((error: unknown) => {
+      setRenderer(previous);
+      onError(error);
+    });
+  };
 
   const byID = useMemo(() => {
     const next: Record<string, ModCollection> = {};
@@ -560,6 +588,21 @@ export function PlayView({
 
           <div className="play-launch-primary">
             <span className="play-readiness">{readinessText}</span>
+            <div className="play-renderer" title={rendererHelp}>
+              <select
+                id="play-renderer-select"
+                value={renderer ?? ""}
+                onChange={(event) => chooseRenderer(event.target.value)}
+                disabled={renderer === null}
+                aria-label="Renderer"
+                aria-describedby="play-renderer-help"
+              >
+                {renderer === null && <option value="">Loading…</option>}
+                {RENDERERS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+              <span className="play-renderer__caption">Renderer</span>
+              <span id="play-renderer-help" className="sr-only">{rendererHelp}</span>
+            </div>
             <button
               type="button"
               className="play-launch-button"

@@ -26,6 +26,10 @@ func (service *AppService) LaunchPlaySelection(ctx context.Context, request Play
 	if err := service.requireGameStopped(); err != nil {
 		return PlayResult{}, err
 	}
+	rendererArgs, err := service.gameRendererArgs(ctx)
+	if err != nil {
+		return PlayResult{}, err
+	}
 	// ModMaker edits waiting to reach the library go into this launch.
 	service.flushLibrarySyncs(ctx)
 	activation, err := service.activatePlaySelectionDirect(ctx, request)
@@ -51,7 +55,8 @@ func (service *AppService) LaunchPlaySelection(ctx context.Context, request Play
 	if starter == nil {
 		starter = startDetachedProcess
 	}
-	launch, startErr := starter(service.config.GameExecutable, []string{"-userpath", activation.UserPath}, service.config.GameInstallDir)
+	arguments := append([]string{"-userpath", activation.UserPath}, rendererArgs...)
+	launch, startErr := starter(service.config.GameExecutable, arguments, service.config.GameInstallDir)
 	if startErr != nil {
 		started, uncertain, message := service.classifyProcessLaunchFailure(launch, startErr)
 		progress.Phase = "launch-failed"
@@ -81,7 +86,7 @@ func (service *AppService) LaunchPlaySelection(ctx context.Context, request Play
 	_ = service.store.AppendEvent(ctx, "", "play_launched", map[string]any{
 		"operationId": activation.OperationID, "modCount": activation.ModCount,
 		"collectionIds": activation.CollectionIDs, "fingerprint": activation.Fingerprint,
-		"pid": launch.PID, "userPath": activation.UserPath,
+		"pid": launch.PID, "userPath": activation.UserPath, "arguments": arguments,
 	})
 	// The game monitor detects exit transitions and harvests session downloads.
 	return PlayResult{Applied: true, Started: true, Activation: activation, Process: launch}, nil

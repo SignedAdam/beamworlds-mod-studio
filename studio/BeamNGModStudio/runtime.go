@@ -52,12 +52,22 @@ func (service *AppService) exportWorkspace(ctx context.Context, workspaceID, lab
 	if err != nil {
 		return ExportResponse{}, err
 	}
-	sourceHash, err := modkit.FullSHA256(ctx, workspace.SourcePath)
+	var sourceHash string
+	if isSourceFolder(workspace.SourcePath) {
+		sourceHash, err = modkit.SourceContentID(ctx, workspace.SourcePath)
+	} else {
+		sourceHash, err = modkit.FullSHA256(ctx, workspace.SourcePath)
+	}
 	if err != nil {
 		return ExportResponse{}, fmt.Errorf("verify immutable source: %w", err)
 	}
-	if !strings.EqualFold(sourceHash, baseline.SourceFingerprint) || !strings.EqualFold(sourceHash, workspace.SourceSHA256) {
-		return ExportResponse{}, errors.New("source archive changed after workspace creation; create a new workspace before exporting")
+	// For folder mods the source is the live folder which Studio is actively
+	// writing; skip the frozen-source check since the folder legitimately
+	// changes between workspace creation and export.
+	if !isSourceFolder(workspace.SourcePath) {
+		if !strings.EqualFold(sourceHash, baseline.SourceFingerprint) || !strings.EqualFold(sourceHash, workspace.SourceSHA256) {
+			return ExportResponse{}, errors.New("source archive changed after workspace creation; create a new workspace before exporting")
+		}
 	}
 	validation := modkit.ValidateWorkspace(workspace.FilesRoot)
 	if err := service.store.SetWorkspaceValidation(ctx, workspace.ID, validation); err != nil {
@@ -96,10 +106,12 @@ func (service *AppService) exportWorkspace(ctx context.Context, workspaceID, lab
 	if err != nil {
 		return ExportResponse{}, err
 	}
-	afterHash, err := modkit.FullSHA256(ctx, workspace.SourcePath)
-	if err != nil || !strings.EqualFold(afterHash, sourceHash) {
-		_ = os.Remove(outputPath)
-		return ExportResponse{}, errors.New("source archive integrity check failed after export")
+	if !isSourceFolder(workspace.SourcePath) {
+		afterHash, err := modkit.FullSHA256(ctx, workspace.SourcePath)
+		if err != nil || !strings.EqualFold(afterHash, sourceHash) {
+			_ = os.Remove(outputPath)
+			return ExportResponse{}, errors.New("source archive integrity check failed after export")
+		}
 	}
 	exportedManifest, err := modkit.Inspect(ctx, outputPath)
 	if err != nil {

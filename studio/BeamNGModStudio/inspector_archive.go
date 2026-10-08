@@ -380,11 +380,16 @@ func (service *AppService) reindexEditedArchive(ctx context.Context, previous Li
 	if err != nil {
 		return EntityDetail{}, fmt.Errorf("reinspect edited archive: %w", err)
 	}
-	sha256, err := modkit.FullSHA256(ctx, previous.ArchivePath)
+	var contentID string
+	if isSourceFolder(previous.ArchivePath) {
+		contentID, err = modkit.SourceContentID(ctx, previous.ArchivePath)
+	} else {
+		contentID, err = modkit.FullSHA256(ctx, previous.ArchivePath)
+	}
 	if err != nil {
 		return EntityDetail{}, fmt.Errorf("hash edited archive: %w", err)
 	}
-	manifest.FullSHA256 = sha256
+	manifest.FullSHA256 = contentID
 	updated, err := service.store.UpsertArchive(ctx, "", previous.RootPath, previous.ArchivePath, stat.Size(), stat.ModTime(), manifest, nil)
 	if err != nil {
 		return EntityDetail{}, err
@@ -396,7 +401,7 @@ func (service *AppService) reindexEditedArchive(ctx context.Context, previous Li
 		eventData = map[string]any{}
 	}
 	eventData["artifactId"] = updated.ArtifactID
-	eventData["sha256"] = sha256
+	eventData["sha256"] = contentID
 	eventData["sizeBytes"] = stat.Size()
 	if err := service.store.AppendEvent(ctx, previous.EntityID, eventType, eventData); err != nil {
 		return EntityDetail{}, err

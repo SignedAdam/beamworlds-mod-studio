@@ -56,8 +56,10 @@ func TestLargePNGThumbnailDerivativeIsSmallJPEG(t *testing.T) {
 	if format != "jpeg" || config.Width != 256 || config.Height != 128 {
 		t.Fatalf("thumbnail = %s %dx%d, want JPEG 256x128", format, config.Width, config.Height)
 	}
-	if len(thumbnailFile)*100 >= len(source.Bytes()) {
-		t.Fatalf("thumbnail bytes = %d, source bytes = %d; want at least 100x smaller", len(thumbnailFile), len(source.Bytes()))
+	// A solid-colour PNG compresses to a few KB, and how far depends on the Go
+	// version, so check the thumbnail against a fixed budget instead of a ratio.
+	if len(thumbnailFile) > 16<<10 {
+		t.Fatalf("thumbnail bytes = %d, want at most 16 KiB", len(thumbnailFile))
 	}
 	if _, err := jpeg.Decode(bytes.NewReader(thumbnailFile)); err != nil {
 		t.Fatal(err)

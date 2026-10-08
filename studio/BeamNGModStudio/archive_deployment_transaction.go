@@ -441,12 +441,14 @@ func(service *AppService)finishArchiveJournal(ctx context.Context,j deploymentJo
 
 // parkedArchiveLinkedElsewhere reports whether another hard link outside this
 // deployment's work folders still names the parked file, for example a saved
-// mod version. Removing the parked link then loses no data.
+// mod version. Removing the parked link then loses no data. Link names come
+// back in long form, so the work folders are compared in long form too.
 func(service *AppService)parkedArchiveLinkedElsewhere(backup string,j deploymentJournalEntry)bool{
  others,err:=otherHardLinkPaths(backup);if err!=nil{return false}
- work:=service.archiveTransactionWorkRoot(j.Purpose)
+ staging,previous:=longPathName(j.StagingDir),longPathName(j.PreviousDir)
+ work:=longPathName(service.archiveTransactionWorkRoot(j.Purpose))
  for _,other:=range others{
-  if pathWithin(other,j.StagingDir)||pathWithin(other,j.PreviousDir)||pathWithin(other,work){continue}
+  if pathWithin(other,staging)||pathWithin(other,previous)||pathWithin(other,work){continue}
   return true
  }
  return false

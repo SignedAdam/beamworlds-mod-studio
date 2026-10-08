@@ -222,7 +222,16 @@ func TestBrowseModImportDirectoryPersistsMRUAndSkipsFailedNavigation(t *testing.
 	if len(result.RecentLocations) != 3 {
 		t.Fatalf("recent locations = %#v, want three successful directories", result.RecentLocations)
 	}
-	if !samePath(result.RecentLocations[0].Path, directories[2]) || !samePath(result.RecentLocations[1].Path, directories[1]) || !samePath(result.RecentLocations[2].Path, directories[0]) {
+	// Browsing stores canonical long paths; the temp folder may be an 8.3 short path.
+	want := make([]string, len(directories))
+	for index, directory := range directories {
+		resolved, err := filepath.EvalSymlinks(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[index] = resolved
+	}
+	if !samePath(result.RecentLocations[0].Path, want[2]) || !samePath(result.RecentLocations[1].Path, want[1]) || !samePath(result.RecentLocations[2].Path, want[0]) {
 		t.Fatalf("recent order = %#v", result.RecentLocations)
 	}
 	for _, location := range result.RecentLocations {

@@ -9,3 +9,6 @@ import "errors"
 func otherHardLinkPaths(string) ([]string, error) {
 	return nil, errors.New("hard link enumeration is only supported on Windows")
 }
+
+// longPathName is the identity outside Windows, which has no 8.3 short names.
+func longPathName(path string) string { return path }

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	storeSchemaVersion          = 7
+	storeSchemaVersion          = 9
 	legacyCatalogSchemaVersion  = 1
 	legacyCatalogImportMarker   = "legacy_catalog_imported"
 	legacyCatalogImportAbsent   = "absent"
@@ -202,6 +202,9 @@ func (s *Store) migrateVersioned(ctx context.Context) error {
 	}
 	if err := ensureArchiveDeploymentSchemaTx(ctx, tx); err != nil {
 		return fmt.Errorf("initialize archive deployment ownership: %w", err)
+	}
+	if err := ensureGameMonitorSchemaTx(ctx, tx); err != nil {
+		return fmt.Errorf("initialize game monitor schema: %w", err)
 	}
 	if err := rebuildLibrarySearchFTSTx(ctx, tx); err != nil {
 		return fmt.Errorf("build library search index: %w", err)
@@ -1954,6 +1957,13 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			last_validation_json TEXT NOT NULL DEFAULT '{}',
 			virgil_configured INTEGER NOT NULL DEFAULT 0,
 			virgil_enabled INTEGER NOT NULL DEFAULT 0,
+			library_sha256 TEXT NOT NULL DEFAULT '',
+			library_identity TEXT NOT NULL DEFAULT '',
+			library_synced_at TEXT NOT NULL DEFAULT '',
+			library_error TEXT NOT NULL DEFAULT '',
+			library_state_key TEXT NOT NULL DEFAULT '',
+			changed_files INTEGER NOT NULL DEFAULT 0,
+			files_changed_at TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY(entity_id) REFERENCES entities(id) ON DELETE CASCADE,
 			FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
 		)`,
@@ -1965,8 +1975,22 @@ func createStoreSchemaTx(ctx context.Context, tx *sql.Tx) error {
 			sha256 TEXT NOT NULL DEFAULT '',
 			kind TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL DEFAULT '',
+			test_json TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
 			FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+		)`,
+		`CREATE TABLE IF NOT EXISTS mod_history (
+			id TEXT PRIMARY KEY,
+			entity_id TEXT NOT NULL,
+			workspace_id TEXT NOT NULL,
+			author TEXT NOT NULL DEFAULT '',
+			changed_files INTEGER NOT NULL DEFAULT 0,
+			state_key TEXT NOT NULL DEFAULT '',
+			path TEXT NOT NULL DEFAULT '',
+			open INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 		)`,
 		collectionsTableDDL,
 		collectionModsTableDDL,
@@ -2237,11 +2261,24 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"play_profile_collections", "excluded", `INTEGER NOT NULL DEFAULT 0`},
 		{"play_profiles", "includes_all_mods", `INTEGER NOT NULL DEFAULT 0`},
 		{"play_profiles", "excludes_all_mods", `INTEGER NOT NULL DEFAULT 0`},
+		{"exports", "test_json", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "library_sha256", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "library_identity", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "library_synced_at", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "library_error", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "library_state_key", `TEXT NOT NULL DEFAULT ''`},
+		{"workspaces", "changed_files", `INTEGER NOT NULL DEFAULT 0`},
+		{"workspaces", "files_changed_at", `TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, column := range columns {
 		if err := ensureColumnTx(ctx, tx, column.table, column.column, column.definition); err != nil {
 			return err
 		}
+	}
+	// v8 kept whole archives as versions; v9 keeps edited mods' history per
+	// workspace in mod_history, and the original stays the workspace source.
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS mod_versions`); err != nil {
+		return err
 	}
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS entities_kind_idx ON entities(kind,updated_at,display_name COLLATE NOCASE)`,
@@ -2263,6 +2300,8 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		`CREATE INDEX IF NOT EXISTS agent_runs_session_idx ON agent_runs(session_id,started_at,id)`,
 		`CREATE INDEX IF NOT EXISTS virus_scans_entity_idx ON virus_scans(entity_id,updated_at DESC,id DESC)`,
 		`CREATE INDEX IF NOT EXISTS virus_scans_entity_artifact_idx ON virus_scans(entity_id,artifact_id,updated_at DESC,id DESC)`,
+		`CREATE INDEX IF NOT EXISTS mod_history_workspace_idx ON mod_history(workspace_id,updated_at DESC,id DESC)`,
+		`CREATE INDEX IF NOT EXISTS mod_history_entity_idx ON mod_history(entity_id)`,
 	}
 	for _, statement := range indexes {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {

@@ -50,6 +50,8 @@ import {
   WorkspaceUtilityPanel,
   type WorkspaceTool,
 } from "./WorkspaceUtilityPanel";
+import { queryClient, queryKeys } from "./queries";
+import { VersionsPanel } from "./VersionsPanel";
 import { WorkspaceImageViewer, isWorkspaceImagePath } from "./WorkspaceImageViewer";
 import "./ModMaker.css";
 
@@ -676,6 +678,9 @@ export function ModMaker({
   const [pendingEditorReveal, setPendingEditorReveal] =
     useState<PendingEditorReveal | null>(null);
   const [utility, setUtility] = useState<WorkspaceTool | null>(null);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  // Live library update state from the backend; the next reload replaces it.
+  const [libraryEvent, setLibraryEvent] = useState<{ state: string; message: string } | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [busy, setBusy] = useState("");
   const [exportLabel, setExportLabel] = useState("");
@@ -1627,6 +1632,42 @@ export function ModMaker({
       }
     };
   }, [workspace?.id, onReload, onError]);
+
+  useEffect(() => setLibraryEvent(null), [detail]);
+
+  // The handler below outlives renders; it always calls the current version.
+  const reconcileWorkingTreeRef = useRef(reconcileWorkingTree);
+  reconcileWorkingTreeRef.current = reconcileWorkingTree;
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+    const workspaceID = workspace.id;
+    return Events.On("mod:library", (event) => {
+      const update = event.data;
+      if (update.workspaceId !== workspaceID) return;
+      setLibraryEvent({ state: update.state, message: update.message });
+      if (update.state !== "synced" && update.state !== "error") return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library });
+      void onReload();
+      if (update.state !== "synced") return;
+      // A restore, an Inspector edit, or adopted outside changes can rewrite
+      // open files. Reload only those whose content on disk changed, so the
+      // file being typed in keeps its cursor after an ordinary save.
+      void Promise.all(
+        documentsRef.current
+          .filter((document) => !document.untitled)
+          .map((document) =>
+            API.ReadWorkspaceFile(workspaceID, document.path).then(
+              (file) => (file.sha256 === document.savedSHA256 ? null : document.path),
+              () => document.path,
+            ),
+          ),
+      ).then((paths) => {
+        const changed = paths.filter((path): path is string => path !== null);
+        if (changed.length > 0) void reconcileWorkingTreeRef.current({ reason: "restore", paths: changed });
+      });
+    });
+  }, [workspace?.id, onReload]);
 
   useEffect(() => {
     if (draftTimer.current !== undefined)
@@ -2862,6 +2903,20 @@ export function ModMaker({
     }
   };
 
+  const updateLibrary = async () => {
+    if (!workspace) return;
+    setBusy("library");
+    try {
+      await API.SyncWorkspaceLibrary(workspace.id);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.library });
+      await onReload();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const installLatest = async () => {
     if (mutationBlocked()) return;
     const exports = detail?.exports ?? [];
@@ -3737,6 +3792,28 @@ export function ModMaker({
           </div>
         )}
 
+        <div className="version-strip-area">
+          <LibraryStatusBar
+            status={libraryEvent ? { ...loadedDetail.library, ...libraryEvent } : loadedDetail.library}
+            hasVersions={(loadedDetail.entity.historyCount ?? 0) > 0}
+            versionsOpen={versionsOpen}
+            updating={busy === "library"}
+            onToggleVersions={() => setVersionsOpen((open) => !open)}
+            onUpdate={() => void updateLibrary()}
+          />
+          {versionsOpen && (
+            <div className="version-strip__drawer">
+              <VersionsPanel
+                entityId={loadedDetail.entity.entityId}
+                entityName={loadedDetail.entity.displayName}
+                refreshKey={`${loadedDetail.library.syncedAt ?? ""}:${loadedDetail.entity.historyCount}`}
+                onError={onError}
+                onNotify={onNotify}
+                onRestored={() => void onReload()}
+              />
+            </div>
+          )}
+        </div>
         <nav className="workspace-tool-toggles" aria-label="Workspace tools">
           {workspaceTools.map((tool) => (
             <button
@@ -4272,9 +4349,9 @@ export function ModMaker({
           }
         >
           <p className="library-removal__copy">
-            The editable working copy of{" "}
-            <strong>{loadedDetail.entity.displayName}</strong> and any unsaved
-            work will be permanently deleted. The library mod is not affected.
+            <strong>{loadedDetail.entity.displayName}</strong> stays in your library exactly as it is
+            now. Its ModMaker project, saved versions, and the original copy Studio kept go to the
+            Recycle Bin, so you can no longer restore earlier versions here.
           </p>
           {deleteError && (
             <p className="collection-add__error" role="alert">
@@ -4570,4 +4647,74 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 64);
+}
+
+// Tells the user whether the library mod has their latest saved changes. Saving
+// in ModMaker updates the library mod automatically; this bar only asks for
+// action when an update could not happen.
+function LibraryStatusBar({
+  status,
+  hasVersions,
+  versionsOpen,
+  updating,
+  onToggleVersions,
+  onUpdate,
+}: {
+  status: { state: string; changedFiles: number; message?: string };
+  hasVersions: boolean;
+  versionsOpen: boolean;
+  updating: boolean;
+  onToggleVersions: () => void;
+  onUpdate: () => void;
+}) {
+  let icon: "check" | "activity" | "warning" = "check";
+  let headline: string;
+  let detail = status.message ?? "";
+  let action: string | null = null;
+  switch (status.state) {
+    case "syncing":
+      icon = "activity";
+      headline = "Saving to your library…";
+      detail = "";
+      break;
+    case "pending":
+      icon = "activity";
+      headline = detail ? "Not in your library yet" : "Saving to your library…";
+      action = detail ? "Update library" : null;
+      break;
+    case "error":
+      icon = "warning";
+      headline = "Your library wasn't updated";
+      detail = detail.replace(/^Couldn't update your library: /, "");
+      action = "Try again";
+      break;
+    case "readonly":
+      icon = "warning";
+      headline = "Edits stay in ModMaker";
+      break;
+    default:
+      if (status.changedFiles === 0 && !hasVersions) return null;
+      headline = status.changedFiles === 0 ? "Same as the original" : "Saved to your library";
+      detail =
+        status.changedFiles === 0
+          ? "Your library has the original mod."
+          : `${status.changedFiles} ${status.changedFiles === 1 ? "file differs" : "files differ"} from the original. Press Play to use it in BeamNG.`;
+  }
+  return (
+    <div className={`version-strip version-strip--${status.state === "error" || status.state === "readonly" ? "ready" : "active"}`} role="status">
+      <Icon name={icon} size={16} />
+      <div className="version-strip__text">
+        <span className="version-strip__headline">{headline}</span>
+        {detail && <span className="version-strip__detail">{detail}</span>}
+      </div>
+      {action && (
+        <Button tone="primary" disabled={updating} onClick={onUpdate}>
+          {updating ? "Updating…" : action}
+        </Button>
+      )}
+      {(hasVersions || status.changedFiles > 0) && status.state !== "readonly" && (
+        <Button onClick={onToggleVersions}>{versionsOpen ? "Hide versions" : "Versions"}</Button>
+      )}
+    </div>
+  );
 }

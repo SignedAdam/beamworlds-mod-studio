@@ -134,6 +134,10 @@ func (service *AppService) CreateNewMod(request NewModRequest) (WorkspaceDetail,
 		return WorkspaceDetail{}, err
 	}
 	keepSource = true
+	if info, statErr := os.Stat(sourcePath); statErr == nil {
+		// The library holds the new mod's template until its first edit.
+		_ = service.store.markWorkspaceLibraryCurrent(ctx, workspaceID, workspaceManifest.SourceFingerprint, fileIdentity(info))
+	}
 	gitResult := initializeWorkspaceGit(ctx, filepath.Join(root, "files"))
 	workspaceLock.Unlock()
 	_ = service.store.AppendEvent(ctx, item.EntityID, "mod_project_created", map[string]any{"workspaceId": workspaceID, "kind": kind, "modId": modID})

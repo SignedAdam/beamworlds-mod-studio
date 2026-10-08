@@ -99,6 +99,8 @@ func (service *AppService) DeletePlayProfile(profileID string) (OrganizationStat
 }
 
 func (service *AppService) ResolvePlaySelection(collectionIDs, excludedCollectionIDs []string) (PlaySelection, error) {
+	// The preview describes the mods Play would use, including fresh edits.
+	service.flushLibrarySyncs(context.Background())
 	return service.store.ResolvePlaySelection(context.Background(), collectionIDs, excludedCollectionIDs)
 }
 

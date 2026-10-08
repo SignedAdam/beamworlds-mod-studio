@@ -10,9 +10,8 @@ import (
 	"strings"
 )
 
-// DeleteWorkspace removes a ModMaker project: its database rows and its
-// files on disk. It never touches the library archive the project was
-// created from.
+// DeleteWorkspace removes a ModMaker project: its database rows, its files on
+// disk, and its saved versions. The library mod stays exactly as it is now.
 func (service *AppService) DeleteWorkspace(workspaceID string) error {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if workspaceID == "" {
@@ -37,6 +36,7 @@ func (service *AppService) DeleteWorkspace(workspaceID string) error {
 	// Cancel any in-flight git operations so they do not write into a
 	// directory that is about to be removed.
 	service.cancelWorkspaceGitOperations(workspaceID)
+	_, _ = service.takePendingLibrarySync(workspaceID)
 
 	// Delete from the database. Foreign-key cascades (PRAGMA foreign_keys=1)
 	// handle workspace_drafts, exports, test_installs, virgil_sessions, and
@@ -57,6 +57,8 @@ func (service *AppService) DeleteWorkspace(workspaceID string) error {
 			}
 		}
 	}
+	// Saved versions and the original Studio kept go to the Recycle Bin too.
+	service.removeWorkspaceVersions(workspace)
 
 	return nil
 }

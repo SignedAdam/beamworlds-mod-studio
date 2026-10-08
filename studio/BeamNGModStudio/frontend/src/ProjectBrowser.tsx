@@ -462,9 +462,9 @@ export function ProjectBrowser({
           }
         >
           <p className="library-removal__copy">
-            The editable working copy of{" "}
-            <strong>{deleteTarget.displayName}</strong> and any unsaved work
-            will be permanently deleted. The library mod is not affected.
+            <strong>{deleteTarget.displayName}</strong> stays in your library exactly as it is now.
+            Its ModMaker project, saved versions, and the original copy Studio kept go to the Recycle
+            Bin, so you can no longer restore earlier versions here.
           </p>
           {deleteError && (
             <p className="collection-add__error" role="alert">

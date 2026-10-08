@@ -37,7 +37,7 @@ func (service *AppService) CreateWorkspaceDirectory(workspaceID, relativePath st
 	if err := modkit.CreateWorkspaceDirectory(workspace.FilesRoot, relativePath); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(ctx, workspaceID)
+	return service.workspaceChanged(ctx, workspaceID, "you")
 }
 
 func (service *AppService) RenameWorkspacePath(workspaceID, oldPath, newPath string) error {
@@ -67,7 +67,7 @@ func (service *AppService) RenameWorkspacePath(workspaceID, oldPath, newPath str
 		_ = modkit.RenameWorkspacePath(workspace.FilesRoot, newPath, oldPath)
 		return err
 	}
-	return service.store.TouchWorkspace(ctx, workspaceID)
+	return service.workspaceChanged(ctx, workspaceID, "you")
 }
 
 func (service *AppService) DeleteWorkspacePath(workspaceID, relativePath string) error {
@@ -89,7 +89,7 @@ func (service *AppService) DeleteWorkspacePath(workspaceID, relativePath string)
 	if err := service.store.DeleteWorkspaceDrafts(ctx, workspaceID, relativePath); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(ctx, workspaceID)
+	return service.workspaceChanged(ctx, workspaceID, "you")
 }
 
 func (service *AppService) SaveWorkspaceDraft(workspaceID, relativePath, content, baseSHA256 string) error {

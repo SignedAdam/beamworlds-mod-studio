@@ -513,12 +513,6 @@ func scanAuditContentSignals(path, lower string) []ModAuditSignal {
 	return result
 }
 
-
-
-// scanFolderForModAudit scans an unpacked folder mod. It reads file contents
-// via modkit but skips ZIP-only checks (decompression bomb, compression ratio).
-
-
 func looksLikePE(data []byte) bool {
 	// MZ is the executable container signature. A malformed or truncated PE is
 	// still a host-executable payload worth surfacing rather than trusting.

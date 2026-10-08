@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -104,13 +105,27 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	savedWindow, err := store.loadWindowState(context.Background())
+	if err != nil {
+		log.Printf("read window size: %v", err)
+	}
+	// A size saved on a larger or since-disconnected monitor must still fit.
+	if primary := app.Screen.GetPrimary(); primary != nil && primary.WorkArea.Width > 0 && primary.WorkArea.Height > 0 {
+		savedWindow.Width = min(savedWindow.Width, primary.WorkArea.Width)
+		savedWindow.Height = min(savedWindow.Height, primary.WorkArea.Height)
+	}
+	startState := application.WindowStateNormal
+	if savedWindow.Maximised {
+		startState = application.WindowStateMaximised
+	}
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:             "main",
 		Title:            "BeamWorlds Mod Studio",
-		Width:            1500,
-		Height:           940,
-		MinWidth:         1120,
-		MinHeight:        720,
+		Width:            savedWindow.Width,
+		Height:           savedWindow.Height,
+		MinWidth:         minimumWindowWidth,
+		MinHeight:        minimumWindowHeight,
+		StartState:       startState,
 		BackgroundColour: application.NewRGB(11, 14, 20),
 		URL:              "/",
 		Mac: application.MacWindow{
@@ -119,6 +134,16 @@ func main() {
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
 	})
+	windowSaver := newWindowStateSaver(savedWindow, windowStateSaveDelay,
+		func() (int, int, bool, bool) {
+			width, height := window.Size()
+			return width, height, window.IsMaximised(), window.IsMinimised()
+		},
+		func(state windowState) error { return store.saveWindowState(context.Background(), state) },
+	)
+	window.OnWindowEvent(events.Common.WindowDidResize, func(*application.WindowEvent) { windowSaver.resized() })
+	// Closing during the countdown still keeps the latest size.
+	window.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { windowSaver.flush() })
 
 	if err := app.Run(); err != nil {
 		monitor.stop()

@@ -255,7 +255,116 @@ func (service *AppService) libraryArchiveEditable(archivePath string) bool {
 	if service.config.LibraryDir != "" && pathWithin(archivePath, service.config.LibraryDir) {
 		return true
 	}
+	if service.config.ActiveModsDir != "" && pathWithin(archivePath, filepath.Join(service.config.ActiveModsDir, "unpacked")) {
+		return true
+	}
 	return service.config.DataDir != "" && pathWithin(archivePath, filepath.Join(service.config.DataDir, "draft-sources"))
+}
+
+func isSourceFolder(path string) bool {
+	kind, err := modkit.SourceKindOf(path)
+	return err == nil && kind == modkit.SourceFolder
+}
+
+// folderFileRecord tracks the state of one file in a folder mod as Studio
+// last wrote or observed it, enabling efficient outside-change detection.
+type folderFileRecord struct {
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	ModTimeNS int64  `json:"modTimeNs"`
+	SHA256    string `json:"sha256"`
+}
+
+func loadFolderState(versionsDir string) ([]folderFileRecord, error) {
+	data, err := os.ReadFile(filepath.Join(versionsDir, "folder-state.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var records []folderFileRecord
+	return records, json.Unmarshal(data, &records)
+}
+
+func saveFolderState(versionsDir string, records []folderFileRecord) error {
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(versionsDir, "folder-state.json"), data, 0o644)
+}
+
+// seedFolderState builds the initial folder-state from the workspace baseline.
+// It reads actual file sizes and modification times from the mod folder.
+func seedFolderState(folderPath string, baseline []modkit.FileSnapshot) []folderFileRecord {
+	records := make([]folderFileRecord, 0, len(baseline))
+	for _, file := range baseline {
+		rec := folderFileRecord{Path: file.Path, Size: file.SizeBytes, SHA256: file.SHA256}
+		if info, err := os.Stat(filepath.Join(folderPath, filepath.FromSlash(file.Path))); err == nil {
+			rec.Size = info.Size()
+			rec.ModTimeNS = info.ModTime().UnixNano()
+		}
+		records = append(records, rec)
+	}
+	return records
+}
+
+// folderOriginalSource builds a Source that represents the mod's original state.
+// It layers any kept originals over the live folder, then filters to baseline
+// paths only. The returned Source must be closed by the caller.
+func folderOriginalSource(ctx context.Context, versionsDir, folderPath string, baseline []modkit.FileSnapshot) (modkit.Source, error) {
+	keptOriginalsDir := filepath.Join(versionsDir, "original", "files")
+	keptSrc, err := modkit.OpenSource(ctx, keptOriginalsDir)
+	var layers []modkit.Source
+	if err == nil {
+		layers = append(layers, keptSrc)
+	}
+	folderSrc, err := modkit.OpenSource(ctx, folderPath)
+	if err != nil {
+		if keptSrc != nil {
+			keptSrc.Close()
+		}
+		return nil, err
+	}
+	layers = append(layers, folderSrc)
+	if len(layers) == 1 {
+		// No kept originals, filter the folder source to baseline paths.
+		return &baselineFilteredSource{inner: layers[0], baseline: baseline}, nil
+	}
+	return &baselineFilteredSource{inner: modkit.LayeredSource(layers...), baseline: baseline}, nil
+}
+
+// baselineFilteredSource limits a Source's entries and Open calls to paths
+// that existed in the workspace baseline.
+type baselineFilteredSource struct {
+	inner    modkit.Source
+	baseline []modkit.FileSnapshot
+	filtered []modkit.SourceEntry
+	once     sync.Once
+}
+
+func (s *baselineFilteredSource) Kind() modkit.SourceKind { return s.inner.Kind() }
+func (s *baselineFilteredSource) Path() string            { return s.inner.Path() }
+func (s *baselineFilteredSource) Close() error            { return s.inner.Close() }
+
+func (s *baselineFilteredSource) Entries() []modkit.SourceEntry {
+	s.once.Do(func() {
+		allowed := make(map[string]bool, len(s.baseline))
+		for _, f := range s.baseline {
+			allowed[lowerKey(f.Path)] = true
+		}
+		for _, e := range s.inner.Entries() {
+			if !e.Dir && allowed[lowerKey(e.Path)] {
+				s.filtered = append(s.filtered, e)
+			}
+		}
+	})
+	return s.filtered
+}
+
+func (s *baselineFilteredSource) Open(name string) (io.ReadCloser, error) {
+	return s.inner.Open(name)
 }
 
 type workspaceLibraryRow struct {
@@ -431,6 +540,10 @@ func (service *AppService) updateLibraryFromWorkspace(ctx context.Context, works
 	lock := service.agents.workspaceToolMutex(workspace.ID)
 	lock.Lock()
 	defer lock.Unlock()
+	if isSourceFolder(libraryPath) {
+		return service.updateFolderLibraryFromWorkspace(ctx, workspace, baseline, item, author)
+	}
+
 
 	row, err := service.store.workspaceLibraryRow(ctx, workspace.ID)
 	if err != nil {
@@ -600,6 +713,397 @@ func (service *AppService) updateLibraryFromWorkspace(ctx context.Context, works
 	return item.EntityID, nil
 }
 
+// updateFolderLibraryFromWorkspace writes workspace changes directly into the
+// library folder mod, keeping only the files that differ from what Studio last
+// wrote. Before overwriting or deleting a file that existed in the original
+// baseline, it keeps a copy under versions/<ws>/original/files/<path>.
+func (service *AppService) updateFolderLibraryFromWorkspace(
+	ctx context.Context, workspace WorkspaceRecord, baseline modkit.WorkspaceManifest,
+	item LibraryItem, author string,
+) (string, error) {
+	libraryPath := item.ArchivePath
+	versionsDir := filepath.Join(service.config.DataDir, "versions", workspace.ID)
+
+	// Load or seed the per-file folder state.
+	folderRecs, err := loadFolderState(versionsDir)
+	if err != nil {
+		return item.EntityID, err
+	}
+	firstUpdate := folderRecs == nil
+	if firstUpdate {
+		folderRecs = seedFolderState(libraryPath, baseline.Files)
+	}
+
+	// Detect and adopt outside changes.
+	row, err := service.store.workspaceLibraryRow(ctx, workspace.ID)
+	if err != nil {
+		return item.EntityID, err
+	}
+	folderIsOurs := firstUpdate || row.identity == ""
+	if !folderIsOurs {
+		fingerprint, err := modkit.FolderListingFingerprint(ctx, libraryPath)
+		if err != nil {
+			return item.EntityID, err
+		}
+		folderIsOurs = fingerprint == row.identity
+	}
+
+	current, err := modkit.ListWorkspaceFilesContext(ctx, workspace.FilesRoot)
+	if err != nil {
+		return item.EntityID, err
+	}
+	conflicts := 0
+	if !folderIsOurs {
+		adopted, conflicted, err := adoptFolderChanges(ctx, libraryPath, workspace, baseline.Files, current, folderRecs)
+		if err != nil {
+			return item.EntityID, fmt.Errorf("keep changes made outside ModMaker: %w", err)
+		}
+		conflicts = conflicted
+		if adopted > 0 {
+			if current, err = modkit.ListWorkspaceFilesContext(ctx, workspace.FilesRoot); err != nil {
+				return item.EntityID, err
+			}
+		}
+	}
+
+	diff := compareWithOriginal(baseline.Files, current)
+	if firstUpdate && diff.count() == 0 {
+		// Nothing edited: save the folder state and mark current.
+		if err := os.MkdirAll(versionsDir, 0o755); err != nil {
+			return item.EntityID, err
+		}
+		if err := saveFolderState(versionsDir, folderRecs); err != nil {
+			return item.EntityID, err
+		}
+		fingerprint, err := modkit.FolderListingFingerprint(ctx, libraryPath)
+		if err != nil {
+			return item.EntityID, err
+		}
+		contentID, err := modkit.SourceContentID(ctx, libraryPath)
+		if err != nil {
+			return item.EntityID, err
+		}
+		return item.EntityID, service.store.markWorkspaceLibraryCurrent(ctx, workspace.ID, contentID, fingerprint)
+	}
+
+	// Build a set of original paths for keep-original logic.
+	originalPaths := make(map[string]modkit.FileSnapshot, len(baseline.Files))
+	for _, file := range baseline.Files {
+		originalPaths[lowerKey(file.Path)] = file
+	}
+
+	// Build a set recording which original files we've already kept.
+	keptOriginalsDir := filepath.Join(versionsDir, "original", "files")
+	alreadyKept := map[string]bool{}
+	_ = filepath.WalkDir(keptOriginalsDir, func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() {
+			return walkErr
+		}
+		relative, err := filepath.Rel(keptOriginalsDir, name)
+		if err == nil {
+			alreadyKept[lowerKey(filepath.ToSlash(relative))] = true
+		}
+		return nil
+	})
+
+	// Prepare the saved version.
+	history, err := service.prepareModVersion(ctx, workspace, versionsDir, author, diff)
+	if err != nil {
+		return item.EntityID, err
+	}
+	discardHistory := func() {
+		if history.dir != "" {
+			_ = os.RemoveAll(history.dir)
+		}
+	}
+
+	// --- Write changed files into the folder, tracking what we write for undo. ---
+	type folderWrite struct {
+		path       string // absolute path in the library folder
+		wasNew     bool   // true if the file didn't exist before
+		backupPath string // temporary backup of the file we overwrote
+	}
+	var writes []folderWrite
+	type folderDelete struct {
+		path       string
+		backupPath string
+	}
+	var deletes []folderDelete
+	undoWrites := func() {
+		for i := len(writes) - 1; i >= 0; i-- {
+			w := writes[i]
+			if w.wasNew {
+				_ = os.Remove(w.path)
+			} else if w.backupPath != "" {
+				_ = os.Rename(w.backupPath, w.path)
+			}
+		}
+		for i := len(deletes) - 1; i >= 0; i-- {
+			d := deletes[i]
+			if d.backupPath != "" {
+				_ = os.Rename(d.backupPath, d.path)
+			}
+		}
+		discardHistory()
+	}
+	// Determine which files in the folder need to change to match the workspace.
+	// Build an index of the current folder state Studio knows about.
+	folderStateByKey := make(map[string]folderFileRecord, len(folderRecs))
+	for _, rec := range folderRecs {
+		folderStateByKey[lowerKey(rec.Path)] = rec
+	}
+	// Build an index of workspace files.
+	currentByKey := make(map[string]modkit.FileSnapshot, len(current))
+	for _, file := range current {
+		currentByKey[lowerKey(file.Path)] = file
+	}
+
+	// Keep the outside version when there are conflicts.
+	if conflicts > 0 {
+		replacedDir := filepath.Join(versionsDir, "replaced", time.Now().UTC().Format("20060102-150405"), "files")
+		for _, file := range diff.changed {
+			key := lowerKey(file.Path)
+			absPath := filepath.Join(libraryPath, filepath.FromSlash(file.Path))
+			info, statErr := os.Stat(absPath)
+			if statErr != nil || info.IsDir() {
+				continue
+			}
+			folderRec := folderRecordByKey(folderRecs, key)
+			if folderRec != nil && (info.Size() != folderRec.Size || info.ModTime().UnixNano() != folderRec.ModTimeNS) {
+				dest := filepath.Join(replacedDir, filepath.FromSlash(file.Path))
+				if err := copyFileAtomic(absPath, dest); err != nil {
+					discardHistory()
+					return item.EntityID, fmt.Errorf("keep outside version of %s: %w", file.Path, err)
+				}
+			}
+		}
+	}
+
+	// Write files that differ between workspace and folder. This covers both
+	// files that differ from the original and files being restored to the original.
+	for _, file := range current {
+		key := lowerKey(file.Path)
+		absPath := filepath.Join(libraryPath, filepath.FromSlash(file.Path))
+		if !pathWithin(absPath, libraryPath) || samePath(absPath, libraryPath) {
+			undoWrites()
+			return item.EntityID, fmt.Errorf("unsafe path %q", file.Path)
+		}
+		// Skip files where the folder already holds the workspace content.
+		if rec, known := folderStateByKey[key]; known && strings.EqualFold(rec.SHA256, file.SHA256) {
+			// Verify the file wasn't changed outside Studio since our last write.
+			if info, statErr := os.Stat(absPath); statErr == nil && info.Size() == rec.Size && info.ModTime().UnixNano() == rec.ModTimeNS {
+				continue
+			}
+			// Metadata changed: check actual content.
+			if sha, hashErr := computeFileSHA256(absPath); hashErr == nil && strings.EqualFold(sha, file.SHA256) {
+				continue
+			}
+		}
+
+		// If this was an original file and we haven't kept it yet, keep the original.
+		if orig, inBaseline := originalPaths[key]; inBaseline && !alreadyKept[key] {
+			src := filepath.Join(libraryPath, filepath.FromSlash(orig.Path))
+			if info, statErr := os.Stat(src); statErr == nil && !info.IsDir() {
+				dest := filepath.Join(keptOriginalsDir, filepath.FromSlash(orig.Path))
+				if err := copyFileAtomic(src, dest); err != nil {
+					undoWrites()
+					return item.EntityID, fmt.Errorf("keep original %s: %w", orig.Path, err)
+				}
+				alreadyKept[key] = true
+			}
+		}
+
+		// Write the workspace file to the library folder atomically.
+		existing := !isNewFile(absPath)
+		var backup string
+		if existing {
+			tmpBackup, err := os.CreateTemp(filepath.Dir(absPath), ".modstudio-backup-*.tmp")
+			if err != nil {
+				undoWrites()
+				return item.EntityID, err
+			}
+			backup = tmpBackup.Name()
+			_ = tmpBackup.Close()
+			if err := os.Rename(absPath, backup); err != nil {
+				_ = os.Remove(backup)
+				undoWrites()
+				return item.EntityID, err
+			}
+		}
+		workspaceFile := filepath.Join(workspace.FilesRoot, filepath.FromSlash(file.Path))
+		if err := copyFileAtomic(workspaceFile, absPath); err != nil {
+			if backup != "" {
+				_ = os.Rename(backup, absPath)
+			}
+			undoWrites()
+			return item.EntityID, fmt.Errorf("write %s to library folder: %w", file.Path, err)
+		}
+		writes = append(writes, folderWrite{path: absPath, wasNew: !existing, backupPath: backup})
+	}
+
+	// Delete files that are in the folder state but not in the workspace.
+	for key, rec := range folderStateByKey {
+		if _, inWorkspace := currentByKey[key]; inWorkspace {
+			continue
+		}
+		absPath := filepath.Join(libraryPath, filepath.FromSlash(rec.Path))
+		if !pathWithin(absPath, libraryPath) || samePath(absPath, libraryPath) {
+			continue
+		}
+
+		// Keep the original before deleting.
+		if orig, inBaseline := originalPaths[key]; inBaseline && !alreadyKept[key] {
+			src := filepath.Join(libraryPath, filepath.FromSlash(orig.Path))
+			if info, statErr := os.Stat(src); statErr == nil && !info.IsDir() {
+				dest := filepath.Join(keptOriginalsDir, filepath.FromSlash(orig.Path))
+				if err := copyFileAtomic(src, dest); err != nil {
+					undoWrites()
+					return item.EntityID, fmt.Errorf("keep original %s: %w", orig.Path, err)
+				}
+				alreadyKept[key] = true
+			}
+		}
+
+		info, statErr := os.Stat(absPath)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		tmpBackup, err := os.CreateTemp(filepath.Dir(absPath), ".modstudio-backup-*.tmp")
+		if err != nil {
+			undoWrites()
+			return item.EntityID, err
+		}
+		backup := tmpBackup.Name()
+		_ = tmpBackup.Close()
+		if err := os.Rename(absPath, backup); err != nil {
+			_ = os.Remove(backup)
+			undoWrites()
+			return item.EntityID, err
+		}
+		deletes = append(deletes, folderDelete{path: absPath, backupPath: backup})
+	}
+
+	// Re-inspect the folder and commit.
+	manifest, err := modkit.Inspect(ctx, libraryPath)
+	if err != nil {
+		undoWrites()
+		return item.EntityID, fmt.Errorf("inspect the updated folder: %w", err)
+	}
+	fingerprint, err := modkit.FolderListingFingerprint(ctx, libraryPath)
+	if err != nil {
+		undoWrites()
+		return item.EntityID, err
+	}
+	contentID, err := modkit.SourceContentID(ctx, libraryPath)
+	if err != nil {
+		undoWrites()
+		return item.EntityID, err
+	}
+	manifest.FullSHA256 = contentID
+
+	var asset *AssetRecord
+	if manifest.SelectedImagePath != "" {
+		if cached, extractErr := modkit.ExtractImage(libraryPath, manifest.SelectedImagePath, service.config.ImageCacheDir); extractErr == nil {
+			asset = &AssetRecord{SHA256: cached.ID, Path: cached.Path, MIME: cached.MIME, Width: cached.Width, Height: cached.Height, SizeBytes: cached.SizeBytes}
+			_, _ = ensureAssetThumbnail(*asset)
+		}
+	}
+
+	// Do NOT call retireArchiveReferences for folder mods: Play links the live folder.
+	if err := service.commitFolderLibraryUpdate(ctx, workspace, item, author, diff, contentID, fingerprint, &manifest, asset, history); err != nil {
+		undoWrites()
+		return item.EntityID, err
+	}
+
+	// Update the folder-state record.
+	newFolderRecs := buildFolderStateFromWorkspace(libraryPath, current)
+	if err := saveFolderState(versionsDir, newFolderRecs); err != nil {
+		log.Printf("save folder state for %s: %v", workspace.ID, err)
+	}
+
+	// Clean up backups.
+	for _, w := range writes {
+		if w.backupPath != "" {
+			_ = os.Remove(w.backupPath)
+		}
+	}
+	for _, d := range deletes {
+		if d.backupPath != "" {
+			_ = os.Remove(d.backupPath)
+		}
+	}
+	history.cleanup()
+	return item.EntityID, nil
+}
+
+func isNewFile(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+func folderRecordByKey(records []folderFileRecord, key string) *folderFileRecord {
+	for i := range records {
+		if lowerKey(records[i].Path) == key {
+			return &records[i]
+		}
+	}
+	return nil
+}
+
+// buildFolderStateFromWorkspace creates folder-state records from the current
+// workspace file list by reading actual file metadata from the library folder.
+func buildFolderStateFromWorkspace(folderPath string, current []modkit.FileSnapshot) []folderFileRecord {
+	records := make([]folderFileRecord, 0, len(current))
+	for _, file := range current {
+		rec := folderFileRecord{Path: file.Path, Size: file.SizeBytes, SHA256: file.SHA256}
+		if info, err := os.Stat(filepath.Join(folderPath, filepath.FromSlash(file.Path))); err == nil {
+			rec.Size = info.Size()
+			rec.ModTimeNS = info.ModTime().UnixNano()
+		}
+		records = append(records, rec)
+	}
+	return records
+}
+
+// commitFolderLibraryUpdate is commitLibraryUpdate for folder mods. It records
+// the update using the folder listing fingerprint as the library identity.
+func (service *AppService) commitFolderLibraryUpdate(ctx context.Context, workspace WorkspaceRecord, item LibraryItem, author string, diff originalDiff,
+	contentID, fingerprint string, manifest *modkit.Manifest, asset *AssetRecord, history modVersionPlan) error {
+	service.store.writeMu.Lock()
+	defer service.store.writeMu.Unlock()
+	tx, err := service.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := nowUTC()
+	if manifest != nil {
+		stat, statErr := os.Stat(item.ArchivePath)
+		if statErr != nil {
+			return statErr
+		}
+		if _, err := service.store.applyScanArchiveTx(ctx, tx, "", ScanArchive{
+			Root: item.RootPath, ArchivePath: item.ArchivePath, SizeBytes: stat.Size(), Modified: stat.ModTime(), Manifest: *manifest, Asset: asset,
+		}); err != nil {
+			return fmt.Errorf("re-index the library folder: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workspaces SET library_sha256=?, library_identity=?, library_synced_at=?,
+		library_error='', changed_files=?, library_state_key=?, updated_at=? WHERE id=?`,
+		contentID, fingerprint, now, diff.count(), diff.key(), now, workspace.ID); err != nil {
+		return err
+	}
+	if err := history.applyTx(ctx, tx, workspace, author, diff, now); err != nil {
+		return err
+	}
+	if err := appendEventTx(ctx, tx, workspace.EntityID, "mod_library_updated", map[string]any{
+		"workspaceId": workspace.ID, "author": author, "changedFiles": diff.count(), "sha256": contentID,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // commitLibraryUpdate records an update in one transaction: the re-indexed
 // library archive (when manifest is set), the workspace's relocated source and
 // library state, the saved version, and the event.
@@ -710,6 +1214,108 @@ func adoptLibraryChanges(ctx context.Context, libraryPath string, workspace Work
 	for key, file := range original {
 		if !inLibrary[key] && untouched(key) {
 			if err := os.Remove(filepath.Join(workspace.FilesRoot, filepath.FromSlash(file.Path))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return adopted, conflicts, err
+			}
+			adopted++
+		}
+	}
+	return adopted, conflicts, nil
+}
+
+// adoptFolderChanges is adoptLibraryChanges for folder mods. It detects files
+// changed outside Studio by comparing the folder's current listing against the
+// per-file records Studio kept (names, sizes, times only; content is read only
+// for files that differ). A file changed only outside is brought into the
+// workspace. A file changed both outside and in the workspace counts as a
+// conflict (ModMaker wins; the caller keeps the outside version).
+func adoptFolderChanges(ctx context.Context, folderPath string, workspace WorkspaceRecord,
+	baseline, current []modkit.FileSnapshot, folderRecs []folderFileRecord,
+) (adopted, conflicts int, err error) {
+	original := map[string]modkit.FileSnapshot{}
+	for _, file := range baseline {
+		original[lowerKey(file.Path)] = file
+	}
+	edited := map[string]modkit.FileSnapshot{}
+	for _, file := range current {
+		edited[lowerKey(file.Path)] = file
+	}
+	untouched := func(key string) bool {
+		before, inOriginal := original[key]
+		now, inWorkspace := edited[key]
+		return inOriginal == inWorkspace && (!inOriginal || strings.EqualFold(before.SHA256, now.SHA256))
+	}
+	stateByKey := map[string]folderFileRecord{}
+	for _, rec := range folderRecs {
+		stateByKey[lowerKey(rec.Path)] = rec
+	}
+
+	// Walk the folder to see what's there now.
+	inFolder := map[string]bool{}
+	if err := filepath.WalkDir(folderPath, func(name string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(folderPath, name)
+		if err != nil {
+			return nil
+		}
+		key := lowerKey(filepath.ToSlash(relative))
+		inFolder[key] = true
+		rec, known := stateByKey[key]
+		if !known {
+			// New file appeared in the folder.
+			if !untouched(key) {
+				return nil // workspace also has something here
+			}
+			dest := filepath.Join(workspace.FilesRoot, filepath.FromSlash(relative))
+			if cpErr := copyFileAtomic(name, dest); cpErr != nil {
+				return cpErr
+			}
+			adopted++
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		if info.Size() == rec.Size && info.ModTime().UnixNano() == rec.ModTimeNS {
+			return nil // unchanged
+		}
+		// File changed outside Studio.
+		if !untouched(key) {
+			// Workspace also changed it — conflict.
+			sha, hashErr := computeFileSHA256(name)
+			if hashErr != nil {
+				return nil
+			}
+			if wsFile, ok := edited[key]; ok && strings.EqualFold(sha, wsFile.SHA256) {
+				return nil // same content, no conflict
+			}
+			conflicts++
+			return nil
+		}
+		// Only outside changed it — adopt.
+		displayRelative := filepath.ToSlash(relative)
+		if before, ok := original[key]; ok {
+			displayRelative = before.Path
+		}
+		dest := filepath.Join(workspace.FilesRoot, filepath.FromSlash(displayRelative))
+		if cpErr := copyFileAtomic(name, dest); cpErr != nil {
+			return cpErr
+		}
+		adopted++
+		return nil
+	}); err != nil {
+		return adopted, conflicts, err
+	}
+
+	// Detect deleted files.
+	for key, rec := range stateByKey {
+		if !inFolder[key] && untouched(key) {
+			if err := os.Remove(filepath.Join(workspace.FilesRoot, filepath.FromSlash(rec.Path))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return adopted, conflicts, err
 			}
 			adopted++
@@ -972,9 +1578,10 @@ func (service *AppService) RestoreModVersion(entityID, versionID string) (Worksp
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
+	versionsDir := filepath.Join(service.config.DataDir, "versions", workspace.ID)
 	lock := service.agents.workspaceToolMutex(workspace.ID)
 	lock.Lock()
-	err = resetWorkspaceFiles(ctx, workspace, baseline.Files, snapshot)
+	err = resetWorkspaceFiles(ctx, workspace, baseline.Files, snapshot, versionsDir)
 	lock.Unlock()
 	if err != nil {
 		return WorkspaceDetail{}, fmt.Errorf("restore version: %w", err)
@@ -988,7 +1595,7 @@ func (service *AppService) RestoreModVersion(entityID, versionID string) (Worksp
 
 // resetWorkspaceFiles makes the workspace equal the original plus a saved
 // version's files (snapshot == "" restores the original).
-func resetWorkspaceFiles(ctx context.Context, workspace WorkspaceRecord, baseline []modkit.FileSnapshot, snapshot string) error {
+func resetWorkspaceFiles(ctx context.Context, workspace WorkspaceRecord, baseline []modkit.FileSnapshot, snapshot, versionsDir string) error {
 	current, err := modkit.ListWorkspaceFilesContext(ctx, workspace.FilesRoot)
 	if err != nil {
 		return err
@@ -1042,14 +1649,24 @@ func resetWorkspaceFiles(ctx context.Context, workspace WorkspaceRecord, baselin
 			touched[key] = original[key]
 		}
 	}
-	source, err := zip.OpenReader(workspace.SourcePath)
+	// For folder mods, build a layered source from kept originals and the
+	// library folder; for ZIPs, open the source archive directly.
+	useFolder := isSourceFolder(workspace.SourcePath)
+	var src modkit.Source
+	if useFolder {
+		src, err = folderOriginalSource(ctx, versionsDir, workspace.SourcePath, baseline)
+	} else {
+		src, err = modkit.OpenSource(ctx, workspace.SourcePath)
+	}
 	if err != nil {
 		return err
 	}
-	defer source.Close()
-	sourceEntries := map[string]*zip.File{}
-	for _, file := range source.File {
-		sourceEntries[lowerKey(file.Name)] = file
+	defer src.Close()
+	sourceByKey := map[string]modkit.SourceEntry{}
+	for _, e := range src.Entries() {
+		if !e.Dir {
+			sourceByKey[lowerKey(e.Path)] = e
+		}
 	}
 	for key, relative := range touched {
 		if err := ctx.Err(); err != nil {
@@ -1069,15 +1686,57 @@ func resetWorkspaceFiles(ctx context.Context, workspace WorkspaceRecord, baselin
 				return err
 			}
 		default:
-			entry := sourceEntries[key]
-			if entry == nil {
+			if _, ok := sourceByKey[key]; !ok {
 				return fmt.Errorf("the original is missing %s", originalPath)
 			}
-			if err := extractZipFile(entry, workspace.FilesRoot, originalPath); err != nil {
+			if err := extractSourceFile(src, key, workspace.FilesRoot, originalPath); err != nil {
 				return err
 			}
 		}
 	}
+	return nil
+}
+
+// extractSourceFile writes one source entry to root/relative atomically.
+func extractSourceFile(src modkit.Source, key, root, relative string) error {
+	destination := filepath.Join(root, filepath.FromSlash(relative))
+	if !pathWithin(destination, root) || samePath(destination, root) {
+		return fmt.Errorf("unsafe archive path %q", relative)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	// Unwrap filtered source.
+	inner := src
+	if fs, ok := src.(*baselineFilteredSource); ok {
+		inner = fs.inner
+	}
+	reader, err := inner.Open(relative)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".modstudio-restore-*.tmp")
+	if err != nil {
+		return err
+	}
+	keep := false
+	defer func() {
+		_ = temporary.Close()
+		if !keep {
+			_ = os.Remove(temporary.Name())
+		}
+	}()
+	if _, err := io.Copy(temporary, reader); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary.Name(), destination); err != nil {
+		return err
+	}
+	keep = true
 	return nil
 }
 

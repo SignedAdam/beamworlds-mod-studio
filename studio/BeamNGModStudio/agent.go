@@ -1906,7 +1906,17 @@ func (run *agentRun) executeHostToolWithContext(ctx context.Context, name string
 		manifest, err = modkit.ReadWorkspaceManifest(run.workspace.Root)
 		if err == nil {
 			if err = ctx.Err(); err == nil {
-				value, err = modkit.DiffWorkspaceContext(ctx, run.workspace.SourcePath, filesRoot, manifest.Files)
+				if isSourceFolder(run.workspace.SourcePath) {
+					versionsDir := filepath.Join(run.manager.service.config.DataDir, "versions", run.workspace.ID)
+					var src modkit.Source
+					src, err = folderOriginalSource(ctx, versionsDir, run.workspace.SourcePath, manifest.Files)
+					if err == nil {
+						value, err = modkit.DiffWorkspaceSource(ctx, src, filesRoot, manifest.Files)
+						src.Close()
+					}
+				} else {
+					value, err = modkit.DiffWorkspaceContext(ctx, run.workspace.SourcePath, filesRoot, manifest.Files)
+				}
 			}
 		}
 	case "mod_validate":

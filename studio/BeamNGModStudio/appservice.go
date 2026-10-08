@@ -211,7 +211,22 @@ func (service *AppService) CreateWorkspace(entityID string) (WorkspaceDetail, er
 		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
 	}
-	if info, statErr := os.Stat(item.ArchivePath); statErr == nil {
+	if isSourceFolder(item.ArchivePath) {
+		// For folder mods, use the listing fingerprint as the library identity.
+		if fp, fpErr := modkit.FolderListingFingerprint(ctx, item.ArchivePath); fpErr == nil {
+			if err := service.store.markWorkspaceLibraryCurrent(ctx, workspaceID, manifest.SourceFingerprint, fp); err != nil {
+				workspaceLock.Unlock()
+				return WorkspaceDetail{}, err
+			}
+		}
+		// Seed folder-state.json so the first sync can detect outside changes.
+		versionsDir := filepath.Join(service.config.DataDir, "versions", workspaceID)
+		recs := seedFolderState(item.ArchivePath, manifest.Files)
+		if err := saveFolderState(versionsDir, recs); err != nil {
+			workspaceLock.Unlock()
+			return WorkspaceDetail{}, err
+		}
+	} else if info, statErr := os.Stat(item.ArchivePath); statErr == nil {
 		// The library holds this workspace's source until the first edit.
 		if err := service.store.markWorkspaceLibraryCurrent(ctx, workspaceID, manifest.SourceFingerprint, fileIdentity(info)); err != nil {
 			workspaceLock.Unlock()
@@ -676,6 +691,7 @@ func (service *AppService) SearchWorkspace(workspaceID string, options Workspace
 }
 
 func (service *AppService) WorkspaceDiff(workspaceID string) ([]modkit.WorkspaceChange, error) {
+	ctx := context.Background()
 	workspace, manifest, err := service.workspaceAndManifest(workspaceID)
 	if err != nil {
 		return nil, err
@@ -683,6 +699,15 @@ func (service *AppService) WorkspaceDiff(workspaceID string) ([]modkit.Workspace
 	workspaceLock := service.agents.workspaceToolMutex(workspace.ID)
 	workspaceLock.Lock()
 	defer workspaceLock.Unlock()
+	if isSourceFolder(workspace.SourcePath) {
+		versionsDir := filepath.Join(service.config.DataDir, "versions", workspace.ID)
+		src, err := folderOriginalSource(ctx, versionsDir, workspace.SourcePath, manifest.Files)
+		if err != nil {
+			return nil, err
+		}
+		defer src.Close()
+		return modkit.DiffWorkspaceSource(ctx, src, workspace.FilesRoot, manifest.Files)
+	}
 	return modkit.DiffWorkspace(workspace.SourcePath, workspace.FilesRoot, manifest.Files)
 }
 

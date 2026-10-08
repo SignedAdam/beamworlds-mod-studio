@@ -109,7 +109,7 @@ func CreateWorkspace(ctx context.Context, sourceArchive, destination, id, entity
 		if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 			return WorkspaceManifest{}, err
 		}
-		input, err := entry.Open()
+		input, err := openZipEntry(entry)
 		if err != nil {
 			return WorkspaceManifest{}, err
 		}
@@ -863,7 +863,7 @@ func copyArchiveEntryContext(ctx context.Context, writer *zip.Writer, source *zi
 	if source.FileInfo().IsDir() {
 		return writer.Copy(source)
 	}
-	input, err := source.Open()
+	input, err := openZipEntry(source)
 	if err != nil {
 		return err
 	}

@@ -90,7 +90,7 @@ func CopyArchiveMember(archivePath, memberPath string, destination io.Writer, li
 	if file.UncompressedSize64 > uint64(limit) {
 		return 0, fmt.Errorf("archive member %q is %d bytes; limit is %d", memberPath, file.UncompressedSize64, limit)
 	}
-	input, err := file.Open()
+	input, err := openZipEntry(file)
 	if err != nil {
 		return 0, err
 	}
@@ -247,12 +247,16 @@ func RewriteArchiveJSONMember(archivePath, memberPath string, updates map[string
 		}
 	}
 	currentInfo, err := os.Stat(archivePath)
-	if err != nil { return fmt.Errorf("revalidate source archive: %w", err) }
+	if err != nil {
+		return fmt.Errorf("revalidate source archive: %w", err)
+	}
 	if !os.SameFile(sourceInfo, currentInfo) || sourceInfo.Size() != currentInfo.Size() || !sourceInfo.ModTime().Equal(currentInfo.ModTime()) {
 		return fmt.Errorf("source archive changed while preparing metadata update")
 	}
 	if beforeReplace != nil {
-		if err := beforeReplace(); err != nil { return err }
+		if err := beforeReplace(); err != nil {
+			return err
+		}
 	}
 	if err := os.Rename(temporaryName, archivePath); err != nil {
 		return fmt.Errorf("replace archive atomically: %w", err)
@@ -311,7 +315,7 @@ func archiveMember(files map[string]*zip.File, memberPath string) (*zip.File, er
 }
 
 func readZipMemberLimited(file *zip.File, limit int64) ([]byte, bool, error) {
-	input, err := file.Open()
+	input, err := openZipEntry(file)
 	if err != nil {
 		return nil, false, err
 	}
@@ -338,6 +342,10 @@ func readJSONMember(file *zip.File) (map[string]any, error) {
 	if truncated {
 		return nil, fmt.Errorf("member exceeds %d-byte read limit", MaxArchiveJSONBytes)
 	}
+	return decodeJSONDocument(data)
+}
+
+func decodeJSONDocument(data []byte) (map[string]any, error) {
 	cleaned := strings.TrimRight(strings.TrimPrefix(string(data), "\ufeff"), "\x00")
 	metadata := map[string]any{}
 	if err := json5.Unmarshal([]byte(cleaned), &metadata); err != nil {
@@ -347,6 +355,34 @@ func readJSONMember(file *zip.File) (map[string]any, error) {
 		return nil, fmt.Errorf("JSON metadata root must be an object")
 	}
 	return metadata, nil
+}
+
+// ApplyJSONUpdates edits a JSON5 metadata document the same way
+// RewriteArchiveJSONMember edits an archive member: only the supplied keys
+// change, and a nil value deletes its key. An empty document starts a new one.
+func ApplyJSONUpdates(document []byte, updates map[string]any) ([]byte, error) {
+	if int64(len(document)) > MaxArchiveJSONBytes {
+		return nil, fmt.Errorf("metadata document is %d bytes; limit is %d", len(document), MaxArchiveJSONBytes)
+	}
+	metadata := map[string]any{}
+	if strings.TrimSpace(string(document)) != "" {
+		decoded, err := decodeJSONDocument(document)
+		if err != nil {
+			return nil, err
+		}
+		metadata = decoded
+	}
+	for key, value := range updates {
+		if strings.TrimSpace(key) == "" {
+			return nil, fmt.Errorf("metadata key is empty")
+		}
+		if value == nil {
+			delete(metadata, key)
+		} else {
+			metadata[key] = value
+		}
+	}
+	return encodeJSONDocument(metadata)
 }
 
 func encodeJSONDocument(metadata map[string]any) ([]byte, error) {

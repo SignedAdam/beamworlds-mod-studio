@@ -4,6 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
+	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -255,4 +259,135 @@ func writeTestZIP(t *testing.T, filename string, entries map[string]string) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestWorkspaceRecoversMissingZIPDescriptorsWithoutChangingSource(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "missing-descriptors.zip")
+	contents := []string{`{"Name":"Dummy"}`, "return {enabled = true}\n"}
+	raw := missingDescriptorZIP(t, contents, false)
+	if err := os.WriteFile(source, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(root, "workspace")
+	manifest, err := CreateWorkspace(context.Background(), source, workspace, "workspace", "entity", "artifact", KindScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportPath := filepath.Join(root, "repaired.zip")
+	if _, err := ExportWorkspace(context.Background(), source, filepath.Join(workspace, "files"), exportPath, manifest.Files); err != nil {
+		t.Fatal(err)
+	}
+	exported, err := zip.OpenReader(exportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exported.Close()
+	if len(exported.File) != len(contents) {
+		t.Fatalf("export lost entries: %d", len(exported.File))
+	}
+	for i, file := range exported.File {
+		input, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(input)
+		_ = input.Close()
+		if readErr != nil || string(data) != contents[i] {
+			t.Fatalf("ordinary ZIP reader could not verify exported payload %q: %q, %v", file.Name, data, readErr)
+		}
+	}
+	after, err := os.ReadFile(source)
+	if err != nil || !bytes.Equal(after, raw) {
+		t.Fatalf("original archive changed: %v", err)
+	}
+}
+
+func TestMissingZIPDescriptorRecoveryRejectsBadPayloadCRC(t *testing.T) {
+	for _, zeroCRC := range []bool{false, true} {
+		t.Run(map[bool]string{false: "damaged payload", true: "zero central CRC"}[zeroCRC], func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			raw := missingDescriptorZIP(t, []string{"original payload"}, zeroCRC)
+			if !zeroCRC {
+				index := bytes.Index(raw, []byte("original payload"))
+				raw[index] = 'X'
+			}
+			source := filepath.Join(root, "corrupt.zip")
+			if err := os.WriteFile(source, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			workspace := filepath.Join(root, "workspace")
+			_, err := CreateWorkspace(context.Background(), source, workspace, "workspace", "entity", "artifact", KindScript)
+			if !errors.Is(err, zip.ErrChecksum) {
+				t.Fatalf("corrupt payload accepted or misclassified: %v", err)
+			}
+			if _, err := os.Stat(workspace); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("failed import left a workspace: %v", err)
+			}
+		})
+	}
+}
+
+func TestZIPHeaderLikeDescriptorCRCIsNotTreatedAsMissing(t *testing.T) {
+	t.Parallel()
+	const payload = "a payload with a damaged signatureless descriptor"
+	raw := missingDescriptorZIP(t, []string{payload}, false)
+	central := bytes.Index(raw, []byte("PK\x01\x02"))
+	var descriptor [12]byte
+	binary.LittleEndian.PutUint32(descriptor[:4], 0x04034b50)
+	binary.LittleEndian.PutUint32(descriptor[4:8], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(descriptor[8:12], uint32(len(payload)))
+	archive := append([]byte(nil), raw[:central]...)
+	archive = append(archive, descriptor[:]...)
+	archive = append(archive, raw[central:]...)
+	end := bytes.LastIndex(archive, []byte("PK\x05\x06"))
+	binary.LittleEndian.PutUint32(archive[end+16:end+20], uint32(central+len(descriptor)))
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = readZipEntry(reader.File[0], 1024)
+	if !errors.Is(err, zip.ErrChecksum) {
+		t.Fatalf("damaged descriptor was silently discarded: %v", err)
+	}
+}
+
+func missingDescriptorZIP(t *testing.T, contents []string, zeroCRC bool) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	names := []string{"info.json", "lua/test.lua"}
+	for i, content := range contents {
+		checksum := crc32.ChecksumIEEE([]byte(content))
+		if zeroCRC {
+			checksum = 0
+		}
+		entry, err := writer.CreateRaw(&zip.FileHeader{
+			Name: names[i], Method: zip.Store, CRC32: checksum,
+			CompressedSize64: uint64(len(content)), UncompressedSize64: uint64(len(content)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(entry, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw := buffer.Bytes()
+	// Deliberately declare descriptors without adding any, as the broken
+	// producer does. The local and central sizes/CRCs remain populated.
+	for offset := 0; offset+10 <= len(raw); offset++ {
+		switch string(raw[offset : offset+4]) {
+		case "PK\x03\x04":
+			binary.LittleEndian.PutUint16(raw[offset+6:offset+8], 0x8)
+		case "PK\x01\x02":
+			binary.LittleEndian.PutUint16(raw[offset+8:offset+10], 0x8)
+		}
+	}
+	return raw
 }

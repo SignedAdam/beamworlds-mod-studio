@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -561,34 +560,27 @@ func validAuditPaths(paths []string, artifacts []modAuditArtifactRecord, limit i
 }
 
 func readFocusedAuditFiles(archivePath string, paths []string, perFileLimit, totalLimit int64) ([]auditPromptFile, error) {
-	kind, kindErr := modkit.SourceKindOf(archivePath)
-	if kindErr != nil {
-		return nil, kindErr
+	src, err := modkit.OpenSource(context.Background(), archivePath)
+	if err != nil {
+		return nil, err
 	}
+	defer src.Close()
 	wanted := map[string]string{}
 	for _, path := range paths {
 		wanted[strings.ToLower(normalizeAuditPath(path))] = normalizeAuditPath(path)
 	}
-	if kind == modkit.SourceFolder {
-		return readFocusedAuditFilesFromFolder(archivePath, wanted, perFileLimit, totalLimit)
-	}
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
 	result := []auditPromptFile{}
 	remaining := totalLimit
-	for _, file := range reader.File {
-		canonical := wanted[strings.ToLower(normalizeAuditPath(file.Name))]
-		if canonical == "" || file.FileInfo().IsDir() || remaining <= 0 {
+	for _, entry := range src.Entries() {
+		canonical := wanted[strings.ToLower(entry.Path)]
+		if canonical == "" || entry.Dir || remaining <= 0 {
 			continue
 		}
 		limit := perFileLimit
 		if remaining < limit {
 			limit = remaining
 		}
-		data, readErr := readAuditZipPrefix(file, limit)
+		data, _, readErr := modkit.ReadSourceEntry(src, entry.Path, limit)
 		if readErr != nil {
 			return nil, fmt.Errorf("read focused audit file %s: %w", canonical, readErr)
 		}
@@ -600,44 +592,15 @@ func readFocusedAuditFiles(archivePath string, paths []string, perFileLimit, tot
 			prefix := data[:min(len(data), 16)]
 			excerpt = fmt.Sprintf("[binary file; content omitted; inspected %d bytes; first bytes: %x]", len(data), prefix)
 		}
-		result = append(result, auditPromptFile{Path: canonical, Fingerprint: fmt.Sprintf("%08x:%d", file.CRC32, file.UncompressedSize64), SizeBytes: int64(file.UncompressedSize64), MediaType: auditImageMediaTypes[strings.ToLower(filepath.Ext(canonical))], Excerpt: excerpt})
+		result = append(result, auditPromptFile{Path: canonical, Fingerprint: fmt.Sprintf("%08x:%d", entry.CRC32, entry.Size), SizeBytes: entry.Size, MediaType: auditImageMediaTypes[strings.ToLower(filepath.Ext(canonical))], Excerpt: excerpt})
 	}
 	if len(result) == 0 {
-		return nil, errors.New("none of the selected audit files remain in the source archive")
+		return nil, errors.New("none of the selected audit files remain in the source")
 	}
 	return result, nil
 }
 
-func readFocusedAuditFilesFromFolder(folderPath string, wanted map[string]string, perFileLimit, totalLimit int64) ([]auditPromptFile, error) {
-	result := []auditPromptFile{}
-	remaining := totalLimit
-	for _, canonical := range wanted {
-		if remaining <= 0 {
-			break
-		}
-		limit := perFileLimit
-		if remaining < limit {
-			limit = remaining
-		}
-		data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, canonical, limit)
-		if readErr != nil {
-			return nil, fmt.Errorf("read focused audit file %s: %w", canonical, readErr)
-		}
-		remaining -= int64(len(data))
-		var excerpt string
-		if isProbablyAuditText(data) {
-			excerpt = sanitizeAuditExcerptLimit(data, int(limit))
-		} else {
-			prefix := data[:min(len(data), 16)]
-			excerpt = fmt.Sprintf("[binary file; content omitted; inspected %d bytes; first bytes: %x]", len(data), prefix)
-		}
-		result = append(result, auditPromptFile{Path: canonical, Fingerprint: fmt.Sprintf("00000000:%d", len(data)), SizeBytes: int64(len(data)), MediaType: auditImageMediaTypes[strings.ToLower(filepath.Ext(canonical))], Excerpt: excerpt})
-	}
-	if len(result) == 0 {
-		return nil, errors.New("none of the selected audit files remain in the source folder")
-	}
-	return result, nil
-}
+
 
 func auditImageInventory(records []modAuditArtifactRecord) []auditImageInventoryEntry {
 	result := make([]auditImageInventoryEntry, 0)
@@ -691,10 +654,11 @@ func (service *AppService) prepareAuditVisualAttachments(archivePath string, rec
 		return []auditVisualAttachment{}, []string{}, cleanup, nil
 	}
 
-	kind, kindErr := modkit.SourceKindOf(archivePath)
-	if kindErr != nil {
-		return nil, nil, cleanup, kindErr
+	src, err := modkit.OpenSource(context.Background(), archivePath)
+	if err != nil {
+		return nil, nil, cleanup, err
 	}
+	defer src.Close()
 
 	promptDir := filepath.Join(service.config.DataDir, "audit-prompts")
 	if err := os.MkdirAll(promptDir, 0o700); err != nil {
@@ -710,80 +674,6 @@ func (service *AppService) prepareAuditVisualAttachments(archivePath string, rec
 		return nil, nil, func() {}, err
 	}
 
-	if kind == modkit.SourceFolder {
-		return service.prepareAuditVisualAttachmentsFolder(archivePath, candidates, tempDir, maxImages, maxPerImage, maxTotal, cleanup)
-	}
-
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, nil, cleanup, err
-	}
-	defer reader.Close()
-	members := make(map[string][]*zip.File, len(reader.File))
-	for _, file := range reader.File {
-		key := strings.ToLower(normalizeAuditPath(file.Name))
-		if !file.FileInfo().IsDir() {
-			members[key] = append(members[key], file)
-		}
-	}
-	result := make([]auditVisualAttachment, 0, min(len(candidates), maxImages))
-	warnings := []string{}
-	eligibleEntries := len(candidates)
-	for _, candidate := range candidates {
-		if count := len(members[strings.ToLower(normalizeAuditPath(candidate.Path))]); count > 1 {
-			eligibleEntries += count - 1
-		}
-	}
-	var total int64
-candidateLoop:
-	for _, candidate := range candidates {
-		candidateMembers := members[strings.ToLower(normalizeAuditPath(candidate.Path))]
-		if len(candidateMembers) == 0 {
-			warnings = appendAuditVisualWarning(warnings, "Image is no longer present in the source archive: "+candidate.Path)
-			continue
-		}
-		for occurrence, member := range candidateMembers {
-			if len(result) >= maxImages || total >= maxTotal {
-				break candidateLoop
-			}
-			label := candidate.Path
-			archiveOccurrence := 0
-			if len(candidateMembers) > 1 {
-				archiveOccurrence = occurrence + 1
-				label = fmt.Sprintf("%s (archive occurrence %d)", candidate.Path, archiveOccurrence)
-			}
-			size := int64(member.UncompressedSize64)
-			if size <= 0 || size > maxPerImage || size > maxTotal-total {
-				warnings = appendAuditVisualWarning(warnings, "Image exceeds the bounded visual-review size: "+label)
-				continue
-			}
-			data, readErr := readAuditZipPrefix(member, size+1)
-			if readErr != nil {
-				warnings = appendAuditVisualWarning(warnings, "Could not read image for visual review: "+label)
-				continue
-			}
-			if int64(len(data)) != size || !auditImageMatches(candidate.MediaType, data) {
-				warnings = appendAuditVisualWarning(warnings, "Image signature did not match its declared format: "+label)
-				continue
-			}
-			attachmentIndex := len(result) + 1
-			filename := fmt.Sprintf("audit-image-%03d%s", attachmentIndex, auditImageExtension(candidate.MediaType))
-			tempPath := filepath.Join(tempDir, filename)
-			if err := os.WriteFile(tempPath, data, 0o600); err != nil {
-				cleanup()
-				return nil, nil, func() {}, err
-			}
-			result = append(result, auditVisualAttachment{AttachmentIndex: attachmentIndex, SourcePath: candidate.Path, ArchiveOccurrence: archiveOccurrence, Filename: filename, MediaType: candidate.MediaType, TempPath: tempPath})
-			total += int64(len(data))
-		}
-	}
-	if len(result) < eligibleEntries {
-		warnings = appendAuditVisualWarning(warnings, fmt.Sprintf("Visual review attached %d of %d eligible raster image entries; omitted entries remain listed in the audit inventory", len(result), eligibleEntries))
-	}
-	return result, warnings, cleanup, nil
-}
-
-func (service *AppService) prepareAuditVisualAttachmentsFolder(folderPath string, candidates []modAuditArtifactRecord, tempDir string, maxImages int, maxPerImage, maxTotal int64, cleanup func()) ([]auditVisualAttachment, []string, func(), error) {
 	result := make([]auditVisualAttachment, 0, min(len(candidates), maxImages))
 	warnings := []string{}
 	var total int64
@@ -791,7 +681,7 @@ func (service *AppService) prepareAuditVisualAttachmentsFolder(folderPath string
 		if len(result) >= maxImages || total >= maxTotal {
 			break
 		}
-		data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, candidate.Path, maxPerImage)
+		data, _, readErr := modkit.ReadSourceEntry(src, candidate.Path, maxPerImage)
 		if readErr != nil {
 			warnings = appendAuditVisualWarning(warnings, "Could not read image for visual review: "+candidate.Path)
 			continue
@@ -820,6 +710,8 @@ func (service *AppService) prepareAuditVisualAttachmentsFolder(folderPath string
 	}
 	return result, warnings, cleanup, nil
 }
+
+
 
 func appendAuditVisualWarning(warnings []string, warning string) []string {
 	if len(warnings) < 12 {

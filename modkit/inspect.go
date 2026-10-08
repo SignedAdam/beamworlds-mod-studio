@@ -70,89 +70,135 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, err
 	}
-	stat, err := os.Stat(archivePath)
+	src, err := OpenSource(ctx, archivePath)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("stat archive: %w", err)
+		return Manifest{}, err
 	}
-	if stat.IsDir() {
-		return inspectFolder(ctx, archivePath)
+	defer src.Close()
+	return InspectSource(ctx, src)
+}
+
+// InspectSource builds a Manifest from an already-opened Source.
+func InspectSource(ctx context.Context, src Source) (Manifest, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("open ZIP: %w", err)
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, err
 	}
-	defer reader.Close()
-	if len(reader.File) > maxEntries {
-		return Manifest{}, fmt.Errorf("archive has %d entries; limit is %d", len(reader.File), maxEntries)
-	}
+
+	entries := src.Entries()
+	isFolder := src.Kind() == SourceFolder
+
+	// Collect issues that the source found during construction.
+	constructionIssues := SourceConstructionIssues(src)
 
 	manifest := Manifest{
 		SchemaVersion:     SchemaVersion,
 		AnalyzerVersion:   AnalyzerVersion,
 		AnalyzedAt:        time.Now().UTC(),
-		ArchivePath:       archivePath,
-		Filename:          filepath.Base(archivePath),
-		SizeBytes:         stat.Size(),
-		ModifiedAt:        stat.ModTime().UTC(),
+		ArchivePath:       src.Path(),
+		Filename:          filepath.Base(src.Path()),
 		ValidArchive:      true,
-		EntryCount:        len(reader.File),
+		EntryCount:        len(entries),
 		Namespaces:        map[string][]string{"vehicles": {}, "levels": {}, "ui": {}},
-		Members:           make([]ArchiveMember, 0, len(reader.File)),
+		Members:           make([]ArchiveMember, 0, len(entries)),
 		MetadataDocuments: []MetadataDocument{},
 		Images:            []ImageCandidate{},
 		Variants:          []Variant{},
 		SharedAssets:      &SharedAssetStats{},
-		Issues:            []Issue{},
+		Issues:            append([]Issue{}, constructionIssues...),
+	}
+	if isFolder {
+		manifest.SourceKind = SourceFolder
 	}
 
-	fingerprint := sha256.New()
-	filesByLower := make(map[string]*zip.File, len(reader.File))
-	actualNames := make([]string, 0, len(reader.File))
-	logicalCandidates := make([]string, 0, len(reader.File))
+	// For ZIP: stat gives size/mtime; for folder: compute from entries.
+	if !isFolder {
+		stat, err := os.Stat(src.Path())
+		if err != nil {
+			return Manifest{}, fmt.Errorf("stat archive: %w", err)
+		}
+		manifest.SizeBytes = stat.Size()
+		manifest.ModifiedAt = stat.ModTime().UTC()
+	}
 
-	for _, file := range reader.File {
+	// ZIP central-directory fingerprint hash (unchanged formula).
+	var zipFingerprint = sha256.New()
+
+	actualNames := make([]string, 0, len(entries))
+	logicalCandidates := make([]string, 0, len(entries))
+	entryByLower := make(map[string]SourceEntry, len(entries))
+	seenLower := make(map[string]bool, len(entries))
+
+	var totalSize int64
+	var newestTime time.Time
+
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, err
 		}
-		name, pathErr := normalizeArchivePath(file.Name)
-		if pathErr != nil {
-			manifest.ValidArchive = false
-			manifest.Issues = append(manifest.Issues, Issue{Code: "unsafe-path", Severity: SeverityError, Message: pathErr.Error(), Path: file.Name})
-			continue
-		}
-		if _, exists := filesByLower[strings.ToLower(name)]; exists {
-			manifest.Issues = append(manifest.Issues, Issue{Code: "duplicate-path", Severity: SeverityWarning, Message: "Archive contains duplicate case-insensitive paths", Path: name})
+
+		lower := strings.ToLower(entry.Path)
+		if seenLower[lower] {
+			manifest.Issues = append(manifest.Issues, Issue{Code: "duplicate-path", Severity: SeverityWarning, Message: "Archive contains duplicate case-insensitive paths", Path: entry.Path})
 		} else {
-			filesByLower[strings.ToLower(name)] = file
+			seenLower[lower] = true
+			entryByLower[lower] = entry
 		}
-		actualNames = append(actualNames, name)
-		logicalCandidates = append(logicalCandidates, name)
-		manifest.CompressedBytes += file.CompressedSize64
-		manifest.UncompressedBytes += file.UncompressedSize64
+
+		actualNames = append(actualNames, entry.Path)
+		logicalCandidates = append(logicalCandidates, entry.Path)
+		manifest.CompressedBytes += uint64(entry.CompressedSize)
+		manifest.UncompressedBytes += uint64(entry.Size)
 		manifest.Members = append(manifest.Members, ArchiveMember{
-			Path: name, CompressedBytes: file.CompressedSize64, UncompressedBytes: file.UncompressedSize64,
-			CRC32: file.CRC32, Method: file.Method, ModifiedAt: file.Modified.UTC(), Directory: file.FileInfo().IsDir(),
+			Path: entry.Path, CompressedBytes: uint64(entry.CompressedSize), UncompressedBytes: uint64(entry.Size),
+			CRC32: entry.CRC32, Method: entry.Method, ModifiedAt: entry.ModifiedAt, Directory: entry.Dir,
 		})
-		_, _ = fingerprint.Write([]byte(name))
-		var facts [26]byte
-		binary.LittleEndian.PutUint32(facts[0:4], file.CRC32)
-		binary.LittleEndian.PutUint16(facts[4:6], file.Method)
-		binary.LittleEndian.PutUint64(facts[6:14], file.CompressedSize64)
-		binary.LittleEndian.PutUint64(facts[14:22], file.UncompressedSize64)
-		binary.LittleEndian.PutUint32(facts[22:26], uint32(file.Flags))
-		_, _ = fingerprint.Write(facts[:])
-		if file.Flags&0x1 != 0 {
+
+		if isFolder {
+			totalSize += entry.Size
+			if entry.ModifiedAt.After(newestTime) {
+				newestTime = entry.ModifiedAt
+			}
+		} else {
+			// ZIP fingerprint formula — identical to the original.
+			_, _ = zipFingerprint.Write([]byte(entry.Path))
+			var facts [26]byte
+			binary.LittleEndian.PutUint32(facts[0:4], entry.CRC32)
+			binary.LittleEndian.PutUint16(facts[4:6], entry.Method)
+			binary.LittleEndian.PutUint64(facts[6:14], uint64(entry.CompressedSize))
+			binary.LittleEndian.PutUint64(facts[14:22], uint64(entry.Size))
+			binary.LittleEndian.PutUint32(facts[22:26], uint32(entry.Flags))
+			_, _ = zipFingerprint.Write(facts[:])
+		}
+
+		// ZIP-only checks: encrypted, unsupported compression, extreme ratio.
+		// For folders: Flags=0, Method=Store, CompressedSize=Size → none fire.
+		if entry.Flags&0x1 != 0 {
 			manifest.ValidArchive = false
-			manifest.Issues = append(manifest.Issues, Issue{Code: "encrypted-entry", Severity: SeverityError, Message: "BeamNG cannot load encrypted ZIP entries", Path: name})
+			manifest.Issues = append(manifest.Issues, Issue{Code: "encrypted-entry", Severity: SeverityError, Message: "BeamNG cannot load encrypted ZIP entries", Path: entry.Path})
 		}
-		if !file.FileInfo().IsDir() && file.Method != zip.Store && file.Method != zip.Deflate {
-			manifest.Issues = append(manifest.Issues, Issue{Code: "unsupported-compression", Severity: SeverityWarning, Message: fmt.Sprintf("Compression method %d may not load in BeamNG", file.Method), Path: name})
+		if !entry.Dir && entry.Method != zip.Store && entry.Method != zip.Deflate {
+			manifest.Issues = append(manifest.Issues, Issue{Code: "unsupported-compression", Severity: SeverityWarning, Message: fmt.Sprintf("Compression method %d may not load in BeamNG", entry.Method), Path: entry.Path})
 		}
-		if file.CompressedSize64 > 0 && file.UncompressedSize64 > 1<<30 && file.UncompressedSize64/file.CompressedSize64 > 1_000 {
-			manifest.Issues = append(manifest.Issues, Issue{Code: "extreme-compression", Severity: SeverityWarning, Message: "Entry has an extreme compression ratio", Path: name})
+		if entry.CompressedSize > 0 && entry.Size > 1<<30 && entry.Size/entry.CompressedSize > 1_000 {
+			manifest.Issues = append(manifest.Issues, Issue{Code: "extreme-compression", Severity: SeverityWarning, Message: "Entry has an extreme compression ratio", Path: entry.Path})
 		}
 	}
-	manifest.CentralFingerprint = hex.EncodeToString(fingerprint.Sum(nil))
+
+	// Fingerprint.
+	if isFolder {
+		manifest.SizeBytes = totalSize
+		manifest.ModifiedAt = newestTime
+		fp, err := FolderListingFingerprint(ctx, src.Path())
+		if err != nil {
+			return Manifest{}, fmt.Errorf("folder fingerprint: %w", err)
+		}
+		manifest.CentralFingerprint = fp
+	} else {
+		manifest.CentralFingerprint = hex.EncodeToString(zipFingerprint.Sum(nil))
+	}
 
 	logicalNames, wrapper := unwrapLogicalPaths(logicalCandidates)
 	manifest.Wrapper = wrapper
@@ -165,10 +211,12 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	}
 
 	classify(&manifest, logicalNames)
-	metadataFiles := prioritizedMetadataFiles(logicalNames, actualByLogical, filesByLower)
+
+	// Metadata documents — one code path using Source.Open.
+	metadataNames := prioritizedMetadataNames(logicalNames, actualByLogical, entryByLower)
 	metadataByLower := map[string]map[string]any{}
 	metadataBytes := uint64(0)
-	for _, candidate := range metadataFiles {
+	for _, candidate := range metadataNames {
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, err
 		}
@@ -176,38 +224,47 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-limit", Severity: SeverityInfo, Message: "Additional metadata documents were omitted from normalized analysis"})
 			break
 		}
-		if candidate.UncompressedSize64 > maxMetadataFile || metadataBytes+candidate.UncompressedSize64 > maxMetadataTotal {
-			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-too-large", Severity: SeverityWarning, Message: "Metadata document exceeds analysis limits", Path: candidate.Name})
+		entry := entryByLower[strings.ToLower(candidate)]
+		if uint64(entry.Size) > maxMetadataFile || metadataBytes+uint64(entry.Size) > maxMetadataTotal {
+			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-too-large", Severity: SeverityWarning, Message: "Metadata document exceeds analysis limits", Path: candidate})
 			continue
 		}
-		data, readErr := readZipEntryContext(ctx, candidate, maxMetadataFile)
+		data, _, readErr := ReadSourceEntry(src, candidate, maxMetadataFile)
 		if readErr != nil {
 			if err := ctx.Err(); err != nil {
 				return Manifest{}, err
 			}
-			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-unreadable", Severity: SeverityWarning, Message: readErr.Error(), Path: candidate.Name})
+			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-unreadable", Severity: SeverityWarning, Message: readErr.Error(), Path: candidate})
 			continue
 		}
 		metadataBytes += uint64(len(data))
 		parsed := map[string]any{}
 		cleaned := strings.TrimRight(strings.TrimPrefix(string(data), "\ufeff"), "\x00")
 		if err := json5.Unmarshal([]byte(cleaned), &parsed); err != nil {
-			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-invalid", Severity: SeverityWarning, Message: err.Error(), Path: candidate.Name})
+			manifest.Issues = append(manifest.Issues, Issue{Code: "metadata-invalid", Severity: SeverityWarning, Message: err.Error(), Path: candidate})
 			continue
 		}
-		normalized, _ := normalizeArchivePath(candidate.Name)
-		manifest.MetadataDocuments = append(manifest.MetadataDocuments, MetadataDocument{Path: normalized, Data: parsed})
-		metadataByLower[strings.ToLower(normalized)] = parsed
+		manifest.MetadataDocuments = append(manifest.MetadataDocuments, MetadataDocument{Path: candidate, Data: parsed})
+		metadataByLower[strings.ToLower(candidate)] = parsed
 	}
 	normalizePrimaryMetadata(&manifest)
-	manifest.Images = findImageCandidates(logicalNames, actualByLogical, filesByLower, manifest.MetadataDocuments)
+
+	// Image candidates — one path using entryByLower.
+	manifest.Images = findImageCandidatesFromEntries(logicalNames, actualByLogical, entryByLower, manifest.MetadataDocuments)
 	if len(manifest.Images) > 0 {
 		manifest.SelectedImagePath = manifest.Images[0].Path
 	}
-	manifest.Variants = findVariants(logicalNames, actualByLogical, filesByLower, metadataByLower)
-	manifest.JBeam = analyzeJBeam(ctx, logicalNames, actualByLogical, filesByLower, &manifest.Issues)
+
+	// Variants — one path reading through Source.
+	manifest.Variants = findVariantsFromSource(src, logicalNames, actualByLogical, entryByLower, metadataByLower)
+
+	// JBeam — skip for folders (performance rule).
+	if !isFolder {
+		manifest.JBeam = analyzeJBeamFromSource(ctx, src, logicalNames, actualByLogical, entryByLower, &manifest.Issues)
+	}
+
 	analyzeMapAndUI(&manifest, logicalNames)
-	analyzeSharedAssets(&manifest, logicalNames, actualByLogical, filesByLower)
+	analyzeSharedAssetsFromEntries(&manifest, logicalNames, actualByLogical, entryByLower)
 
 	if len(actualNames) == 0 {
 		manifest.ValidArchive = false
@@ -330,11 +387,10 @@ func classify(manifest *Manifest, logical []string) {
 	}
 }
 
-func prioritizedMetadataFiles(logical []string, actual map[string]string, files map[string]*zip.File) []*zip.File {
+func prioritizedMetadataNames(logical []string, actual map[string]string, entries map[string]SourceEntry) []string {
 	type candidate struct {
-		file     *zip.File
+		path     string
 		priority int
-		logical  string
 	}
 	candidates := []candidate{}
 	for _, name := range logical {
@@ -359,19 +415,21 @@ func prioritizedMetadataFiles(logical []string, actual map[string]string, files 
 			continue
 		}
 		actualName := actual[lower]
-		if file := files[strings.ToLower(actualName)]; file != nil {
-			candidates = append(candidates, candidate{file: file, priority: priority, logical: lower})
+		entry, ok := entries[strings.ToLower(actualName)]
+		if !ok || entry.Dir {
+			continue
 		}
+		candidates = append(candidates, candidate{path: actualName, priority: priority})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].priority != candidates[j].priority {
 			return candidates[i].priority < candidates[j].priority
 		}
-		return candidates[i].logical < candidates[j].logical
+		return candidates[i].path < candidates[j].path
 	})
-	result := make([]*zip.File, len(candidates))
+	result := make([]string, len(candidates))
 	for i := range candidates {
-		result[i] = candidates[i].file
+		result[i] = candidates[i].path
 	}
 	return result
 }
@@ -439,7 +497,7 @@ func prettifyFilename(filename string) string {
 	return strings.Join(strings.Fields(name), " ")
 }
 
-func findImageCandidates(logical []string, actual map[string]string, files map[string]*zip.File, documents []MetadataDocument) []ImageCandidate {
+func findImageCandidatesFromEntries(logical []string, actual map[string]string, entries map[string]SourceEntry, documents []MetadataDocument) []ImageCandidate {
 	type ranked struct {
 		candidate ImageCandidate
 		priority  int
@@ -457,12 +515,12 @@ func findImageCandidates(logical []string, actual map[string]string, files map[s
 			return
 		}
 		actualName := actual[lower]
-		file := files[strings.ToLower(actualName)]
-		if file == nil || file.FileInfo().IsDir() {
+		entry, ok := entries[strings.ToLower(actualName)]
+		if !ok || entry.Dir {
 			return
 		}
 		seen[lower] = true
-		items = append(items, ranked{candidate: ImageCandidate{Path: actualName, Role: role, UncompressedBytes: file.UncompressedSize64, MIME: mime}, priority: priority})
+		items = append(items, ranked{candidate: ImageCandidate{Path: actualName, Role: role, UncompressedBytes: uint64(entry.Size), MIME: mime}, priority: priority})
 	}
 	for _, name := range logical {
 		lower := strings.ToLower(name)
@@ -536,7 +594,7 @@ func collectImageReferences(value any) []string {
 	return result
 }
 
-func findVariants(logical []string, actual map[string]string, files map[string]*zip.File, metadata map[string]map[string]any) []Variant {
+func findVariantsFromSource(src Source, logical []string, actual map[string]string, entries map[string]SourceEntry, metadata map[string]map[string]any) []Variant {
 	variants := []Variant{}
 	for _, name := range logical {
 		lower := strings.ToLower(name)
@@ -563,8 +621,9 @@ func findVariants(logical []string, actual map[string]string, files map[string]*
 			variant.MetadataPath = actualMeta
 			data := metadata[strings.ToLower(actualMeta)]
 			if data == nil {
-				if file := files[strings.ToLower(actualMeta)]; file != nil && file.UncompressedSize64 <= maxMetadataFile {
-					if raw, err := readZipEntry(file, maxMetadataFile); err == nil {
+				entry, found := entries[strings.ToLower(actualMeta)]
+				if found && !entry.Dir && entry.Size <= maxMetadataFile {
+					if raw, _, err := ReadSourceEntry(src, actualMeta, maxMetadataFile); err == nil {
 						_ = json5.Unmarshal(raw, &data)
 					}
 				}
@@ -613,7 +672,7 @@ func number(value any) float64 {
 	}
 }
 
-func analyzeJBeam(ctx context.Context, logical []string, actual map[string]string, files map[string]*zip.File, issues *[]Issue) JBeamStats {
+func analyzeJBeamFromSource(ctx context.Context, src Source, logical []string, actual map[string]string, entries map[string]SourceEntry, issues *[]Issue) JBeamStats {
 	stats := JBeamStats{}
 	readBytes := uint64(0)
 	controllerSet := map[string]bool{}
@@ -626,12 +685,12 @@ func analyzeJBeam(ctx context.Context, logical []string, actual map[string]strin
 		}
 		stats.Files++
 		actualName := actual[strings.ToLower(name)]
-		file := files[strings.ToLower(actualName)]
-		if file == nil || file.UncompressedSize64 > maxJBeamFile || readBytes+file.UncompressedSize64 > maxJBeamTotal {
+		entry, found := entries[strings.ToLower(actualName)]
+		if !found || uint64(entry.Size) > maxJBeamFile || readBytes+uint64(entry.Size) > maxJBeamTotal {
 			*issues = append(*issues, Issue{Code: "jbeam-limit", Severity: SeverityInfo, Message: "JBeam file omitted from deep counts due to analysis limits", Path: actualName})
 			continue
 		}
-		raw, err := readZipEntryContext(ctx, file, maxJBeamFile)
+		raw, _, err := ReadSourceEntry(src, actualName, maxJBeamFile)
 		if err != nil {
 			if ctx.Err() != nil {
 				break
@@ -727,7 +786,7 @@ func collectControllerNames(value any, result map[string]bool) {
 	}
 }
 
-func analyzeSharedAssets(manifest *Manifest, logical []string, actualByLogical map[string]string, filesByLower map[string]*zip.File) {
+func analyzeSharedAssetsFromEntries(manifest *Manifest, logical []string, actualByLogical map[string]string, entries map[string]SourceEntry) {
 	if manifest == nil {
 		return
 	}
@@ -738,7 +797,7 @@ func analyzeSharedAssets(manifest *Manifest, logical []string, actualByLogical m
 			continue
 		}
 		actualName := actualByLogical[normalized]
-		if file := filesByLower[strings.ToLower(actualName)]; file != nil && file.FileInfo().IsDir() {
+		if entry, ok := entries[strings.ToLower(actualName)]; ok && entry.Dir {
 			continue
 		}
 		stats.Files++

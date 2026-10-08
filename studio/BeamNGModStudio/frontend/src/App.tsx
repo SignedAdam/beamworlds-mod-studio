@@ -512,7 +512,7 @@ function App() {
         );
       } else {
         notify(
-          `Processed ${summary.analyzed.toLocaleString()} archives${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} cached` : ""}`,
+          `Checked ${summary.analyzed.toLocaleString()} mods${summary.cached > 0 ? ` · ${summary.cached.toLocaleString()} unchanged` : ""}`,
           summary.failed ? "info" : "success",
         );
       }

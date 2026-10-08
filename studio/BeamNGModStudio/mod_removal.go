@@ -177,12 +177,17 @@ func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRe
 			if errors.Is(statErr,os.ErrNotExist) { continue }
 			if statErr != nil { return ModRemovalImpact{},fmt.Errorf("inspect %s: %w",path,statErr) }
 			if !info.Mode().IsRegular() && !info.IsDir() { return ModRemovalImpact{},fmt.Errorf("%s is not a regular archive",path) }
-			if target.Missing { target.ArchivePath=path;target.SizeBytes=info.Size();target.Missing=false }
+			if target.Missing {
+				target.ArchivePath, target.Missing = path, false
+				if !info.IsDir() {
+					target.SizeBytes = info.Size() // a folder's own size is meaningless; its stored total stays
+				}
+			}
 			impact.ArchiveCount++
 			if info.IsDir() {
-				impact.ArchiveBytes+=target.SizeBytes
+				impact.ArchiveBytes += target.SizeBytes
 			} else {
-				impact.ArchiveBytes+=info.Size()
+				impact.ArchiveBytes += info.Size()
 			}
 		}
 		impact.Mods = append(impact.Mods, target)

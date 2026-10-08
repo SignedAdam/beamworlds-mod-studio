@@ -1656,7 +1656,8 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		COALESCE(ast.sha256,''),
 		COALESCE(sm.revision,''),
 		EXISTS(SELECT 1 FROM workspaces ew WHERE ew.entity_id=e.id AND ew.library_sha256<>'' AND ew.changed_files>0),
-		(SELECT COUNT(*) FROM mod_history mh WHERE mh.entity_id=e.id)
+		(SELECT COUNT(*) FROM mod_history mh WHERE mh.entity_id=e.id),
+		COALESCE(NULLIF(l.source_kind,''),'zip')
 	FROM entities e
 	LEFT JOIN archive_links l ON l.id = (
 		SELECT l2.id FROM archive_links l2
@@ -1692,7 +1693,7 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
 			&item.Fingerprint, &item.SHA256, &assetSHA, &summaryRevision,
-			&item.Edited, &item.HistoryCount); err != nil {
+			&item.Edited, &item.HistoryCount, &item.SourceKind); err != nil {
 			return nil, err
 		}
 		item.Kind = modkit.Kind(kind)
@@ -1723,11 +1724,6 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		item.NamespaceCount = len(item.Manifest.Namespaces)
 		item.VariantCount = len(item.Manifest.Variants)
 		item.IssueCount = len(item.Manifest.Issues)
-		if item.Manifest.SourceKind != "" {
-			item.SourceKind = string(item.Manifest.SourceKind)
-		} else {
-			item.SourceKind = "zip"
-		}
 	}
 	if err := attachLibraryItemCollectionsQuery(ctx, queryer, items); err != nil {
 		return nil, err

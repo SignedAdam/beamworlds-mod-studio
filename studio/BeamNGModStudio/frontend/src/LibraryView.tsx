@@ -234,7 +234,7 @@ export function LibraryView(props: LibraryViewProps) {
       setRemoval(null);
       const projectNote = hasWorkspaces ? " and removed ModMaker projects" : "";
       props.onNotify(
-        `Deleted ${result.recycled.toLocaleString()} archive${result.recycled === 1 ? "" : "s"} to the Recycle Bin${projectNote}`,
+        `Deleted ${result.recycled.toLocaleString()} mod${result.recycled === 1 ? "" : "s"} to the Recycle Bin${projectNote}`,
         "success",
       );
       props.onRemoved();
@@ -423,11 +423,11 @@ export function LibraryView(props: LibraryViewProps) {
     actions.push({
       label:
         count === 1
-          ? "Delete archive…"
-          : `Delete ${count.toLocaleString()} archives…`,
+          ? "Delete…"
+          : `Delete ${count.toLocaleString()} mods…`,
       icon: "trash",
       danger: true,
-      detail: "Sends the file to the Recycle Bin",
+      detail: "Sends it to the Recycle Bin",
       onClick: () => void openRemoval(entityIDs),
     });
     return actions;
@@ -467,7 +467,7 @@ export function LibraryView(props: LibraryViewProps) {
       role: "primary",
       disabled: props.scanning,
       onClick: () => setImportOpen(true),
-      title: "Browse ZIP mods and copy them into your library",
+      title: "Browse for ZIP or unpacked mods and copy them into your library",
     },
   ];
   pageActions.push(
@@ -935,7 +935,7 @@ export function LibraryView(props: LibraryViewProps) {
       )}
       {removal && (
         <CollectionDialog
-          title={`Delete ${removalMods.length === 1 ? "this archive" : `${removalMods.length.toLocaleString()} archives`}?`}
+          title={`Delete ${removalMods.length === 1 ? "this mod" : `${removalMods.length.toLocaleString()} mods`}?`}
           onClose={() => {
             if (!removalBusy) setRemoval(null);
           }}
@@ -955,15 +955,15 @@ export function LibraryView(props: LibraryViewProps) {
                 onClick={() => void confirmRemoval()}
               >
                 {removalWorkspaces.length > 0
-                  ? `Delete ${removalMods.length === 1 ? "archive" : `${removalMods.length.toLocaleString()} archives`} + ${removalWorkspaces.length === 1 ? "project" : `${removalWorkspaces.length.toLocaleString()} projects`}`
+                  ? `Delete ${removalMods.length === 1 ? "mod" : `${removalMods.length.toLocaleString()} mods`} + ${removalWorkspaces.length === 1 ? "project" : `${removalWorkspaces.length.toLocaleString()} projects`}`
                   : "Delete to Recycle Bin"}
               </Button>
             </>
           }
         >
           <p className="library-removal__copy">
-            The archives go to the Recycle Bin, so you can restore them from
-            Windows. The mods also leave the library.
+            They go to the Recycle Bin, so you can restore them from Windows,
+            and leave the library.
           </p>
           <ul className="library-removal__mods">
             {removalMods.map((mod) => (
@@ -971,7 +971,7 @@ export function LibraryView(props: LibraryViewProps) {
                 <strong>{mod.displayName || mod.entityId}</strong>
                 <small>
                   {mod.missing
-                    ? "Archive already gone"
+                    ? "Already gone from disk"
                     : `${mod.archivePath} · ${formatBytes(mod.sizeBytes)}`}
                 </small>
               </li>
@@ -1014,9 +1014,7 @@ export function LibraryView(props: LibraryViewProps) {
           })()}
           {removal.impact.archiveCount > 0 && (
             <p className="library-removal__copy">
-              {formatBytes(removal.impact.archiveBytes)} across{" "}
-              {removal.impact.archiveCount.toLocaleString()} file
-              {removal.impact.archiveCount === 1 ? "" : "s"}.
+              {formatBytes(removal.impact.archiveBytes)} in total.
             </p>
           )}
           {removalError && (

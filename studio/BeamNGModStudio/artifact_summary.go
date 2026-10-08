@@ -289,7 +289,8 @@ func (s *Store) queryLibrarySummaryItemsQuery(ctx context.Context, queryer libra
 		COALESCE(s.member_count,0), COALESCE(s.namespace_count,0),
 		COALESCE(s.variant_count,0), COALESCE(s.issue_count,0),
 		EXISTS(SELECT 1 FROM workspaces ew WHERE ew.entity_id=e.id AND ew.library_sha256<>'' AND ew.changed_files>0),
-		(SELECT COUNT(*) FROM mod_history mh WHERE mh.entity_id=e.id)
+		(SELECT COUNT(*) FROM mod_history mh WHERE mh.entity_id=e.id),
+		COALESCE(NULLIF(l.source_kind,''),'zip')
 	FROM entities e
 	LEFT JOIN archive_links l ON l.id = (
 		SELECT l2.id FROM archive_links l2
@@ -332,7 +333,7 @@ func (s *Store) queryLibrarySummaryItemsQuery(ctx context.Context, queryer libra
 			&assetSHA,
 			&title, &author, &version, &description, &namespacesJSON, &issuesJSON,
 			&item.MemberCount, &item.NamespaceCount, &item.VariantCount, &item.IssueCount,
-			&item.Edited, &item.HistoryCount,
+			&item.Edited, &item.HistoryCount, &item.SourceKind,
 		); err != nil {
 			return nil, err
 		}
@@ -377,11 +378,6 @@ func (s *Store) queryLibrarySummaryItemsQuery(ctx context.Context, queryer libra
 		return nil, err
 	}
 	for index := range items {
-		if items[index].Manifest.SourceKind != "" {
-			items[index].SourceKind = string(items[index].Manifest.SourceKind)
-		} else {
-			items[index].SourceKind = "zip"
-		}
 		items[index].Manifest.Issues = nil
 	}
 	return items, nil

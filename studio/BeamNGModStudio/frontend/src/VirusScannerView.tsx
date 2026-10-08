@@ -354,10 +354,10 @@ export function VirusScannerView({ items, request, onLibraryChange, onNotify, on
       <section className="scan-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="scan-mode-title">
         <header><div><span className="eyebrow">SCAN {eligibleSelected.length} {eligibleSelected.length === 1 ? 'MOD' : 'MODS'}</span><h2 id="scan-mode-title">Choose scan depth</h2></div><button onClick={() => setModeOpen(false)} aria-label="Close scan options"><Icon name="close" size={16}/></button></header>
         <button className="scan-mode-option" onClick={() => void runSelected('signature')} disabled={running || eligibleSelected.length === 0}>
-          <Icon name="scan" size={24}/><div><strong>Signature-based scan</strong><p>Checks every archive entry for known suspicious code signatures, executable markers, path tricks, and structural damage.</p><span>No AI · runs locally · fastest</span></div><Icon name="arrow" size={16}/>
+          <Icon name="scan" size={24}/><div><strong>Signature-based scan</strong><p>Checks every file in the mod for known suspicious code signatures, executable markers, path tricks, and structural damage.</p><span>No AI · runs locally · fastest</span></div><Icon name="arrow" size={16}/>
         </button>
         <button className="scan-mode-option scan-mode-option--full" onClick={() => void runSelected('full')} disabled={running || eligibleSelected.length === 0}>
-          <Icon name="shield" size={24}/><div><strong>Full Virgil scan</strong><p>Runs the signature scan, reads every file, reviews files in AI batches, then produces a final security assessment automatically.</p><span>Three automatic stages · archive content is never executed</span></div><Icon name="arrow" size={16}/>
+          <Icon name="shield" size={24}/><div><strong>Full Virgil scan</strong><p>Runs the signature scan, reads every file, reviews files in AI batches, then produces a final security assessment automatically.</p><span>Three automatic stages · the mod is never run</span></div><Icon name="arrow" size={16}/>
         </button>
       </section>
     </div>}

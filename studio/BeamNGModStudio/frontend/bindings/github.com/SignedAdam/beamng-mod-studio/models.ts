@@ -806,7 +806,6 @@ export interface LibraryItem {
     "kind": modkit$0.Kind;
     "sourceId": string;
     "source": string;
-    "sourceKind": string;
     "archivePath": string;
     "rootPath": string;
     "linked": boolean;

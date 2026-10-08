@@ -74,7 +74,6 @@ export interface Manifest {
     "analyzerVersion": string;
     "analyzedAt": string;
     "archivePath": string;
-    "sourceKind"?: string;
     "filename": string;
     "sizeBytes": number;
     "modifiedAt": string;

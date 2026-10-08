@@ -806,7 +806,7 @@ func (service *AppService) buildArchiveDeploymentPlan(ctx context.Context, selec
 		}
 
 		// Folder sources are deployed as directory junctions (zero-copy).
-		if sourceIsFolder(sourcePath) {
+		if kind, kindErr := modkit.SourceKindOf(sourcePath); kindErr == nil && kind == modkit.SourceFolder {
 			entry.Method = deployMethodJunction
 			entry.VerifySource = false
 			base := sanitizeArchiveLabel(mod.DisplayName)

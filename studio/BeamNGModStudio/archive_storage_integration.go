@@ -74,16 +74,28 @@ func (service *AppService) retireCollectionMirrors(ctx context.Context) error {
 		}
 		for _, entry := range owned {
 			if mod, keep := wanted[entry.EntityID]; keep && samePath(mod.ArchivePath, entry.SourcePath) {
-				source, sourceErr := inspectArchiveFile(mod.ArchivePath)
-				target, targetErr := inspectArchiveFile(filepath.Join(entry.TargetRoot, entry.RelativePath))
-				contentMatches := mod.SHA256 != "" && strings.EqualFold(mod.SHA256, entry.SHA256)
-				if sourceErr == nil && targetErr == nil && sameArchiveObject(target, entry.TargetIdentity) &&
-					(contentMatches || sameArchiveObject(source, entry.SourceIdentity)) {
-					if entry.State == archiveStatePendingRetire {
-						entry.State = archiveStateActive
-						if err := service.store.saveOwnedArchiveEntries(ctx, []OwnedArchiveEntry{entry}); err != nil { failures = append(failures, err.Error()) }
+				if entry.Method == deployMethodJunction {
+					// Junction mirror: valid if the junction still points at the source folder.
+					jPath := filepath.Join(entry.TargetRoot, entry.RelativePath)
+					if isDirectoryJunction(jPath) && samePath(junctionTarget(jPath), filepath.Clean(mod.ArchivePath)) {
+						if entry.State == archiveStatePendingRetire {
+							entry.State = archiveStateActive
+							if err := service.store.saveOwnedArchiveEntries(ctx, []OwnedArchiveEntry{entry}); err != nil { failures = append(failures, err.Error()) }
+						}
+						continue
 					}
-					continue
+				} else {
+					source, sourceErr := inspectArchiveFile(mod.ArchivePath)
+					target, targetErr := inspectArchiveFile(filepath.Join(entry.TargetRoot, entry.RelativePath))
+					contentMatches := mod.SHA256 != "" && strings.EqualFold(mod.SHA256, entry.SHA256)
+					if sourceErr == nil && targetErr == nil && sameArchiveObject(target, entry.TargetIdentity) &&
+						(contentMatches || sameArchiveObject(source, entry.SourceIdentity)) {
+						if entry.State == archiveStatePendingRetire {
+							entry.State = archiveStateActive
+							if err := service.store.saveOwnedArchiveEntries(ctx, []OwnedArchiveEntry{entry}); err != nil { failures = append(failures, err.Error()) }
+						}
+						continue
+					}
 				}
 			}
 			if err := service.retireCollectionMirrorEntry(ctx, entry); err != nil { failures = append(failures, err.Error()) }
@@ -121,6 +133,21 @@ func (service *AppService) retireCollectionMirrorEntry(ctx context.Context, entr
 	if entry.Purpose != "collection" || entry.RelativePath == "" || filepath.IsAbs(entry.RelativePath) ||
 		!pathWithin(entry.TargetRoot, root) || !pathWithin(target, entry.TargetRoot) {
 		return fmt.Errorf("refuse cleanup outside a registered collection folder: %s", target)
+	}
+	// Junction mirror entries: verify target, remove the junction link only.
+	if entry.Method == deployMethodJunction {
+		if !isDirectoryJunction(target) {
+			if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+				return service.store.deleteOwnedArchiveEntry(ctx, entry.ID)
+			}
+			return fmt.Errorf("preserved changed junction mirror entry: %s", target)
+		}
+		actual := junctionTarget(target)
+		if !samePath(actual, entry.SourcePath) {
+			return fmt.Errorf("junction mirror target changed: %s (expected %s, found %s)", target, entry.SourcePath, actual)
+		}
+		if err := removeDirectoryJunction(target); err != nil { return err }
+		return service.store.deleteOwnedArchiveEntry(ctx, entry.ID)
 	}
 	info, err := os.Lstat(target)
 	if errors.Is(err, os.ErrNotExist) { return service.store.deleteOwnedArchiveEntry(ctx, entry.ID) }

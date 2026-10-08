@@ -805,6 +805,32 @@ func (service *AppService) buildArchiveDeploymentPlan(ctx context.Context, selec
 			SizeBytes:  mod.SizeBytes,
 		}
 
+		// Folder sources are deployed as directory junctions (zero-copy).
+		if sourceIsFolder(sourcePath) {
+			entry.Method = deployMethodJunction
+			entry.VerifySource = false
+			base := sanitizeArchiveLabel(mod.DisplayName)
+			if base == "" { base = sanitizeArchiveLabel(filepath.Base(sourcePath)) }
+			if base == "" { base = "mod" }
+			if runes := []rune(base); len(runes) > 80 { base = string(runes[:80]) }
+			entry.DestinationPath = filepath.Join(destinationRoot, "unpacked", fmt.Sprintf("%s-%s", base, mod.EntityID))
+
+			// Reuse: an existing junction pointing at the same source folder.
+			if existing, ok := existingByEntity[mod.EntityID]; ok && existing.Method == deployMethodJunction && samePath(existing.SourcePath, sourcePath) {
+				existingDest := filepath.Join(existing.TargetRoot, existing.RelativePath)
+				if isDirectoryJunction(existingDest) && samePath(junctionTarget(existingDest), filepath.Clean(sourcePath)) {
+					entry.Reuse = true
+					entry.DestinationPath = existingDest
+					plan.ReusedCount++
+				}
+			}
+			if !entry.Reuse {
+				plan.LinkedCount++
+			}
+			plan.Entries = append(plan.Entries, entry)
+			continue
+		}
+
 		srcIdent, srcErr := inspectArchiveFile(sourcePath)
 		if srcErr != nil || !srcIdent.Regular || !srcIdent.IdentityKnown {
 			plan.Blockers = append(plan.Blockers, fmt.Sprintf("%s: source archive identity could not be verified: %v", mod.DisplayName, srcErr))
@@ -1024,6 +1050,12 @@ func (service *AppService) applyArchiveDeployment(ctx context.Context, plan Arch
 // makeOwnedEntry constructs an OwnedArchiveEntry from plan/entry data.
 // OwnerID is the plan's stable logical owner, not the per-apply operationID.
 func makeOwnedEntry(id string, plan ArchiveDeploymentPlan, entry ArchiveDeploymentEntry, destinationRoot string, tgtIdent ArchiveFileIdentity) OwnedArchiveEntry {
+	relPath := filepath.Base(entry.DestinationPath)
+	if entry.Method == deployMethodJunction {
+		if rel, err := filepath.Rel(destinationRoot, entry.DestinationPath); err == nil && rel != "" {
+			relPath = rel
+		}
+	}
 	return OwnedArchiveEntry{
 		ID:             id,
 		Purpose:        plan.Purpose,
@@ -1033,7 +1065,7 @@ func makeOwnedEntry(id string, plan ArchiveDeploymentPlan, entry ArchiveDeployme
 		SHA256:         entry.SHA256,
 		SourcePath:     entry.SourcePath,
 		TargetRoot:     destinationRoot,
-		RelativePath:   filepath.Base(entry.DestinationPath),
+		RelativePath:   relPath,
 		Method:         entry.Method,
 		State:          archiveStateActive,
 		SourceIdentity: entry.SourceIdentity,
@@ -1045,6 +1077,7 @@ func makeOwnedEntry(id string, plan ArchiveDeploymentPlan, entry ArchiveDeployme
 // that are not tracked in the ownership ledger. Returns a list of blocking
 // descriptions for unowned ZIPs and unknown mod-bearing directories.
 // Non-ZIP regular files are not blockers (harmless metadata, logs, etc.).
+// The "unpacked" subdirectory is allowed and its owned junctions are verified.
 func checkManagedRootOwnership(ctx context.Context, store *Store, managedRoot string) []string {
 	root, err := os.Lstat(managedRoot)
 	if errors.Is(err, os.ErrNotExist) { return nil }
@@ -1057,7 +1090,7 @@ func checkManagedRootOwnership(ctx context.Context, store *Store, managedRoot st
 	byPath := make(map[string]OwnedArchiveEntry, len(owned))
 	for _, entry := range owned {
 		if entry.State == archiveStateActive && entry.Purpose == archivePurposePlay && samePath(entry.TargetRoot, managedRoot) {
-			byPath[archivePathKey(filepath.Join(entry.TargetRoot,entry.RelativePath))] = entry
+			byPath[archivePathKey(filepath.Join(entry.TargetRoot, entry.RelativePath))] = entry
 		}
 	}
 	var blockers []string
@@ -1069,6 +1102,10 @@ func checkManagedRootOwnership(ctx context.Context, store *Store, managedRoot st
 			blockers = append(blockers, fmt.Sprintf("owned archive changed outside Studio: %s", path))
 			continue
 		}
+		if strings.EqualFold(file.Name(), "unpacked") && file.IsDir() {
+			blockers = append(blockers, checkUnpackedSubdirOwnership(managedRoot, path, byPath)...)
+			continue
+		}
 		if file.IsDir() {
 			// Empty subdirectories in the profile mods dir are not blockers.
 			sub, _ := os.ReadDir(path)
@@ -1077,6 +1114,47 @@ func checkManagedRootOwnership(ctx context.Context, store *Store, managedRoot st
 		} else if file.Type()&os.ModeSymlink != 0 || isModArchive(file.Name()) {
 			blockers = append(blockers, fmt.Sprintf("%q in Studio's game mod folder doesn't match any mod in your library. Add it to your library from Review storage, or move it out of that folder", file.Name()))
 		}
+	}
+	return blockers
+}
+
+// checkUnpackedSubdirOwnership verifies entries inside the unpacked subdirectory
+// of the managed mods folder. Owned junctions are accepted if their target has
+// not changed. Real (non-junction) folders are not blockers—they will be
+// harvested after the Play session ends.
+func checkUnpackedSubdirOwnership(managedRoot, unpackedDir string, byPath map[string]OwnedArchiveEntry) []string {
+	children, err := os.ReadDir(unpackedDir)
+	if err != nil { return []string{fmt.Sprintf("read unpacked directory: %v", err)} }
+	var blockers []string
+	for _, child := range children {
+		childPath := filepath.Join(unpackedDir, child.Name())
+		relPath := filepath.Join("unpacked", child.Name())
+		fullKey := archivePathKey(filepath.Join(managedRoot, relPath))
+		if entry, ok := byPath[fullKey]; ok {
+			if entry.Method == deployMethodJunction {
+				if !isDirectoryJunction(childPath) {
+					blockers = append(blockers, fmt.Sprintf("owned junction replaced by a regular entry: %s", childPath))
+					continue
+				}
+				target := junctionTarget(childPath)
+				if !samePath(target, entry.SourcePath) {
+					blockers = append(blockers, fmt.Sprintf("junction target changed: %s (expected %s, found %s)", childPath, entry.SourcePath, target))
+				}
+				continue
+			}
+			// Non-junction owned entry inside unpacked: verify like a regular entry.
+			identity, exists, identErr := archiveIdentityIfPresent(childPath)
+			if identErr == nil && exists && sameArchiveObject(identity, entry.TargetIdentity) { continue }
+			blockers = append(blockers, fmt.Sprintf("owned entry changed outside Studio: %s", childPath))
+			continue
+		}
+		// Unowned entry. Junctions we don't recognise are blockers.
+		if isDirectoryJunction(childPath) {
+			blockers = append(blockers, fmt.Sprintf("unknown junction in unpacked folder: %s", childPath))
+			continue
+		}
+		// Real folders are potential harvest candidates—not blockers.
+		// Regular files are harmless metadata.
 	}
 	return blockers
 }
@@ -1203,6 +1281,21 @@ func (service *AppService) retireOwnedArchiveEntries(ctx context.Context, entity
 		entry.State=archiveStatePendingRetire
 		if err := service.store.saveOwnedArchiveEntries(ctx,[]OwnedArchiveEntry{entry}); err != nil { return err }
 		target := filepath.Join(entry.TargetRoot,entry.RelativePath)
+		if entry.Method == deployMethodJunction {
+			// Junction retirement: remove the junction only, never recurse.
+			if isDirectoryJunction(target) {
+				actual := junctionTarget(target)
+				if !samePath(actual, entry.SourcePath) {
+					return fmt.Errorf("retirement pending: junction target changed: %s (expected %s, found %s)", target, entry.SourcePath, actual)
+				}
+				if err := service.requireGameStopped(); err != nil { return err }
+				if err := removeDirectoryJunction(target); err != nil {
+					return fmt.Errorf("retirement pending for junction %s: %w", target, err)
+				}
+			}
+			if err := service.store.deleteOwnedArchiveEntry(ctx,entry.ID); err != nil { return err }
+			continue
+		}
 		current, exists, err := archiveIdentityIfPresent(target)
 		if err != nil { return err }
 		if exists {

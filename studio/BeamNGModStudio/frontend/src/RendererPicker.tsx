@@ -6,10 +6,10 @@ import { Icon } from "./icons";
 // The renderers BeamNG's own launcher offers. "default" lets BeamNG choose:
 // DirectX 12, falling back to DirectX 11, like the launcher's main button.
 const RENDERERS = [
-  { id: "default", name: "Default", label: "Default renderer (DX12)", detail: "DirectX 12, falls back to DirectX 11" },
-  { id: "vulkan", name: "Vulkan", label: "Vulkan renderer", detail: "" },
-  { id: "d3d12", name: "DirectX 12", label: "DX12 renderer", detail: "No fallback" },
-  { id: "d3d11", name: "DirectX 11", label: "DX11 renderer", detail: "Older renderer" },
+  { id: "default", name: "Default (DX12)", label: "Default renderer (DX12)" },
+  { id: "vulkan", name: "Vulkan", label: "Vulkan renderer" },
+  { id: "d3d12", name: "DX12", label: "DX12 renderer" },
+  { id: "d3d11", name: "DX11", label: "DX11 renderer" },
 ];
 
 /** A one-line "Default renderer (DX12) ⌄" control; the choice applies to every launch. */
@@ -82,8 +82,7 @@ export function RendererPicker({ onError }: { onError: (error: unknown) => void 
         <Icon name="chevron" size={13} />
       </button>
       {open && (
-        <div className="play-renderer__menu" role="menu" aria-label="Start BeamNG with" onKeyDown={navigate}>
-          <p className="play-renderer__heading">Start BeamNG with</p>
+        <div className="play-renderer__menu" role="menu" aria-label="Renderer" onKeyDown={navigate}>
           {RENDERERS.map((option) => (
             <button
               key={option.id}
@@ -97,7 +96,6 @@ export function RendererPicker({ onError }: { onError: (error: unknown) => void 
                 {option.id === renderer && <Icon name="check" size={14} />}
               </span>
               <span className="play-renderer__name">{option.name}</span>
-              {option.detail && <span className="play-renderer__detail">{option.detail}</span>}
             </button>
           ))}
         </div>

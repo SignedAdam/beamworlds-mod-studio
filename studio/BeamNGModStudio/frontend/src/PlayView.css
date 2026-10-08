@@ -264,20 +264,13 @@
   right: -8px;
   bottom: calc(100% + 10px);
   z-index: 30;
-  width: 252px;
-  padding: 5px;
+  min-width: 148px;
+  padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--surface-raised);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
-}
-
-.play-renderer__heading {
-  margin: 0;
-  padding: 5px 8px 6px;
-  color: var(--text-3);
-  font-size: var(--font-caption);
 }
 
 .play-renderer__option {
@@ -286,8 +279,8 @@
   align-items: center;
   column-gap: 6px;
   width: 100%;
-  min-height: 34px;
-  padding: 6px 8px;
+  min-height: 28px;
+  padding: 4px 8px 4px 6px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -299,13 +292,7 @@
 .play-renderer__option:hover,
 .play-renderer__option:focus-visible { background: var(--hover-tint); outline: none; }
 .play-renderer__check { display: inline-flex; color: var(--emphasis); }
-.play-renderer__name { font-size: var(--font-control); font-weight: 600; }
-
-.play-renderer__detail {
-  grid-column: 2;
-  color: var(--text-3);
-  font-size: var(--font-caption);
-}
+.play-renderer__name { font-size: var(--font-caption); white-space: nowrap; }
 
 /* ---------- Launch button: image plane under a springy glass pane ---------- */
 .play-launch-button {

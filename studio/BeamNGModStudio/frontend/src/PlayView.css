@@ -226,18 +226,83 @@
   white-space: nowrap;
 }
 
-/* Renderer: the same select as the profile, captioned underneath. */
-.play-renderer {
+/* Readiness and renderer share one right-aligned column beside Play, so the
+   renderer costs no width in the bar. */
+.play-launch-summary {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 4px;
 }
 
-.play-launch-controls .play-renderer select { width: 196px; }
+/* The menu anchors to the whole column, so it never covers the mod count. */
+.play-renderer { position: static; }
 
-.play-renderer__caption {
-  min-height: 14px;
-  padding-left: 1px;
+.play-renderer__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.play-renderer__trigger:hover:not(:disabled),
+.play-renderer__trigger[aria-expanded="true"] { color: var(--text); }
+.play-renderer__trigger:disabled { cursor: default; }
+.play-renderer__trigger svg { transition: transform 120ms ease; }
+.play-renderer__trigger[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+/* Opens upward: the bar sits at the bottom of the window. */
+.play-renderer__menu {
+  position: absolute;
+  right: -8px;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: 252px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.play-renderer__heading {
+  margin: 0;
+  padding: 5px 8px 6px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.play-renderer__option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.play-renderer__option:hover,
+.play-renderer__option:focus-visible { background: var(--hover-tint); outline: none; }
+.play-renderer__check { display: inline-flex; color: var(--emphasis); }
+.play-renderer__name { font-size: var(--font-control); font-weight: 600; }
+
+.play-renderer__detail {
+  grid-column: 2;
   color: var(--text-3);
   font-size: var(--font-caption);
 }

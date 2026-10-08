@@ -814,6 +814,7 @@ export interface LibraryItem {
     "lastSeenAt": string;
     "fingerprint": string;
     "sha256": string;
+    "sourceKind": string;
     "thumbnailUrl": string;
     "memberCount": number;
     "namespaceCount": number;

@@ -377,6 +377,11 @@ func (s *Store) queryLibrarySummaryItemsQuery(ctx context.Context, queryer libra
 		return nil, err
 	}
 	for index := range items {
+		if items[index].Manifest.SourceKind != "" {
+			items[index].SourceKind = string(items[index].Manifest.SourceKind)
+		} else {
+			items[index].SourceKind = "zip"
+		}
 		items[index].Manifest.Issues = nil
 	}
 	return items, nil

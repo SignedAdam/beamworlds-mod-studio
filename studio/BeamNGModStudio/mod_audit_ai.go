@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
 
 type auditAIRequest struct {
@@ -559,15 +561,22 @@ func validAuditPaths(paths []string, artifacts []modAuditArtifactRecord, limit i
 }
 
 func readFocusedAuditFiles(archivePath string, paths []string, perFileLimit, totalLimit int64) ([]auditPromptFile, error) {
+	kind, kindErr := modkit.SourceKindOf(archivePath)
+	if kindErr != nil {
+		return nil, kindErr
+	}
+	wanted := map[string]string{}
+	for _, path := range paths {
+		wanted[strings.ToLower(normalizeAuditPath(path))] = normalizeAuditPath(path)
+	}
+	if kind == modkit.SourceFolder {
+		return readFocusedAuditFilesFromFolder(archivePath, wanted, perFileLimit, totalLimit)
+	}
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
-	wanted := map[string]string{}
-	for _, path := range paths {
-		wanted[strings.ToLower(normalizeAuditPath(path))] = normalizeAuditPath(path)
-	}
 	result := []auditPromptFile{}
 	remaining := totalLimit
 	for _, file := range reader.File {
@@ -595,6 +604,37 @@ func readFocusedAuditFiles(archivePath string, paths []string, perFileLimit, tot
 	}
 	if len(result) == 0 {
 		return nil, errors.New("none of the selected audit files remain in the source archive")
+	}
+	return result, nil
+}
+
+func readFocusedAuditFilesFromFolder(folderPath string, wanted map[string]string, perFileLimit, totalLimit int64) ([]auditPromptFile, error) {
+	result := []auditPromptFile{}
+	remaining := totalLimit
+	for _, canonical := range wanted {
+		if remaining <= 0 {
+			break
+		}
+		limit := perFileLimit
+		if remaining < limit {
+			limit = remaining
+		}
+		data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, canonical, limit)
+		if readErr != nil {
+			return nil, fmt.Errorf("read focused audit file %s: %w", canonical, readErr)
+		}
+		remaining -= int64(len(data))
+		var excerpt string
+		if isProbablyAuditText(data) {
+			excerpt = sanitizeAuditExcerptLimit(data, int(limit))
+		} else {
+			prefix := data[:min(len(data), 16)]
+			excerpt = fmt.Sprintf("[binary file; content omitted; inspected %d bytes; first bytes: %x]", len(data), prefix)
+		}
+		result = append(result, auditPromptFile{Path: canonical, Fingerprint: fmt.Sprintf("00000000:%d", len(data)), SizeBytes: int64(len(data)), MediaType: auditImageMediaTypes[strings.ToLower(filepath.Ext(canonical))], Excerpt: excerpt})
+	}
+	if len(result) == 0 {
+		return nil, errors.New("none of the selected audit files remain in the source folder")
 	}
 	return result, nil
 }
@@ -651,18 +691,11 @@ func (service *AppService) prepareAuditVisualAttachments(archivePath string, rec
 		return []auditVisualAttachment{}, []string{}, cleanup, nil
 	}
 
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, nil, cleanup, err
+	kind, kindErr := modkit.SourceKindOf(archivePath)
+	if kindErr != nil {
+		return nil, nil, cleanup, kindErr
 	}
-	defer reader.Close()
-	members := make(map[string][]*zip.File, len(reader.File))
-	for _, file := range reader.File {
-		key := strings.ToLower(normalizeAuditPath(file.Name))
-		if !file.FileInfo().IsDir() {
-			members[key] = append(members[key], file)
-		}
-	}
+
 	promptDir := filepath.Join(service.config.DataDir, "audit-prompts")
 	if err := os.MkdirAll(promptDir, 0o700); err != nil {
 		return nil, nil, cleanup, err
@@ -677,6 +710,22 @@ func (service *AppService) prepareAuditVisualAttachments(archivePath string, rec
 		return nil, nil, func() {}, err
 	}
 
+	if kind == modkit.SourceFolder {
+		return service.prepareAuditVisualAttachmentsFolder(archivePath, candidates, tempDir, maxImages, maxPerImage, maxTotal, cleanup)
+	}
+
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return nil, nil, cleanup, err
+	}
+	defer reader.Close()
+	members := make(map[string][]*zip.File, len(reader.File))
+	for _, file := range reader.File {
+		key := strings.ToLower(normalizeAuditPath(file.Name))
+		if !file.FileInfo().IsDir() {
+			members[key] = append(members[key], file)
+		}
+	}
 	result := make([]auditVisualAttachment, 0, min(len(candidates), maxImages))
 	warnings := []string{}
 	eligibleEntries := len(candidates)
@@ -730,6 +779,44 @@ candidateLoop:
 	}
 	if len(result) < eligibleEntries {
 		warnings = appendAuditVisualWarning(warnings, fmt.Sprintf("Visual review attached %d of %d eligible raster image entries; omitted entries remain listed in the audit inventory", len(result), eligibleEntries))
+	}
+	return result, warnings, cleanup, nil
+}
+
+func (service *AppService) prepareAuditVisualAttachmentsFolder(folderPath string, candidates []modAuditArtifactRecord, tempDir string, maxImages int, maxPerImage, maxTotal int64, cleanup func()) ([]auditVisualAttachment, []string, func(), error) {
+	result := make([]auditVisualAttachment, 0, min(len(candidates), maxImages))
+	warnings := []string{}
+	var total int64
+	for _, candidate := range candidates {
+		if len(result) >= maxImages || total >= maxTotal {
+			break
+		}
+		data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, candidate.Path, maxPerImage)
+		if readErr != nil {
+			warnings = appendAuditVisualWarning(warnings, "Could not read image for visual review: "+candidate.Path)
+			continue
+		}
+		size := int64(len(data))
+		if size <= 0 || size > maxPerImage || size > maxTotal-total {
+			warnings = appendAuditVisualWarning(warnings, "Image exceeds the bounded visual-review size: "+candidate.Path)
+			continue
+		}
+		if !auditImageMatches(candidate.MediaType, data) {
+			warnings = appendAuditVisualWarning(warnings, "Image signature did not match its declared format: "+candidate.Path)
+			continue
+		}
+		attachmentIndex := len(result) + 1
+		filename := fmt.Sprintf("audit-image-%03d%s", attachmentIndex, auditImageExtension(candidate.MediaType))
+		tempPath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(tempPath, data, 0o600); err != nil {
+			cleanup()
+			return nil, nil, func() {}, err
+		}
+		result = append(result, auditVisualAttachment{AttachmentIndex: attachmentIndex, SourcePath: candidate.Path, Filename: filename, MediaType: candidate.MediaType, TempPath: tempPath})
+		total += size
+	}
+	if len(result) < len(candidates) {
+		warnings = appendAuditVisualWarning(warnings, fmt.Sprintf("Visual review attached %d of %d eligible raster image entries; omitted entries remain listed in the audit inventory", len(result), len(candidates)))
 	}
 	return result, warnings, cleanup, nil
 }

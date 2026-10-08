@@ -17,6 +17,7 @@ export type {
     MapStats,
     MetadataDocument,
     SharedAssetStats,
+    SourceKind,
     UIStats,
     ValidationResult,
     Variant,

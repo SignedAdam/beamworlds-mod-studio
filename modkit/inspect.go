@@ -74,6 +74,9 @@ func Inspect(ctx context.Context, archivePath string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, fmt.Errorf("stat archive: %w", err)
 	}
+	if stat.IsDir() {
+		return inspectFolder(ctx, archivePath)
+	}
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("open ZIP: %w", err)

@@ -149,9 +149,9 @@ func (service *AppService) RunVirusScan(entityID, mode string) (VirusScanRun, er
 	if !item.Linked || strings.TrimSpace(item.ArchivePath) == "" {
 		return VirusScanRun{}, errors.New("virus scan requires an available source archive")
 	}
-	fileSHA256, err := modkit.FullSHA256(ctx, item.ArchivePath)
+	fileSHA256, err := modkit.SourceContentID(ctx, item.ArchivePath)
 	if err != nil {
-		return VirusScanRun{}, fmt.Errorf("hash source archive for virus scan: %w", err)
+		return VirusScanRun{}, fmt.Errorf("hash source for virus scan: %w", err)
 	}
 	fileSHA256 = strings.ToLower(strings.TrimSpace(fileSHA256))
 	if fileSHA256 == "" {
@@ -541,6 +541,13 @@ func (service *AppService) expandFullVirusScanArtifacts(ctx context.Context, aud
 	for _, record := range existing {
 		byPath[strings.ToLower(normalizeAuditPath(record.Path))] = record
 	}
+	kind, kindErr := modkit.SourceKindOf(archivePath)
+	if kindErr != nil {
+		return 0, kindErr
+	}
+	if kind == modkit.SourceFolder {
+		return service.expandFullVirusScanArtifactsFolder(ctx, auditID, archivePath, byPath)
+	}
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return 0, fmt.Errorf("open source archive for full virus scan: %w", err)
@@ -569,6 +576,49 @@ func (service *AppService) expandFullVirusScanArtifacts(ctx context.Context, aud
 		}
 		if record.Excerpt == "" {
 			data, readErr := readAuditZipPrefix(file, maxAuditEntryRead)
+			if readErr != nil {
+				record.Signals = dedupeAuditSignals(append(record.Signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "entry_read_failed", Path: path, Detail: "Could not read this file during the full scan", Evidence: trimAuditString(readErr.Error(), 240)}))
+			} else if isProbablyAuditText(data) {
+				record.Excerpt = sanitizeAuditExcerpt(data)
+			}
+		}
+		all = append(all, record)
+	}
+	sort.Slice(all, func(left, right int) bool { return all[left].Path < all[right].Path })
+	if err := service.store.upsertModAuditArtifacts(ctx, auditID, all); err != nil {
+		return 0, err
+	}
+	return len(all), nil
+}
+
+func (service *AppService) expandFullVirusScanArtifactsFolder(ctx context.Context, auditID, folderPath string, byPath map[string]modAuditArtifactRecord) (int, error) {
+	manifest, err := modkit.Inspect(ctx, folderPath)
+	if err != nil {
+		return 0, fmt.Errorf("inspect folder for full virus scan: %w", err)
+	}
+	seen := make(map[string]bool, len(manifest.Members))
+	all := make([]modAuditArtifactRecord, 0, len(manifest.Members))
+	for _, member := range manifest.Members {
+		if member.Directory {
+			continue
+		}
+		path := normalizeAuditPath(member.Path)
+		key := strings.ToLower(path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		record, exists := byPath[key]
+		if !exists {
+			entryType, _ := classifyAuditEntrypoint(path)
+			record = modAuditArtifactRecord{ModAuditFileArtifact: ModAuditFileArtifact{
+				Path: path, Fingerprint: fmt.Sprintf("00000000:%d", member.UncompressedBytes),
+				SizeBytes: int64(member.UncompressedBytes), EntrypointType: entryType,
+				MediaType: auditImageMediaTypes[strings.ToLower(filepath.Ext(path))], Signals: []ModAuditSignal{},
+			}}
+		}
+		if record.Excerpt == "" {
+			data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, member.Path, maxAuditEntryRead)
 			if readErr != nil {
 				record.Signals = dedupeAuditSignals(append(record.Signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "entry_read_failed", Path: path, Detail: "Could not read this file during the full scan", Evidence: trimAuditString(readErr.Error(), 240)}))
 			} else if isProbablyAuditText(data) {

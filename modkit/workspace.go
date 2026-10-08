@@ -40,6 +40,13 @@ type ExportResult struct {
 }
 
 func CreateWorkspace(ctx context.Context, sourceArchive, destination, id, entityID, artifactID string, kind Kind) (WorkspaceManifest, error) {
+	sourceKind, err := SourceKindOf(sourceArchive)
+	if err != nil {
+		return WorkspaceManifest{}, err
+	}
+	if sourceKind == SourceFolder {
+		return createWorkspaceFromFolder(ctx, sourceArchive, destination, id, entityID, artifactID, kind)
+	}
 	sourceFingerprint, err := FullSHA256(ctx, sourceArchive)
 	if err != nil {
 		return WorkspaceManifest{}, fmt.Errorf("fingerprint source ZIP: %w", err)
@@ -675,6 +682,13 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 	if err := ctx.Err(); err != nil {
 		return ExportResult{}, err
 	}
+	kind, kindErr := SourceKindOf(sourceArchive)
+	if kindErr != nil {
+		return ExportResult{}, kindErr
+	}
+	if kind == SourceFolder {
+		return exportWorkspaceFromFolder(ctx, filesRoot, outputPath)
+	}
 	if _, err := os.Stat(outputPath); err == nil {
 		return ExportResult{}, fmt.Errorf("export already exists: %s", outputPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -887,6 +901,13 @@ func readArchiveTextContext(ctx context.Context, archivePath, memberPath string,
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	kind, kindErr := SourceKindOf(archivePath)
+	if kindErr != nil {
+		return "", kindErr
+	}
+	if kind == SourceFolder {
+		return readFolderArchiveText(ctx, archivePath, memberPath, limit)
 	}
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {

@@ -226,6 +226,22 @@
   white-space: nowrap;
 }
 
+/* Renderer: the same select as the profile, captioned underneath. */
+.play-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.play-launch-controls .play-renderer select { width: 196px; }
+
+.play-renderer__caption {
+  min-height: 14px;
+  padding-left: 1px;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
 /* ---------- Launch button: image plane under a springy glass pane ---------- */
 .play-launch-button {
   position: relative;

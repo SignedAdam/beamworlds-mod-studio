@@ -214,6 +214,10 @@ func (service *AppService) launchBeamNG(ctx context.Context, workspaceID string)
 	if service.config.GameExecutable == "" {
 		return ProcessLaunch{}, errors.New("BeamNG executable was not found in the configured game install directory")
 	}
+	rendererArgs, err := service.gameRendererArgs(ctx)
+	if err != nil {
+		return ProcessLaunch{}, err
+	}
 	logPath := service.findRuntimeLog()
 	var logOffset int64
 	if info, statErr := os.Stat(logPath); statErr == nil {
@@ -222,7 +226,7 @@ func (service *AppService) launchBeamNG(ctx context.Context, workspaceID string)
 	if err := service.store.UpdateTestLogBaseline(ctx, install.ID, logPath, logOffset, nowUTC()); err != nil {
 		return ProcessLaunch{}, err
 	}
-	command := exec.Command(service.config.GameExecutable)
+	command := exec.Command(service.config.GameExecutable, rendererArgs...)
 	command.Dir = service.config.GameInstallDir
 	if err := command.Start(); err != nil {
 		return ProcessLaunch{}, err

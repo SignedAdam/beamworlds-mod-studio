@@ -189,7 +189,11 @@ func (service *AppService) runWorkspaceGameTest(ctx context.Context, workspaceID
 	if err := os.WriteFile(filepath.Join(settingsDir, "modstudioGameTest.json"), settingsData, 0o600); err != nil {
 		return result, err
 	}
-	args := buildGameTestArgs(userPath, level, vehicle, vehicleConfig)
+	rendererArgs, err := service.gameRendererArgs(ctx)
+	if err != nil {
+		return result, err
+	}
+	args := append(buildGameTestArgs(userPath, level, vehicle, vehicleConfig), rendererArgs...)
 
 	// Re-check that the game is still stopped (export can take minutes).
 	if err := service.requireGameStopped(); err != nil {

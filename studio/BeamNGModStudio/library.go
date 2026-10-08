@@ -53,9 +53,10 @@ type UnreachableFolder struct {
 }
 
 type archiveJob struct {
-	root string
-	path string
-	info fs.FileInfo
+	root     string
+	path     string
+	info     fs.FileInfo
+	isFolder bool // folder mod (unpacked)
 }
 
 type LibraryEngine struct {
@@ -302,48 +303,13 @@ func (engine *LibraryEngine) Scan(parent context.Context) (ScanSummary, error) {
 				if ctx.Err() != nil {
 					return
 				}
-				reusedItem, reused, reuseErr := engine.store.LookupArchiveAnalysis(ctx, job.root, job.path, job.info.Size(), job.info.ModTime())
-				if reuseErr != nil {
-					recordProcessingError(reuseErr)
-					failed.Add(1)
-					progress("analyzing", job.path, false, reuseErr)
-					continue
+				if job.isFolder {
+					engine.processFolderJob(ctx, job, sourceIndex, &cached, &analyzed, &failed,
+						appendArchive, recordProcessingError, progress)
+				} else {
+					engine.processZIPJob(ctx, job, sourceIndex, &cached, &analyzed, &failed,
+						appendArchive, recordProcessingError, progress)
 				}
-				if reused {
-					sourceClass := archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem)
-					appendArchive(ScanArchive{
-						Root: job.root, ArchivePath: job.path, SizeBytes: job.info.Size(),
-						Modified: job.info.ModTime(), SourceClass: sourceClass, Reused: true,
-					})
-					cached.Add(1)
-					analyzed.Add(1)
-					progress("analyzing", job.path, false, nil)
-					continue
-				}
-				manifest, inspectErr := modkit.Inspect(ctx, job.path)
-				if inspectErr != nil {
-					scanErr := fmt.Errorf("inspect archive %q: %w", job.path, inspectErr)
-					recordProcessingError(scanErr)
-					failed.Add(1)
-					progress("analyzing", job.path, false, scanErr)
-					continue
-				}
-				var asset *AssetRecord
-				if manifest.SelectedImagePath != "" {
-					cachedAsset, imageErr := modkit.ExtractImage(job.path, manifest.SelectedImagePath, engine.config.ImageCacheDir)
-					if imageErr == nil {
-						cached := &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
-						asset = cached
-						_, _ = ensureAssetThumbnail(*cached)
-					}
-				}
-				appendArchive(ScanArchive{
-					Root: job.root, ArchivePath: job.path, SizeBytes: job.info.Size(),
-					Modified: job.info.ModTime(), Manifest: manifest, Asset: asset,
-					SourceClass: archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem),
-				})
-				analyzed.Add(1)
-				progress("analyzing", job.path, false, nil)
 			}
 		}()
 	}
@@ -417,6 +383,115 @@ func (engine *LibraryEngine) Cancel() bool {
 	return true
 }
 
+func (engine *LibraryEngine) processZIPJob(ctx context.Context, job archiveJob, sourceIndex beamNGSourceIndex,
+	cached, analyzed, failed *atomic.Int64, appendArchive func(ScanArchive), recordProcessingError func(error), progress func(string, string, bool, error)) {
+	reusedItem, reused, reuseErr := engine.store.LookupArchiveAnalysis(ctx, job.root, job.path, job.info.Size(), job.info.ModTime())
+	if reuseErr != nil {
+		recordProcessingError(reuseErr)
+		failed.Add(1)
+		progress("analyzing", job.path, false, reuseErr)
+		return
+	}
+	if reused {
+		sourceClass := archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem)
+		appendArchive(ScanArchive{
+			Root: job.root, ArchivePath: job.path, SizeBytes: job.info.Size(),
+			Modified: job.info.ModTime(), SourceClass: sourceClass, Reused: true,
+		})
+		cached.Add(1)
+		analyzed.Add(1)
+		progress("analyzing", job.path, false, nil)
+		return
+	}
+	manifest, inspectErr := modkit.Inspect(ctx, job.path)
+	if inspectErr != nil {
+		scanErr := fmt.Errorf("inspect archive %q: %w", job.path, inspectErr)
+		recordProcessingError(scanErr)
+		failed.Add(1)
+		progress("analyzing", job.path, false, scanErr)
+		return
+	}
+	var asset *AssetRecord
+	if manifest.SelectedImagePath != "" {
+		cachedAsset, imageErr := modkit.ExtractImage(job.path, manifest.SelectedImagePath, engine.config.ImageCacheDir)
+		if imageErr == nil {
+			a := &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
+			asset = a
+			_, _ = ensureAssetThumbnail(*a)
+		}
+	}
+	appendArchive(ScanArchive{
+		Root: job.root, ArchivePath: job.path, SizeBytes: job.info.Size(),
+		Modified: job.info.ModTime(), Manifest: manifest, Asset: asset,
+		SourceClass: archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem),
+	})
+	analyzed.Add(1)
+	progress("analyzing", job.path, false, nil)
+}
+
+func (engine *LibraryEngine) processFolderJob(ctx context.Context, job archiveJob, sourceIndex beamNGSourceIndex,
+	cached, analyzed, failed *atomic.Int64, appendArchive func(ScanArchive), recordProcessingError func(error), progress func(string, string, bool, error)) {
+	// For folder mods the cache key is the folder listing fingerprint matched
+	// against the stored artifact's central_fingerprint with the same analyzer
+	// version. The listing fingerprint never opens files.
+	fingerprint, fpErr := modkit.FolderListingFingerprint(ctx, job.path)
+	if fpErr != nil {
+		scanErr := fmt.Errorf("fingerprint folder %q: %w", job.path, fpErr)
+		recordProcessingError(scanErr)
+		failed.Add(1)
+		progress("analyzing", job.path, false, scanErr)
+		return
+	}
+	reusedItem, reused, reuseErr := engine.store.LookupFolderAnalysis(ctx, job.root, job.path, fingerprint)
+	if reuseErr != nil {
+		recordProcessingError(reuseErr)
+		failed.Add(1)
+		progress("analyzing", job.path, false, reuseErr)
+		return
+	}
+	if reused {
+		sourceClass := archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem)
+		appendArchive(ScanArchive{
+			Root: job.root, ArchivePath: job.path, SizeBytes: reusedItem.SizeBytes,
+			Modified: parseScanModified(reusedItem.ModifiedAt), SourceClass: sourceClass, Reused: true,
+		})
+		cached.Add(1)
+		analyzed.Add(1)
+		progress("analyzing", job.path, false, nil)
+		return
+	}
+	manifest, inspectErr := modkit.Inspect(ctx, job.path)
+	if inspectErr != nil {
+		scanErr := fmt.Errorf("inspect folder %q: %w", job.path, inspectErr)
+		recordProcessingError(scanErr)
+		failed.Add(1)
+		progress("analyzing", job.path, false, scanErr)
+		return
+	}
+	var asset *AssetRecord
+	if manifest.SelectedImagePath != "" {
+		cachedAsset, imageErr := modkit.ExtractImage(job.path, manifest.SelectedImagePath, engine.config.ImageCacheDir)
+		if imageErr == nil {
+			a := &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
+			asset = a
+			_, _ = ensureAssetThumbnail(*a)
+		}
+	}
+	appendArchive(ScanArchive{
+		Root: job.root, ArchivePath: job.path, SizeBytes: manifest.SizeBytes,
+		Modified: manifest.ModifiedAt, Manifest: manifest, Asset: asset,
+		SourceClass: archiveSourceClass(engine.config, sourceIndex, job.path, &reusedItem),
+	})
+	analyzed.Add(1)
+	progress("analyzing", job.path, false, nil)
+}
+
+// parseScanModified parses the RFC3339Nano timestamp stored in ModifiedAt.
+func parseScanModified(value string) time.Time {
+	t, _ := time.Parse(time.RFC3339Nano, value)
+	return t
+}
+
 // discoverRoot queues every archive under root and returns the folders and
 // files it could not read. Those are reported rather than treated as empty, so
 // an unplugged drive or offline share never looks like deleted mods.
@@ -451,6 +526,28 @@ func (engine *LibraryEngine) discoverRoot(ctx context.Context, root string, jobs
 			if entry.Type()&osModeSymlink != 0 {
 				return fs.SkipDir
 			}
+			// If the parent is an "unpacked" directory, this child is a folder
+			// mod — queue it and do not descend (ZIPs inside it are not mods).
+			if isUnpackedDirectory(filepath.Base(filepath.Dir(current))) {
+				if isHiddenOrInternal(entry.Name()) || isDirectoryJunction(current) {
+					return fs.SkipDir
+				}
+				count := discovered.Add(1)
+				if count > maxDiscoveredArchives {
+					return fmt.Errorf("archive discovery limit exceeded: %d", maxDiscoveredArchives)
+				}
+				progress("discovering", current, false, nil)
+				select {
+				case jobs <- archiveJob{root: root, path: filepath.Clean(current), isFolder: true}:
+					return fs.SkipDir
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		}
+		// Files directly inside an "unpacked" directory are ignored.
+		if isUnpackedDirectory(filepath.Base(filepath.Dir(current))) {
 			return nil
 		}
 		if entry.Type()&osModeSymlink != 0 || !isModArchive(entry.Name()) {
@@ -515,6 +612,17 @@ func (engine *LibraryEngine) skipDirectory(current, name string) bool {
 func isModArchive(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".zip.stop")
+}
+
+// isUnpackedDirectory returns true if name (case-insensitive) is "unpacked".
+func isUnpackedDirectory(name string) bool {
+	return strings.EqualFold(name, "unpacked")
+}
+
+// isHiddenOrInternal returns true for names that should be skipped inside an
+// unpacked directory: hidden (dot-prefixed) names and .beamworlds-* names.
+func isHiddenOrInternal(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(strings.ToLower(name), ".beamworlds-")
 }
 
 func pathWithin(candidate, root string) bool {

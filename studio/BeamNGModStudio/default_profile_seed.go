@@ -334,7 +334,9 @@ func enabledModNotices(filenames map[string]string, matched map[string]struct{},
 		case err != nil:
 			notices = append(notices, fmt.Sprintf("Cannot access BeamNG mod %q at %q: %v", name, resolved, err))
 		case info.IsDir():
-			notices = append(notices, fmt.Sprintf("BeamNG mod folder %q is unpacked. Studio supports ZIP mods, not unpacked folders. Location: %s", name, resolved))
+			// Folder mods under mods/unpacked/ are now supported; only
+			// report a notice if the folder is not indexed in the library.
+			notices = append(notices, fmt.Sprintf("Enabled in BeamNG but not found in your library: %s", name))
 		default:
 			notices = append(notices, fmt.Sprintf("Studio could not index BeamNG mod %q. File: %s", name, resolved))
 		}

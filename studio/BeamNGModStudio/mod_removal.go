@@ -13,6 +13,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
 
 type ModRemovalTarget struct {
@@ -81,6 +83,23 @@ func (service *AppService) deleteModArchivesLocked(ctx context.Context, entityID
 		failed := false
 		for _, archive := range source.Archives {
 			if archive.Missing { continue }
+			info, statErr := os.Lstat(archive.Path)
+			if statErr != nil {
+				if errors.Is(statErr, os.ErrNotExist) { continue }
+				result.Failures=append(result.Failures,fmt.Sprintf("%s: %v",mod.DisplayName,statErr)); failed=true; continue
+			}
+			if info.IsDir() {
+				// Folder mod: verify fingerprint before recycling.
+				if err := verifyFolderModUnchanged(ctx, archive.Path, archive.ArtifactID, service.store); err != nil {
+					result.Failures=append(result.Failures,fmt.Sprintf("%s: %s",mod.DisplayName,err.Error())); failed=true; continue
+				}
+				if err := service.requireGameStopped(); err != nil { result.Failures=append(result.Failures,err.Error()); failed=true; break }
+				if err := recycleWorkspaceRoot(archive.Path); err != nil {
+					result.Failures=append(result.Failures,fmt.Sprintf("%s (%s): %v",mod.DisplayName,archive.Path,err)); failed=true; continue
+				}
+				result.Recycled++
+				continue
+			}
 			checked := archive
 			if err := checked.readFileIdentity(); err != nil {
 				result.Failures=append(result.Failures,fmt.Sprintf("%s: %v",mod.DisplayName,err)); failed=true; continue
@@ -157,10 +176,14 @@ func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRe
 			info, statErr := os.Stat(path)
 			if errors.Is(statErr,os.ErrNotExist) { continue }
 			if statErr != nil { return ModRemovalImpact{},fmt.Errorf("inspect %s: %w",path,statErr) }
-			if !info.Mode().IsRegular() { return ModRemovalImpact{},fmt.Errorf("%s is not a regular archive",path) }
+			if !info.Mode().IsRegular() && !info.IsDir() { return ModRemovalImpact{},fmt.Errorf("%s is not a regular archive",path) }
 			if target.Missing { target.ArchivePath=path;target.SizeBytes=info.Size();target.Missing=false }
 			impact.ArchiveCount++
-			impact.ArchiveBytes+=info.Size()
+			if info.IsDir() {
+				impact.ArchiveBytes+=target.SizeBytes
+			} else {
+				impact.ArchiveBytes+=info.Size()
+			}
 		}
 		impact.Mods = append(impact.Mods, target)
 
@@ -268,4 +291,25 @@ func (s *Store) scanStrings(ctx context.Context, query string, args ...any) ([]s
 		}
 	}
 	return values, rows.Err()
+}
+
+// verifyFolderModUnchanged checks that a folder mod's listing fingerprint
+// still matches the stored artifact's central_fingerprint.
+func verifyFolderModUnchanged(ctx context.Context, folderPath, artifactID string, store *Store) error {
+	if artifactID == "" {
+		return errors.New("no artifact recorded for this folder mod")
+	}
+	var storedFingerprint string
+	err := store.db.QueryRowContext(ctx, `SELECT central_fingerprint FROM artifacts WHERE id=?`, artifactID).Scan(&storedFingerprint)
+	if err != nil {
+		return fmt.Errorf("look up stored fingerprint: %w", err)
+	}
+	currentFingerprint, err := modkit.FolderListingFingerprint(ctx, folderPath)
+	if err != nil {
+		return fmt.Errorf("compute current fingerprint: %w", err)
+	}
+	if currentFingerprint != storedFingerprint {
+		return errors.New("this mod changed since the last scan; rescan, then try again")
+	}
+	return nil
 }

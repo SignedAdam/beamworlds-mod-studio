@@ -589,8 +589,9 @@ func (service *AppService) buildPendingNewModsReview(ctx context.Context) (NewMo
 // ---------------------------------------------------------------------------
 
 type candidateSignature struct {
-	size    int64
-	modTime time.Time
+	size     int64
+	modTime  time.Time
+	isFolder bool
 }
 
 type candidateState struct {
@@ -744,7 +745,13 @@ func (m *gameMonitor) pollFolders() {
 			base := d.Name()
 			if d.IsDir() {
 				lower := strings.ToLower(base)
-				if strings.HasPrefix(lower, ".beamworlds-") || lower == "unpacked" {
+				if strings.HasPrefix(lower, ".beamworlds-") {
+					return filepath.SkipDir
+				}
+				// "unpacked" directories: read direct children (one level) for
+				// folder mod candidates below, but never descend further.
+				if lower == "unpacked" {
+					m.pollUnpackedChildren(path, archiveLinks, ownedPaths, currentPaths)
 					return filepath.SkipDir
 				}
 				return nil
@@ -819,6 +826,12 @@ func (m *gameMonitor) pollFolders() {
 			continue
 		}
 		originalPath := state.path
+		if state.sig.isFolder {
+			// Folder mods are immediately valid, no zip check needed.
+			state.attempted = true
+			settledReal = append(settledReal, originalPath)
+			continue
+		}
 		if !isValidZip(originalPath) {
 			m.invalidSigs[key] = state.sig
 			continue
@@ -876,6 +889,56 @@ func (m *gameMonitor) pollFolders() {
 			m.service.cachedGameStatus = &newStatus
 			m.service.monitorMu.Unlock()
 			m.service.emit("game:status", newStatus)
+		}
+	}
+}
+
+// pollUnpackedChildren reads the direct children of an "unpacked" directory
+// and registers each child folder as a candidate. Cost: one directory read,
+// never walks into the mods.
+func (m *gameMonitor) pollUnpackedChildren(unpackedDir string, archiveLinks map[string]struct{}, ownedPaths map[string]bool, currentPaths map[string]bool) {
+	children, err := os.ReadDir(unpackedDir)
+	if err != nil {
+		return
+	}
+	for _, child := range children {
+		if !child.IsDir() || isHiddenOrInternal(child.Name()) {
+			continue
+		}
+		childPath := filepath.Join(unpackedDir, child.Name())
+		if isDirectoryJunction(childPath) {
+			continue
+		}
+		key := archivePathKey(childPath)
+		if _, linked := archiveLinks[key]; linked {
+			continue
+		}
+		if ownedPaths[key] {
+			continue
+		}
+		currentPaths[key] = true
+		// For folders, use a zero-size signature with the isFolder flag so
+		// settlement works the same as ZIPs (first seen, then stable).
+		sig := candidateSignature{isFolder: true}
+		state, exists := m.candidates[key]
+		if !exists {
+			m.candidates[key] = &candidateState{
+				path:      childPath,
+				sig:       sig,
+				firstSeen: m.tickCount,
+			}
+			continue
+		}
+		if state.sig != sig {
+			state.sig = sig
+			state.firstSeen = m.tickCount
+			state.stableSeen = 0
+			state.attempted = false
+			delete(m.invalidSigs, key)
+			continue
+		}
+		if state.stableSeen == 0 && m.tickCount > state.firstSeen+1 {
+			state.stableSeen = m.tickCount
 		}
 	}
 }

@@ -289,13 +289,19 @@ func (archive *replacementArchive) readFileIdentity() error {
 		archive.Missing = true
 		return nil
 	}
-	info, err := os.Stat(archive.Path)
+	info, err := os.Lstat(archive.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		archive.Missing = true
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("inspect archive %s: %w", archive.Path, err)
+	}
+	if info.IsDir() {
+		// Folder mod: use zero size and zero modified as placeholder; the
+		// listing fingerprint is checked separately during removal.
+		archive.Size, archive.Modified = 0, 0
+		return nil
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("archive %s is not a regular file; nothing was removed", archive.Path)
@@ -494,6 +500,25 @@ func (s *Store) retireReplacementSource(ctx context.Context, source replacementE
 	var failures []string
 	for _, archive := range current.Archives {
 		if archive.Missing {
+			continue
+		}
+		info, statErr := os.Lstat(archive.Path)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) { continue }
+			failures = append(failures, statErr.Error())
+			continue
+		}
+		if info.IsDir() {
+			// Folder mod: verify fingerprint, then recycle the directory.
+			if err := verifyFolderModUnchanged(ctx, archive.Path, archive.ArtifactID, s); err != nil {
+				failures = append(failures, err.Error())
+				continue
+			}
+			if err := recycleWorkspaceRoot(archive.Path); err != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", archive.Path, err))
+				continue
+			}
+			result.Recycled++
 			continue
 		}
 		checked := archive

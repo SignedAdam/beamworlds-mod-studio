@@ -14,8 +14,11 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "agent:event": main$0.AgentActivity;
             "ai:connection": main$0.AIConnectionEvent;
+            "game:status": main$0.GameStatus;
             "library:item": main$0.LibraryItem;
             "library:scan": main$0.ScanProgress;
+            "mod:library": main$0.LibraryUpdateEvent;
+            "mods:detected": main$0.NewModsReview;
             "play:progress": main$0.PlayProgress;
             "storage:progress": main$0.StorageProgress;
             "virus:scan": main$0.VirusScanProgress;

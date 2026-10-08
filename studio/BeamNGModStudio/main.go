@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,9 @@ func init() {
 	application.RegisterEvent[VirusScanProgress]("virus:scan")
 	application.RegisterEvent[AIConnectionEvent]("ai:connection")
 	application.RegisterEvent[StorageProgress]("storage:progress")
+	application.RegisterEvent[LibraryUpdateEvent]("mod:library")
+	application.RegisterEvent[GameStatus]("game:status")
+	application.RegisterEvent[NewModsReview]("mods:detected")
 }
 
 func main() {
@@ -52,11 +56,36 @@ func main() {
 		log.Printf("archive deployment recovery pending: %v", err)
 	} else {
 		if err := service.adoptExistingManagedEntries(context.Background()); err != nil {
-			log.Printf("legacy archive ownership review required: %v", err)
+			log.Printf("managed archive ownership adoption failed: %v", err)
 		}
 		service.reportCollectionMirrorRetirement(context.Background())
+		// One-time cutover of the old beamworlds-managed layout.
+		if err := service.cutoverLegacyManagedDir(context.Background()); err != nil {
+			service.playProfileWarning = appendPlayWarning(service.playProfileWarning, fmt.Sprintf("Play profile cutover: %v", err))
+			log.Printf("play profile cutover: %v", err)
+		}
+		// Sync play profile (junctions, migrate data).
+		if err := service.syncPlayProfile(context.Background()); err != nil {
+			service.playProfileWarning = appendPlayWarning(service.playProfileWarning, fmt.Sprintf("Play profile sync: %v", err))
+			log.Printf("play profile sync: %v", err)
+		}
+		// Harvest session downloads from the play profile (only while game is stopped).
+		if running, runErr := service.currentGameRunning(); runErr == nil && !running {
+			if playRoot, err := playUserPath(config); err == nil {
+				if _, harvestErr := service.reconcileProfileSessionDownloads(context.Background(), playRoot); harvestErr != nil {
+					log.Printf("play profile: harvest session downloads: %v", harvestErr)
+				}
+			}
+		}
 	}
 	service.modImportMu.Unlock()
+	// Edited mods whose library file an older Studio replaced join history.
+	service.resumeLibrarySyncs(context.Background())
+	// Start the game monitor (process detection, folder polling, exit harvest).
+	monitor := newGameMonitor(service)
+	service.monitorInstance = monitor
+	monitor.refreshArchiveLinks()
+	monitor.start()
 	embedded := application.AssetFileServerFS(assets)
 	app = application.New(application.Options{
 		Name:        "BeamWorlds Mod Studio",
@@ -92,6 +121,8 @@ func main() {
 	})
 
 	if err := app.Run(); err != nil {
+		monitor.stop()
 		log.Fatal(err)
 	}
+	monitor.stop()
 }

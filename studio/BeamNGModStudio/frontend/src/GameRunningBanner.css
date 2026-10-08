@@ -1,0 +1,77 @@
+/* BeamNG running: a soft retro teal-to-chartreuse gradient with M-style
+   tricolour stripes in Studio's own amber, orange and brick. The colour carries
+   the state, so nothing blinks. The banner is a brand strip, identical in both
+   themes. */
+.game-running {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 46px;
+  padding: 0 20px;
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(90deg, #0c3a3a 0%, #11604f 25%, #2f8f5c 50%, #7dbb5f 78%, #d6dd8a 100%);
+  animation: game-running-enter 220ms ease-out;
+}
+
+.game-running__title {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.game-running__detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  opacity: .85;
+}
+
+.game-running__arriving {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 16%);
+  font-size: var(--font-caption);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.game-running__stripes {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  margin-left: auto;
+}
+
+.game-running__stripes i {
+  width: 14px;
+  transform: skewX(-22deg);
+}
+
+.game-running__stripes i:nth-child(1) { background: #ffb12c; }
+.game-running__stripes i:nth-child(2) { background: #f26522; }
+.game-running__stripes i:nth-child(3) { background: #c62f1a; }
+
+.game-running__clock {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 5px;
+  background: rgb(12 58 58 / 82%);
+  color: #f3f6e4;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .06em;
+}
+
+@keyframes game-running-enter {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-running { animation: none; }
+}

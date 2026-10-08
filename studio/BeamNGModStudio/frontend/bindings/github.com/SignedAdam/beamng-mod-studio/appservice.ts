@@ -196,9 +196,8 @@ export function DeletePlayProfile(profileID: string): $CancellablePromise<$model
 }
 
 /**
- * DeleteWorkspace removes a ModMaker project: its database rows and its
- * files on disk. It never touches the library archive the project was
- * created from.
+ * DeleteWorkspace removes a ModMaker project: its database rows, its files on
+ * disk, and its saved versions. The library mod stays exactly as it is now.
  */
 export function DeleteWorkspace(workspaceID: string): $CancellablePromise<void> {
     return $Call.ByID(1487213990, workspaceID);
@@ -271,6 +270,10 @@ export function GetCollectionDeleteImpact(collectionIDs: string[] | null): $Canc
 
 export function GetEntity(entityID: string): $CancellablePromise<$models.EntityDetail> {
     return $Call.ByID(2226382837, entityID);
+}
+
+export function GetGameStatus(): $CancellablePromise<$models.GameStatus> {
+    return $Call.ByID(2622939126);
 }
 
 /**
@@ -357,6 +360,14 @@ export function ListLibrary(health: string, kind: string, query: string, collect
     return $Call.ByID(621180473, health, kind, query, collectionID, scope);
 }
 
+/**
+ * ListModVersions returns the mod's restorable states, newest first, ending
+ * with its original. It is empty for mods that were never edited in ModMaker.
+ */
+export function ListModVersions(entityID: string): $CancellablePromise<$models.ModVersion[] | null> {
+    return $Call.ByID(3089566415, entityID);
+}
+
 export function ListVirusScans(entityID: string): $CancellablePromise<$models.VirusScanRun[] | null> {
     return $Call.ByID(652516587, entityID);
 }
@@ -367,6 +378,10 @@ export function ListWorkspaceGitBranches(workspaceID: string): $CancellablePromi
 
 export function ListWorkspaces(): $CancellablePromise<$models.WorkspaceRecord[] | null> {
     return $Call.ByID(350918204);
+}
+
+export function MarkModsSeen(entityIDs: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3210275917, entityIDs);
 }
 
 /**
@@ -395,6 +410,10 @@ export function Organization(): $CancellablePromise<$models.OrganizationState> {
     return $Call.ByID(3433886317);
 }
 
+export function PendingNewMods(): $CancellablePromise<$models.NewModsReview> {
+    return $Call.ByID(3138394764);
+}
+
 export function PickDirectory(title: string, initialDirectory: string): $CancellablePromise<string> {
     return $Call.ByID(4292351642, title, initialDirectory);
 }
@@ -417,10 +436,11 @@ export function PlanModReplacement(keeperID: string, entityIDs: string[] | null)
 
 /**
  * PlanPlayDeployment builds a reviewed deployment plan for a Play selection.
- * Does not mutate the filesystem or database. The plan includes a fingerprint
- * that must be presented to apply it. OwnerID is the stable logical owner
- * "active-play", not a per-invocation UUID; operationID is generated only at
- * apply time.
+ * Besides adopting managed archives verified identical to catalog archives,
+ * it does not mutate the filesystem or database. The plan includes a
+ * fingerprint that must be presented to apply it. OwnerID is the stable
+ * logical owner "active-play", not a per-invocation UUID; operationID is
+ * generated only at apply time.
  */
 export function PlanPlayDeployment(request: $models.PlayRequest): $CancellablePromise<$models.ArchiveDeploymentPlan> {
     return $Call.ByID(2943903888, request);
@@ -521,12 +541,24 @@ export function ResetEntityPreview(entityID: string): $CancellablePromise<$model
     return $Call.ByID(3865490126, entityID);
 }
 
+export function ResolveNewMods(reviewedIDs: string[] | null, addIDs: string[] | null, collectionIDs: string[] | null): $CancellablePromise<$models.NewModsResolution> {
+    return $Call.ByID(2164225041, reviewedIDs, addIDs, collectionIDs);
+}
+
 export function ResolvePlaySelection(collectionIDs: string[] | null, excludedCollectionIDs: string[] | null): $CancellablePromise<$models.PlaySelection> {
     return $Call.ByID(2225443946, collectionIDs, excludedCollectionIDs);
 }
 
 export function RestartApplication(): $CancellablePromise<void> {
     return $Call.ByID(2071406909);
+}
+
+/**
+ * RestoreModVersion returns the mod to a saved version or its original. The
+ * current state is saved first, so a restore can itself be undone.
+ */
+export function RestoreModVersion(entityID: string, versionID: string): $CancellablePromise<$models.WorkspaceDetail> {
+    return $Call.ByID(443759688, entityID, versionID);
 }
 
 export function RestoreMods(entityIDs: string[] | null): $CancellablePromise<$models.ArchiveResult> {
@@ -674,6 +706,13 @@ export function SwitchWorkspaceGitBranch(workspaceID: string, name: string, expe
 
 export function SyncWorkspaceGit(workspaceID: string, expectedFingerprint: string): $CancellablePromise<$models.GitOperationResult> {
     return $Call.ByID(908040546, workspaceID, expectedFingerprint);
+}
+
+/**
+ * SyncWorkspaceLibrary updates the library mod from the workspace now.
+ */
+export function SyncWorkspaceLibrary(workspaceID: string): $CancellablePromise<$models.WorkspaceDetail> {
+    return $Call.ByID(1265504261, workspaceID);
 }
 
 export function UninstallTest(workspaceID: string): $CancellablePromise<void> {

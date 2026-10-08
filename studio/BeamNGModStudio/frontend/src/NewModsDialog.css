@@ -1,0 +1,168 @@
+/* New-mods review dialog: mod list + collection picker side by side. */
+.new-mods-dialog {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 1px;
+  background: var(--line);
+  min-height: 0;
+}
+
+.new-mods-dialog__mods {
+  display: flex;
+  flex-direction: column;
+  max-height: 380px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-solid);
+}
+
+.new-mods-dialog__mod {
+  display: grid;
+  grid-template-columns: 18px 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.new-mods-dialog__mod:last-child { border-bottom: 0; }
+.new-mods-dialog__mod:hover { background: var(--surface-soft); }
+.new-mods-dialog__mod input { accent-color: var(--emphasis); }
+
+.new-mods-dialog__mod-thumb {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  overflow: hidden;
+  color: var(--emphasis);
+}
+
+.new-mods-dialog__mod-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.new-mods-dialog__mod-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-mods-dialog__mod-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.new-mods-dialog__mod-name strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: var(--font-control);
+}
+
+.new-mods-dialog__mod-meta {
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Collection picker */
+.new-mods-dialog__collections {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-solid);
+  padding: 0;
+}
+
+.new-mods-dialog__collections h3 {
+  padding: 8px 10px 6px;
+  font-size: var(--font-caption);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-2);
+}
+
+.new-mods-dialog__collection-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.new-mods-dialog__collection {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: var(--font-control);
+  color: var(--text-2);
+}
+
+.new-mods-dialog__collection:hover { background: var(--surface-soft); }
+.new-mods-dialog__collection.is-selected { color: var(--text); }
+.new-mods-dialog__collection input { accent-color: var(--emphasis); }
+.new-mods-dialog__collection small { color: var(--text-3); }
+
+.new-mods-dialog__create-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 10px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--font-caption);
+}
+
+.new-mods-dialog__create-btn:hover { color: var(--emphasis); }
+
+.new-mods-dialog__create-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.new-mods-dialog__create-form input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+}
+
+.new-mods-dialog__create-form .button {
+  height: 28px;
+  padding: 0 8px;
+  font-size: var(--font-caption);
+}
+
+/* Footer actions */
+.new-mods-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Responsive: stack on narrow viewports */
+@media (max-width: 640px) {
+  .new-mods-dialog {
+    grid-template-columns: 1fr;
+  }
+  .new-mods-dialog__mods {
+    max-height: 240px;
+  }
+}

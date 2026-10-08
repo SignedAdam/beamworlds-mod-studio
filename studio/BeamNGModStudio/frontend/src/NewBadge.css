@@ -1,0 +1,56 @@
+/* "New" pill: warm gradient, one-shot shine, readable in both themes.
+   The doubled class outranks contextual rules such as `.mod-table__name span`,
+   which would otherwise grey the text and shrink it. */
+.new-badge.new-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f26522, #ff923f);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(242, 101, 34, .25);
+}
+
+/* One-shot shine sweep */
+.new-badge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, .45) 46%,
+    rgba(255, 255, 255, .45) 54%,
+    transparent 70%
+  );
+  transform: translateX(-110%);
+  animation: new-badge-shine .7s .25s ease-out forwards;
+}
+
+.new-badge.is-settled::after {
+  display: none;
+}
+
+@keyframes new-badge-shine {
+  to { transform: translateX(110%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-badge::after { animation: none; display: none; }
+}
+
+/* Light theme: slightly deeper gradient for contrast on warm backgrounds */
+html[data-theme="light"] .new-badge {
+  background: linear-gradient(135deg, #d94f10, #f26522);
+  box-shadow: 0 0 0 1px rgba(217, 79, 16, .3);
+}

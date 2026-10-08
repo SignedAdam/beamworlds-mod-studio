@@ -391,14 +391,14 @@ export function LibraryView(props: LibraryViewProps) {
         label: "Scan for threats",
         icon: "shield",
         disabled: !scanTarget.linked,
-        detail: "The archive is no longer on disk",
+        detail: "The source is no longer on disk",
         onClick: () => props.onVirusScan(scanTarget),
       });
       actions.push({
         label: fileManagerLabel,
         icon: "folder",
         disabled: !scanTarget.linked,
-        detail: "The archive is no longer on disk",
+        detail: "The source is no longer on disk",
         onClick: () => {
           setContextMenu(null);
           setSelectionMenu(null);

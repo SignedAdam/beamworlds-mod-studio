@@ -973,7 +973,7 @@ export function CollectionsView({
     const index = directEntityIDs.indexOf(mod.entityId);
     return [
       { label: "Inspect mod", icon: kindIcon(String(mod.kind)), onClick: () => { setContextMenu(null); onInspectMod(mod.entityId); } },
-      { label: fileManagerLabel, icon: "folder", disabled: !mod.linked, detail: mod.linked ? undefined : "The archive is no longer on disk", onClick: () => { setContextMenu(null); API.RevealLibraryArchive(mod.entityId).catch(onError); } },
+      { label: fileManagerLabel, icon: "folder", disabled: !mod.linked, detail: mod.linked ? undefined : "The source is no longer on disk", onClick: () => { setContextMenu(null); API.RevealLibraryArchive(mod.entityId).catch(onError); } },
       { label: "Enable", icon: "check", disabled: Boolean(busy) || enabled, onClick: () => { setContextMenu(null); void setModsEnabled(ids, true); } },
       { label: "Disable", icon: "close", disabled: Boolean(busy) || disabled, onClick: () => { setContextMenu(null); void setModsEnabled(ids, false); } },
       { label: "Remove from this collection", icon: "unlink", disabled: Boolean(busy), onClick: () => { setContextMenu(null); void removeMods(ids); } },
@@ -1128,7 +1128,7 @@ export function CollectionsView({
               <label className={`collections-picker-row${modPicker.selected.has(item.entityId) ? " is-selected" : ""}`} key={item.entityId}>
                 <input type="checkbox" checked={modPicker.selected.has(item.entityId)} onChange={() => toggle(item.entityId)} />
                 <span className="collections-picker-thumb">{item.thumbnailUrl ? <img src={thumbUrl(item.thumbnailUrl)} alt="" width={40} height={26} decoding="async" loading="lazy" /> : <Icon name={kindIcon(String(item.kind))} size={18} />}</span>
-                <span className="collections-picker-row__text"><strong>{item.displayName || item.archivePath || "Unnamed mod"}</strong><small>{kindLabel(String(item.kind))} · {item.archivePath || "No archive path"} · {formatBytes(item.sizeBytes)}</small></span>
+                <span className="collections-picker-row__text"><strong>{item.displayName || item.archivePath || "Unnamed mod"}</strong><small>{kindLabel(String(item.kind))} · {item.archivePath || "No source path"} · {formatBytes(item.sizeBytes)}</small></span>
                 {!item.linked && <Badge tone="warning">Unavailable</Badge>}
               </label>
             ))}

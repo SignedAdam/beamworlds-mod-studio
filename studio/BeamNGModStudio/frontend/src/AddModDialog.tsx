@@ -228,10 +228,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
     [importResult],
   );
   const selectedEntries = useMemo(
-    () =>
-      entries.filter(
-        (entry) => !entry.isDirectory && selectedPaths.has(entry.path),
-      ),
+    () => entries.filter((entry) => selectedPaths.has(entry.path)),
     [entries, selectedPaths],
   );
   const selectedBytes = useMemo(
@@ -306,8 +303,8 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
             (failure) => failure.path,
           ),
         );
-        const nextFailed = next.entries.filter(
-          (entry) => !entry.isDirectory && retryPaths.has(entry.path),
+        const nextFailed = next.entries.filter((entry) =>
+          retryPaths.has(entry.path),
         );
         setSelectedPaths(new Set(nextFailed.map((entry) => entry.path)));
         setAnchorPath(nextFailed.length > 0 ? nextFailed[0].path : "");
@@ -409,22 +406,22 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
     });
   }, []);
 
-  const selectFile = useCallback(
+  const selectEntry = useCallback(
     (
       entry: ModImportEntry,
       modifiers: SelectionModifiers,
       toggle = false,
       focus = true,
     ) => {
-      if (loading || importing || entry.isDirectory) return;
+      if (loading || importing) return;
       const additive = modifiers.ctrlKey || modifiers.metaKey || toggle;
       const next = additive ? new Set(selectedPaths) : new Set<string>();
       if (modifiers.shiftKey) {
-        const targetIndex = visibleFiles.findIndex(
+        const targetIndex = visibleEntries.findIndex(
           (candidate) => candidate.path === entry.path,
         );
         if (targetIndex < 0) return;
-        let anchorIndex = visibleFiles.findIndex(
+        let anchorIndex = visibleEntries.findIndex(
           (candidate) => candidate.path === anchorPath,
         );
         if (anchorIndex < 0) {
@@ -436,7 +433,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
           index <= Math.max(anchorIndex, targetIndex);
           index += 1
         ) {
-          next.add(visibleFiles[index].path);
+          next.add(visibleEntries[index].path);
         }
       } else {
         if (additive && next.has(entry.path)) next.delete(entry.path);
@@ -446,16 +443,17 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
       setSelectedPaths(next);
       if (focus) focusEntry(entry.path);
     },
-    [anchorPath, focusEntry, importing, loading, selectedPaths, visibleFiles],
+    [anchorPath, focusEntry, importing, loading, selectedPaths, visibleEntries],
   );
 
-  const selectVisibleFiles = useCallback(() => {
+  const selectVisibleEntries = useCallback(() => {
     if (loading || importing) return;
     const next = new Set(selectedPaths);
-    for (const entry of visibleFiles) next.add(entry.path);
+    for (const entry of visibleEntries) next.add(entry.path);
     setSelectedPaths(next);
     setAnchorPath("");
-  }, [importing, loading, selectedPaths, visibleFiles]);
+  }, [importing, loading, selectedPaths, visibleEntries]);
+
 
   const handleEntryClick = useCallback(
     (entry: ModImportEntry, event: ReactMouseEvent<HTMLDivElement>) => {
@@ -469,9 +467,9 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         }
         return;
       }
-      selectFile(entry, event);
+      selectEntry(entry, event);
     },
-    [importing, loading, selectFile],
+    [importing, loading, selectEntry],
   );
 
   const moveFocus = useCallback(
@@ -482,37 +480,9 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
       focusEntry(target.path);
       if (event.altKey || (!event.shiftKey && (event.ctrlKey || event.metaKey)))
         return;
-
-      if (target.isDirectory) {
-        // Folders are navigable, never import targets. Do not select a ZIP
-        // farther down the list merely because focus moved between folders.
-        const next =
-          event.shiftKey && (event.ctrlKey || event.metaKey)
-            ? new Set(selectedPaths)
-            : new Set<string>();
-        if (event.shiftKey) {
-          const anchorIndex = visibleEntries.findIndex(
-            (entry) => entry.path === anchorPath,
-          );
-          if (anchorIndex >= 0) {
-            for (
-              let row = Math.min(anchorIndex, bounded);
-              row <= Math.max(anchorIndex, bounded);
-              row++
-            ) {
-              if (!visibleEntries[row].isDirectory)
-                next.add(visibleEntries[row].path);
-            }
-          }
-        } else {
-          setAnchorPath("");
-        }
-        setSelectedPaths(next);
-        return;
-      }
-      selectFile(target, event, false, false);
+      selectEntry(target, event, false, false);
     },
-    [anchorPath, focusEntry, selectFile, selectedPaths, visibleEntries],
+    [focusEntry, selectEntry, visibleEntries],
   );
 
   const handleEntryKeyDown = useCallback(
@@ -528,7 +498,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
       ) {
         event.preventDefault();
         event.stopPropagation();
-        selectVisibleFiles();
+        selectVisibleEntries();
         return;
       }
       if (
@@ -555,8 +525,8 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         if (event.repeat) return;
         if (event.key === "Enter" && entry.isDirectory) {
           if (!loading && !importing) void navigateTo(entry.path, "push");
-        } else if (!entry.isDirectory) {
-          selectFile(entry, event, !event.shiftKey, false);
+        } else {
+          selectEntry(entry, event, !event.shiftKey, false);
         }
       }
     },
@@ -565,8 +535,8 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
       loading,
       moveFocus,
       navigateTo,
-      selectFile,
-      selectVisibleFiles,
+      selectEntry,
+      selectVisibleEntries,
       visibleEntries.length,
     ],
   );
@@ -578,10 +548,10 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         event.key.toLocaleLowerCase() === "a"
       ) {
         event.preventDefault();
-        selectVisibleFiles();
+        selectVisibleEntries();
       }
     },
-    [selectVisibleFiles],
+    [selectVisibleEntries],
   );
 
   const handleDialogKeyDown = useCallback(
@@ -601,10 +571,10 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         event.key.toLocaleLowerCase() === "a"
       ) {
         event.preventDefault();
-        selectVisibleFiles();
+        selectVisibleEntries();
       }
     },
-    [selectVisibleFiles],
+    [selectVisibleEntries],
   );
 
   const handleControlKeyDown = useCallback(
@@ -694,11 +664,9 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
   };
 
   const renderEntry = (entry: ModImportEntry, index: number) => {
-    const selected = !entry.isDirectory && selectedPaths.has(entry.path);
-    const failed = !entry.isDirectory
-      ? failedByPath.get(entry.path)
-      : undefined;
-    const completed = !entry.isDirectory && completedPaths.has(entry.path);
+    const selected = selectedPaths.has(entry.path);
+    const failed = failedByPath.get(entry.path);
+    const completed = completedPaths.has(entry.path);
     return (
       <div
         key={entry.path}
@@ -709,7 +677,11 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         className={`add-mod-dialog__entry${selected ? " is-selected" : ""}${focusedPath === entry.path ? " is-focused" : ""}${failed ? " is-failed" : ""}${completed ? " is-completed" : ""}${entry.isDirectory ? " is-directory" : " is-file"}`}
         role="option"
         aria-selected={selected}
-        aria-label={`${entry.isDirectory ? "Folder" : "ZIP archive"} ${entry.name}`}
+        aria-label={
+          entry.isDirectory
+            ? `Folder ${entry.name}; select to add as an unpacked mod`
+            : `File ${entry.name}`
+        }
         tabIndex={focusedPath === entry.path ? 0 : -1}
         title={entry.path}
         onFocus={() => setFocusedPath(entry.path)}
@@ -726,19 +698,21 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
           onClick={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
         >
-          {!entry.isDirectory && (
-            <input
-              type="checkbox"
-              checked={selected}
-              readOnly
-              aria-label={`Select ${entry.name}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                selectFile(entry, event, true, false);
-              }}
-              onKeyDown={handleControlKeyDown}
-            />
-          )}
+          <input
+            type="checkbox"
+            checked={selected}
+            readOnly
+            aria-label={
+              entry.isDirectory
+                ? `Select ${entry.name} as an unpacked mod`
+                : `Select ${entry.name} as a mod`
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              selectEntry(entry, event, true, false);
+            }}
+            onKeyDown={handleControlKeyDown}
+          />
         </span>
         <Icon
           name={entry.isDirectory ? "folder" : "archive"}
@@ -749,7 +723,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
           <strong>{entry.name}</strong>
           {failed && (
             <small className="add-mod-dialog__entry-status is-error">
-              Failed · {failed.message || "Unable to import"}
+              Failed · {failed.message || "Unable to import this mod."}
             </small>
           )}
           {!failed && completed && (
@@ -944,12 +918,12 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
           <div className="add-mod-dialog__list-heading">
             <span>
               {normalizedFilter
-                ? `${visibleDirectories.length} folders · ${visibleFiles.length} ZIP files · ${visibleEntries.length} matching`
-                : `${allDirectoryCount} folders · ${allFileCount} ZIP files`}
+                ? `${visibleDirectories.length} folders · ${visibleFiles.length} files · ${visibleEntries.length} matching`
+                : `${allDirectoryCount} folders · ${allFileCount} files`}
             </span>
             <span className="add-mod-dialog__list-hint">
-              Double-click a folder to open · Ctrl/⌘-click to select more ·
-              Shift-click for a range
+              Double-click a folder to open · Select files or folders to add ·
+              Ctrl/⌘-click for more · Shift-click for a range
             </span>
           </div>
 
@@ -1031,7 +1005,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
             <div
               className="add-mod-dialog__list"
               role="listbox"
-              aria-label="Folders and ZIP archives"
+              aria-label="Folders and files"
               aria-multiselectable="true"
               tabIndex={0}
               onKeyDown={handleListKeyDown}
@@ -1070,7 +1044,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
                   detail={
                     normalizedFilter
                       ? "Try a different name or clear the filter."
-                      : "Only folders and ZIP archives are shown here."
+                      : "Only folders and files are shown here."
                   }
                 />
               ) : (
@@ -1145,7 +1119,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
                       <span>
                         <strong>{failure.path}</strong>
                         <small>
-                          {failure.message || "Unable to import this archive."}
+                          {failure.message || "Unable to import this mod."}
                         </small>
                       </span>
                     </li>
@@ -1180,7 +1154,7 @@ export function AddModDialog({ onClose, onImported }: AddModDialogProps) {
         </div>
         <p className="add-mod-dialog__preservation-note">
           <Icon name="copy" size={14} />
-          Original ZIP files stay in place.
+          Your original files stay where they are.
         </p>
       </div>
       <div className="add-mod-dialog__footer-actions">

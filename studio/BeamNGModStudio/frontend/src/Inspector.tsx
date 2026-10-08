@@ -263,7 +263,7 @@ export function Inspector({
       </div>
     </div>
     <div className="inspector__body">
-      {loading && !currentDetail ? <div className="center-loader"><Spinner/><span>Loading artifact detail</span></div> : <IndexCardTabs
+      {loading && !currentDetail ? <div className="center-loader"><Spinner/><span>Loading mod details</span></div> : <IndexCardTabs
         items={tabs}
         value={tab}
         onValueChange={value => setTab(value as InspectorTab)}
@@ -539,11 +539,12 @@ function Details({
       />)}
     </div>
     <dl className="inspector-details__facts">
-      <div><dt>Archive size</dt><dd>{formatBytes(item.sizeBytes)}</dd></div>
-      <div><dt>Entries</dt><dd>{(manifest.entryCount ?? item.memberCount).toLocaleString()}</dd></div>
+      <div><dt>Form</dt><dd>{item.sourceKind === 'folder' ? 'Unpacked folder' : 'ZIP file'}</dd></div>
+      <div><dt>Size</dt><dd>{formatBytes(item.sizeBytes)}</dd></div>
+      <div><dt>Files</dt><dd>{(manifest.entryCount ?? item.memberCount).toLocaleString()}</dd></div>
       <div><dt>Updated</dt><dd>{formatDate(manifest.analyzedAt)}</dd></div>
     </dl>
-    {!item.linked && <p className="source-note"><Icon name="unlink" size={16}/><span>The source archive is unavailable. Analysis details remain available from the latest recorded artifact.</span></p>}
+    {!item.linked && <p className="source-note"><Icon name="unlink" size={16}/><span>The source is unavailable. The latest analysis is still available.</span></p>}
   </fieldset>
 }
 
@@ -937,7 +938,7 @@ function securityScanStatus(item: LibraryItem, state: SecurityScanState): string
   else if (state === 'scan_failed') label = 'Scan failed'
   else label = 'Not scanned'
   return item.securityScanChanged && state !== 'scanning' && state !== 'unscanned'
-    ? `${label} · Archive changed`
+    ? `${label} · Source changed`
     : label
 }
 

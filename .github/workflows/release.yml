@@ -1,0 +1,286 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Manual draft-prerelease workflow for BeamWorlds Mod Studio.
+# Creates a Windows-only draft prerelease with:
+#   - Portable ZIP  (exe + GPL-3.0 LICENSE + third-party notices)
+#   - NSIS installer (same license/notices layout)
+#   - SHA256SUMS
+#
+# macOS and Linux are NOT included: the embedded AI runtime payload and
+# game-detection logic are Windows-only at the application level.
+#
+# The tag MUST exist before dispatching this workflow.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.1.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as prerelease"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Windows amd64
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: studio/BeamNGModStudio
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            studio/BeamNGModStudio/go.sum
+            modkit/go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: studio/BeamNGModStudio/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: "3.x"
+
+      # The AI runtime is a public MIT-licensed binary from
+      # github.com/can1357/oh-my-pi/releases (MIT license).
+      # The fetch tool downloads it using unauthenticated HTTPS.
+      - name: Fetch AI runtime payload
+        run: task ai-runtime:fetch
+
+      - name: Install frontend dependencies
+        working-directory: studio/BeamNGModStudio/frontend
+        run: npm ci
+
+      # --- Tests ---
+      - name: Test modkit
+        working-directory: modkit
+        run: go test ./...
+
+
+      # --- Build ---
+      - name: Build production binary
+        run: task windows:build
+        env:
+          GOOS: windows
+          GOARCH: amd64
+      - name: Test studio
+        run: go test ./...
+
+
+      - name: Verify binary exists
+        run: |
+          $bin = "bin\beamngmodstudio.exe"
+          if (!(Test-Path $bin)) {
+            Write-Error "Production binary not found at $bin"
+            exit 1
+          }
+          $size = (Get-Item $bin).Length
+          Write-Host "Binary size: $([math]::Round($size / 1MB, 1)) MB"
+        shell: pwsh
+
+      # --- Third-party notices ---
+      - name: Collect third-party notices
+        run: node build/collect-notices.mjs
+        shell: pwsh
+
+      # --- Portable ZIP + SHA256SUMS ---
+      - name: Assemble portable distribution
+        run: pwsh build/windows/package-release.ps1
+        shell: pwsh
+
+      # --- NSIS Installer ---
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+        shell: pwsh
+
+      - name: Add NSIS to PATH
+        run: |
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+          if (!(Test-Path (Join-Path $nsisDir "makensis.exe"))) {
+            Write-Error "makensis.exe not found at $nsisDir"
+            exit 1
+          }
+          "$nsisDir" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Build NSIS installer
+        run: task windows:package
+        env:
+          GOOS: windows
+          GOARCH: amd64
+
+      - name: Stage installer artifact
+        run: |
+          $src = "bin\BeamNGModStudio-amd64-installer.exe"
+          if (!(Test-Path $src)) {
+            Write-Error "Expected installer not found at $src"
+            exit 1
+          }
+          $dest = "dist\BeamWorldsModStudio-windows-amd64-installer.exe"
+          Copy-Item $src $dest
+          Write-Host "Installer: $dest ($([math]::Round((Get-Item $dest).Length / 1MB, 1)) MB)"
+        shell: pwsh
+
+      # Regenerate SHA256SUMS now that installer is in dist/
+      - name: Regenerate SHA256SUMS
+        run: |
+          Push-Location dist
+          $files = Get-ChildItem -File | Where-Object { $_.Name -ne "SHA256SUMS" }
+          $lines = foreach ($f in $files) {
+            $hash = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($f.Name)"
+          }
+          $lines | Out-File -Encoding utf8NoBOM -FilePath "SHA256SUMS"
+          Write-Host "SHA256SUMS:"
+          Get-Content "SHA256SUMS"
+          Pop-Location
+        shell: pwsh
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-zip
+          path: studio/BeamNGModStudio/dist/BeamWorldsModStudio-windows-amd64.zip
+          retention-days: 7
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: studio/BeamNGModStudio/dist/BeamWorldsModStudio-windows-amd64-installer.exe
+          retention-days: 7
+
+      - name: Upload SHA256SUMS
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: studio/BeamNGModStudio/dist/SHA256SUMS
+          retention-days: 7
+
+  create-release:
+    name: Create draft release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: Download portable ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-zip
+          path: artifacts
+
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: artifacts
+
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: checksums
+          path: artifacts
+
+      - name: Verify artifacts
+        run: |
+          echo "Release artifacts:"
+          ls -lah artifacts/
+          test -f artifacts/BeamWorldsModStudio-windows-amd64.zip
+          test -f artifacts/BeamWorldsModStudio-windows-amd64-installer.exe
+          test -f artifacts/SHA256SUMS
+
+      - name: Create draft prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "$RELEASE_PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          cat > /tmp/release-notes.md << 'NOTES_EOF'
+          ## BeamWorlds Mod Studio
+
+          Pre-release candidate -- Windows only.
+
+          ### Downloads
+
+          | File | Description |
+          |------|-------------|
+          | `BeamWorldsModStudio-windows-amd64.zip` | Portable distribution (recommended) |
+          | `BeamWorldsModStudio-windows-amd64-installer.exe` | Windows installer (NSIS) |
+          | `SHA256SUMS` | Checksums for all artifacts |
+
+          ### Portable usage
+
+          1. Download and extract `BeamWorldsModStudio-windows-amd64.zip`
+          2. Run `beamngmodstudio.exe`
+          3. Follow the setup wizard to locate your BeamNG.drive installation
+
+          ### Source code
+
+          Source corresponding to this release is the tagged commit in the repository.
+
+          ### License
+
+          BeamWorlds Mod Studio is licensed under GPL-3.0-only.
+          The bundled AI runtime (omp) is licensed under MIT -- see `third-party/ai-runtime/LICENSE-MIT`.
+          The omp source is available at https://github.com/can1357/oh-my-pi (MIT).
+          Full dependency notices are in `third-party/NOTICES.txt` inside the distribution.
+
+          ### Platform support
+
+          | Platform | Status |
+          |----------|--------|
+          | Windows 10+ (x64) | Candidate |
+          | macOS | Not available |
+          | Linux | Not available |
+          NOTES_EOF
+
+          sed -i 's/^          //' /tmp/release-notes.md
+
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
+            --draft \
+            $PRERELEASE_FLAG \
+            --title "BeamWorlds Mod Studio $RELEASE_TAG" \
+            --notes-file /tmp/release-notes.md \
+            artifacts/BeamWorldsModStudio-windows-amd64.zip \
+            artifacts/BeamWorldsModStudio-windows-amd64-installer.exe \
+            artifacts/SHA256SUMS

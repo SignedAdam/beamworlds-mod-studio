@@ -5,10 +5,20 @@ studio-data/
 # Hidden directories are local state: toolchains, worktrees, and the
 # BEAMWORLDS_HOME sandboxes used for isolated manual testing.
 /.*/
-!/.omp/
+!/.github/
 studio/BeamNGModStudio/.*/
 studio/BeamNGModStudio/_sandbox/
 studio/BeamNGModStudio/frontend/.bindings-tmp-*/
+
+# Internal planning and conversations stay outside public source snapshots.
+/docs/
+/specs/
+/plans/
+/todos/
+/TODO.md
+/TODO.txt
+/PLAN.md
+/AGENTS.md
 
 # Dependencies and generated frontend output
 node_modules/

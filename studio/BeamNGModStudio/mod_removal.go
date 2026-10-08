@@ -26,11 +26,12 @@ type ModRemovalTarget struct {
 // ModRemovalImpact is what the confirmation needs to state plainly before the
 // user agrees to anything.
 type ModRemovalImpact struct {
-	Mods         []ModRemovalTarget `json:"mods"`
-	Collections  []string           `json:"collections"`
-	Workspaces   []string           `json:"workspaces"`
-	ArchiveCount int                `json:"archiveCount"`
-	ArchiveBytes int64              `json:"archiveBytes"`
+	Mods           []ModRemovalTarget `json:"mods"`
+	Collections    []string           `json:"collections"`
+	Workspaces     []string           `json:"workspaces"`
+	ArchiveCount   int                `json:"archiveCount"`
+	ArchiveBytes   int64              `json:"archiveBytes"`
+	StoredVersions int                `json:"storedVersions"`
 }
 
 type ModRemovalResult struct {
@@ -175,6 +176,9 @@ func (s *Store) ModRemovalImpact(ctx context.Context, entityIDs []string) (ModRe
 			return ModRemovalImpact{}, err
 		}
 		impact.Workspaces = append(impact.Workspaces, projects...)
+		var storedVersions int
+		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM mod_history WHERE entity_id=?`, entityID).Scan(&storedVersions)
+		impact.StoredVersions += storedVersions
 	}
 	for name := range collections {
 		impact.Collections = append(impact.Collections, name)

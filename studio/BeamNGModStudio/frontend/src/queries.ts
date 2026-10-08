@@ -49,6 +49,7 @@ export const catalogFilter: LibraryFilter = { query: "", collectionID: "all", sc
 export const queryKeys = {
   library: ["library"] as const,
   libraryLists: ["library", "list"] as const,
+  entity: (entityId: string) => ["library", "entity", entityId] as const,
   organization: ["organization"] as const,
   families: ["families"] as const,
   dashboard: ["dashboard"] as const,

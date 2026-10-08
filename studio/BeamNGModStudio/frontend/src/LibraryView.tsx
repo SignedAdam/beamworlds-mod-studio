@@ -999,6 +999,19 @@ export function LibraryView(props: LibraryViewProps) {
               </span>
             </p>
           )}
+          {(() => {
+            const storedVersions = removal.impact.storedVersions ?? 0;
+            if (storedVersions <= 0) return null;
+            return (
+              <p className="library-removal__warning">
+                <Icon name="warning" size={14} />
+                <span>
+                  Also deletes {storedVersions.toLocaleString()} saved{" "}
+                  {storedVersions === 1 ? "version" : "versions"} of this mod.
+                </span>
+              </p>
+            );
+          })()}
           {removal.impact.archiveCount > 0 && (
             <p className="library-removal__copy">
               {formatBytes(removal.impact.archiveBytes)} across{" "}

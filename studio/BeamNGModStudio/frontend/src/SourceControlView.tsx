@@ -21,7 +21,7 @@ import { GitHubPublishEntry } from "./GitHubPublishDialog";
 import "./SourceControlView.css";
 
 export type SourceControlWorkingTreeChange = {
-  reason: "discard" | "branch" | "pull" | "sync" | "status";
+  reason: "discard" | "branch" | "pull" | "sync" | "status" | "restore";
   paths?: readonly string[];
 };
 

@@ -139,10 +139,9 @@ export function WorkspaceUtilityPanel({
             {exports.length > 0 && (
               <div className="export-history">
                 {exports.map((item) => (
-                  <div key={item.id}>
+                  <div key={item.id} className="export-history__row">
                     <code>{item.path}</code>
                     <span>{formatDate(item.createdAt)}</span>
-                    <code>{item.sha256}</code>
                   </div>
                 ))}
               </div>

@@ -63,6 +63,12 @@ type LibraryItem struct {
 	SecurityScanChanged     bool            `json:"securityScanChanged"`
 	Manifest                modkit.Manifest `json:"manifest"`
 	Tags                    []ModTag        `json:"tags"`
+	// Edited is true when the library archive holds ModMaker changes;
+	// HistoryCount counts the saved versions that can be restored.
+	Edited                  bool            `json:"edited"`
+	HistoryCount            int             `json:"historyCount"`
+	AddedAt                 string          `json:"addedAt"`
+	New                     bool            `json:"new"`
 }
 
 type EventRecord struct {
@@ -116,13 +122,14 @@ type WorkspaceRecord struct {
 }
 
 type ExportRecord struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspaceId"`
-	ArtifactID  string `json:"artifactId"`
-	Path        string `json:"path"`
-	SHA256      string `json:"sha256"`
-	Kind        string `json:"kind"`
-	CreatedAt   string `json:"createdAt"`
+	ID          string             `json:"id"`
+	WorkspaceID string             `json:"workspaceId"`
+	ArtifactID  string             `json:"artifactId"`
+	Path        string             `json:"path"`
+	SHA256      string             `json:"sha256"`
+	Kind        string             `json:"kind"`
+	CreatedAt   string             `json:"createdAt"`
+	Test        *ExportTestSummary `json:"test,omitempty"`
 }
 
 type Dashboard struct {
@@ -1612,7 +1619,9 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		COALESCE(l.active,0), COALESCE(l.size_bytes,0), COALESCE(l.modified_at,''), COALESCE(l.last_seen_at,''),
 		COALESCE(a.central_fingerprint,''), COALESCE(a.sha256,''),
 		COALESCE(ast.sha256,''),
-		COALESCE(sm.revision,'')
+		COALESCE(sm.revision,''),
+		EXISTS(SELECT 1 FROM workspaces ew WHERE ew.entity_id=e.id AND ew.library_sha256<>'' AND ew.changed_files>0),
+		(SELECT COUNT(*) FROM mod_history mh WHERE mh.entity_id=e.id)
 	FROM entities e
 	LEFT JOIN archive_links l ON l.id = (
 		SELECT l2.id FROM archive_links l2
@@ -1647,7 +1656,8 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		if err := rows.Scan(&item.EntityID, &item.Revision, &item.ArchivedAt, &item.DisplayName, &kind, &item.SourceID, &item.Source,
 			&item.LinkID, &item.ArtifactID, &item.ArchivePath, &item.RootPath,
 			&item.Linked, &item.SizeBytes, &item.ModifiedAt, &item.LastSeenAt,
-			&item.Fingerprint, &item.SHA256, &assetSHA, &summaryRevision); err != nil {
+			&item.Fingerprint, &item.SHA256, &assetSHA, &summaryRevision,
+			&item.Edited, &item.HistoryCount); err != nil {
 			return nil, err
 		}
 		item.Kind = modkit.Kind(kind)
@@ -1686,6 +1696,9 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		return nil, err
 	}
 	if err := attachLibraryItemHealthQuery(ctx, queryer, items); err != nil {
+		return nil, err
+	}
+	if err := attachLibraryItemArrivalQuery(ctx, queryer, items); err != nil {
 		return nil, err
 	}
 	return items, nil

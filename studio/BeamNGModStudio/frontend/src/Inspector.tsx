@@ -24,9 +24,11 @@ import InlineEditableField from './InlineEditableField'
 import { MetaPanel, HistoryPanel, StructuralIssuesPanel } from './InspectorPanels'
 import { PreviewPicker } from './PreviewPicker'
 import { TagEditor } from './TagEditor'
+import { VersionsPanel } from './VersionsPanel'
 import { Button, Spinner, formatBytes, formatDate, kindIcon, kindLabel } from './ui'
+import { NewBadge } from './NewBadge'
 
-type InspectorTab = 'overview' | 'variants' | 'issues' | 'meta' | 'history'
+type InspectorTab = 'overview' | 'variants' | 'issues' | 'meta' | 'history' | 'versions'
 type DirtyReporter = (field: string, dirty: boolean) => void
 
 interface InspectorProps {
@@ -54,6 +56,8 @@ interface InspectorProps {
   onSaveVariant: (update: LibraryVariantUpdate) => Promise<void>
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   onError: (error: unknown) => void
+  onNotify: (message: string, tone: 'success' | 'error' | 'info') => void
+  onItemChanged?: (item: LibraryItem) => void
   onDirtyChange?: (dirty: boolean) => void
 }
 
@@ -82,6 +86,8 @@ export function Inspector({
   onSaveVariant,
   onPreviewMember,
   onError,
+  onNotify,
+  onItemChanged,
   onDirtyChange,
 }: InspectorProps) {
   const [tab, setTab] = useState<InspectorTab>('overview')
@@ -114,8 +120,10 @@ export function Inspector({
   const variants = manifest?.variants ?? []
   const issueCount = (manifest?.issues ?? []).length
   const historyCount = historyTotal(currentDetail)
+  const versionCount = item.historyCount ?? 0
   const validTabs: InspectorTab[] = ['overview', 'issues', 'meta', 'history']
   if (String(item.kind) === 'vehicle' && variants.length > 0) validTabs.splice(1, 0, 'variants')
+  if (versionCount > 0) validTabs.splice(validTabs.indexOf('issues'), 0, 'versions')
 
   useEffect(() => {
     if (!loading && !validTabs.includes(tab)) setTab('overview')
@@ -133,6 +141,7 @@ export function Inspector({
           tags={tags}
           stale={stale}
           writeBlocked={writeBlocked}
+          versionCount={versionCount}
           onSetTags={onSetTags}
           onCreateTag={onCreateTag}
           onUpdateTagVisual={onUpdateTagVisual}
@@ -142,6 +151,8 @@ export function Inspector({
           onPreviewMember={onPreviewMember}
           reportDirty={reportDirty}
           onError={onError}
+          onNotify={onNotify}
+          onSwitchTab={setTab}
         />,
       },
     ]
@@ -160,6 +171,22 @@ export function Inspector({
           onPreviewMember={onPreviewMember}
           onSaveVariant={onSaveVariant}
           reportDirty={reportDirty}
+        />,
+      })
+    }
+    if (versionCount > 0) {
+      items.push({
+        id: 'versions',
+        label: 'Versions',
+        count: versionCount,
+        panel: <VersionsPanel
+          key={`${item.entityId}-versions`}
+          entityId={item.entityId}
+          entityName={item.displayName}
+          refreshKey={`${item.revision}:${versionCount}`}
+          onError={onError}
+          onNotify={onNotify}
+          onRestored={detail => onItemChanged?.(detail.entity)}
         />,
       })
     }
@@ -182,7 +209,7 @@ export function Inspector({
       },
     )
     return items
-  }, [currentDetail?.history, displayItem, handlePreviewChanged, historyCount, issueCount, item, loading, manifest, onCreateTag, onDeleteTag, onError, onPreviewMember, onSaveDetails, onSaveVariant, onSetTags, onUpdateTagVisual, reportDirty, selectedVariant, stale, tags, variants, writeBlocked])
+  }, [currentDetail?.history, displayItem, handlePreviewChanged, historyCount, issueCount, item, loading, manifest, onCreateTag, onDeleteTag, onError, onItemChanged, onNotify, onPreviewMember, onSaveDetails, onSaveVariant, onSetTags, onUpdateTagVisual, reportDirty, selectedVariant, stale, tags, variants, versionCount, writeBlocked])
 
   const scanState = securityScanState(item)
   const scanLabel = securityScanStatus(item, scanState)
@@ -204,7 +231,7 @@ export function Inspector({
       <div className="inspector__identity">
         <span className="inspector__identity-mark" aria-hidden="true"><Icon name={kindIcon(String(item.kind))} size={18}/></span>
         <div>
-          <h2 title={item.displayName}>{item.displayName}</h2>
+          <h2 title={item.displayName}>{item.displayName}{item.new && <> <NewBadge /></>}</h2>
           <span>{kindLabel(String(item.kind))}{!item.linked && ' · Source unavailable'}</span>
         </div>
       </div>
@@ -380,6 +407,7 @@ function Overview({
   tags,
   stale,
   writeBlocked,
+  versionCount,
   onSetTags,
   onCreateTag,
   onUpdateTagVisual,
@@ -389,12 +417,15 @@ function Overview({
   onPreviewMember,
   reportDirty,
   onError,
+  onNotify,
+  onSwitchTab,
 }: {
   item: LibraryItem
   manifest: LibraryItem['manifest']
   tags: ModTag[]
   stale: boolean
   writeBlocked: boolean
+  versionCount: number
   onSetTags: (tagIDs: string[]) => Promise<ModTag[]>
   onCreateTag: (name: string, color: string, icon: string) => Promise<ModTag | null>
   onUpdateTagVisual: (tagID: string, color: string, icon: string) => Promise<void>
@@ -404,6 +435,8 @@ function Overview({
   onPreviewMember: (memberPath: string) => Promise<ArchiveMemberPreview | null>
   reportDirty: DirtyReporter
   onError: (error: unknown) => void
+  onNotify: (message: string, tone: 'success' | 'error' | 'info') => void
+  onSwitchTab: (tab: InspectorTab) => void
 }) {
   return <div className="inspector-section-stack">
     <PreviewPicker
@@ -414,6 +447,7 @@ function Overview({
       onError={onError}
     />
     <Details item={item} manifest={manifest} stale={stale} writeBlocked={writeBlocked} onSave={onSaveDetails} reportDirty={reportDirty}/>
+    {item.edited && versionCount > 0 && <OverviewVersionSummary item={item} onSwitchTab={onSwitchTab} />}
     <fieldset className="inspector-fieldset inspector-tags">
       <legend>Tags</legend>
       <TagEditor
@@ -913,4 +947,28 @@ function scanStatusIcon(status: SecurityScanState): 'shield' | 'check' | 'warnin
   if (status === 'review') return 'warning'
   if (status === 'threat' || status === 'scan_failed') return 'error'
   return 'shield'
+}
+
+function OverviewVersionSummary({
+  item,
+  onSwitchTab,
+}: {
+  item: LibraryItem
+  onSwitchTab: (tab: InspectorTab) => void
+}) {
+  return <dl className="inspector-details__facts">
+    <div>
+      <dt>Changes</dt>
+      <dd>
+        <button
+          type="button"
+          className="versions-overview-link"
+          onClick={() => onSwitchTab('versions')}
+          title="Open Versions"
+        >
+          Edited in ModMaker · {item.historyCount} saved {item.historyCount === 1 ? 'version' : 'versions'}
+        </button>
+      </dd>
+    </div>
+  </dl>
 }

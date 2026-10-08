@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -116,6 +117,13 @@ func (service *AppService) UpdateLibraryItemDetails(entityID string, update Libr
 	putMetadataUpdate(updates, metadata, []string{"tag_line", "description", "Description"}, "description", optionalStringUpdate(update.Description))
 	putMetadataUpdate(updates, metadata, []string{"username", "author", "Author", "authors"}, "author", optionalStringUpdate(update.Author))
 	putMetadataUpdate(updates, metadata, []string{"version_string", "version", "Version"}, "version", optionalStringUpdate(update.Version))
+	fields := []string{"description", "author", "version"}
+	if inWorkspace, err := service.applyMetadataInWorkspace(ctx, item, metadataPath, updates); inWorkspace || err != nil {
+		if err != nil {
+			return EntityDetail{}, err
+		}
+		return service.recordWorkspaceMetadataEdit(ctx, item.EntityID, "metadata_updated", map[string]any{"memberPath": metadataPath, "path": metadataPath, "fields": fields})
+	}
 	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true, func() error {
 		if err := service.retireArchiveReferences(ctx, []string{item.EntityID}); err != nil { return err }
 		return service.requireGameStopped()
@@ -127,7 +135,7 @@ func (service *AppService) UpdateLibraryItemDetails(entityID string, update Libr
 		"archivePath": item.ArchivePath,
 		"memberPath":  metadataPath,
 		"path":        metadataPath,
-		"fields":      []string{"description", "author", "version"},
+		"fields":      fields,
 	})
 }
 
@@ -164,6 +172,18 @@ func (service *AppService) UpdateLibraryVariant(entityID string, update LibraryV
 	if err != nil {
 		return EntityDetail{}, err
 	}
+	variantFields := []string{
+		"configuration", "description", "configType", "bodyStyle", "drivetrain", "transmission", "fuelType", "propulsion",
+		"power", "torque", "weight", "value", "topSpeed",
+	}
+	if inWorkspace, err := service.applyMetadataInWorkspace(ctx, item, metadataPath, updates); inWorkspace || err != nil {
+		if err != nil {
+			return EntityDetail{}, err
+		}
+		return service.recordWorkspaceMetadataEdit(ctx, item.EntityID, "variant_updated", map[string]any{
+			"memberPath": metadataPath, "path": metadataPath, "configPath": variant.ConfigPath, "fields": variantFields,
+		})
+	}
 	if err := modkit.RewriteArchiveJSONMember(item.ArchivePath, metadataPath, updates, true, func() error {
 		if err := service.retireArchiveReferences(ctx, []string{item.EntityID}); err != nil { return err }
 		return service.requireGameStopped()
@@ -176,10 +196,7 @@ func (service *AppService) UpdateLibraryVariant(entityID string, update LibraryV
 		"memberPath":  metadataPath,
 		"path":        metadataPath,
 		"configPath":  variant.ConfigPath,
-		"fields": []string{
-			"configuration", "description", "configType", "bodyStyle", "drivetrain", "transmission", "fuelType", "propulsion",
-			"power", "torque", "weight", "value", "topSpeed",
-		},
+		"fields":      variantFields,
 	})
 }
 
@@ -384,6 +401,64 @@ func (service *AppService) reindexEditedArchive(ctx context.Context, previous Li
 		service.emit("library:item", updated)
 	}
 	return service.store.GetEntityDetail(ctx, previous.EntityID)
+}
+
+// applyMetadataInWorkspace writes a metadata edit into the ModMaker workspace
+// of a mod being edited there and updates the library mod from it, so the
+// workspace and library never diverge. It reports false for any other mod,
+// whose archive the caller rewrites directly. Caller holds modImportMu.
+func (service *AppService) applyMetadataInWorkspace(ctx context.Context, item LibraryItem, memberPath string, updates map[string]any) (bool, error) {
+	if !service.libraryArchiveEditable(item.ArchivePath) {
+		return false, nil
+	}
+	workspace, err := service.store.GetLatestWorkspaceByEntity(ctx, item.EntityID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	relative, err := modkit.NormalizeArchivePath(memberPath)
+	if err != nil {
+		return true, err
+	}
+	destination := filepath.Join(workspace.FilesRoot, filepath.FromSlash(relative))
+	if !pathWithin(destination, workspace.FilesRoot) || samePath(destination, workspace.FilesRoot) {
+		return true, fmt.Errorf("unsafe metadata path %q", memberPath)
+	}
+	lock := service.agents.workspaceToolMutex(workspace.ID)
+	lock.Lock()
+	document, err := os.ReadFile(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		document, err = nil, nil
+	}
+	if err == nil {
+		document, err = modkit.ApplyJSONUpdates(document, updates)
+	}
+	if err == nil {
+		err = writeFileAtomic(destination, document, 0o644)
+	}
+	lock.Unlock()
+	if err != nil {
+		return true, err
+	}
+	if err := service.store.TouchWorkspace(ctx, workspace.ID); err != nil {
+		return true, err
+	}
+	_, _ = service.takePendingLibrarySync(workspace.ID)
+	return true, service.syncWorkspaceLibraryHeld(ctx, workspace.ID, "you")
+}
+
+func (service *AppService) recordWorkspaceMetadataEdit(ctx context.Context, entityID, eventType string, eventData map[string]any) (EntityDetail, error) {
+	if err := service.store.AppendEvent(ctx, entityID, eventType, eventData); err != nil {
+		return EntityDetail{}, err
+	}
+	if service.emit != nil {
+		if item, err := service.store.GetLibraryItem(ctx, entityID); err == nil {
+			service.emit("library:item", item)
+		}
+	}
+	return service.store.GetEntityDetail(ctx, entityID)
 }
 
 func primaryMetadataTarget(manifest modkit.Manifest) (string, map[string]any) {

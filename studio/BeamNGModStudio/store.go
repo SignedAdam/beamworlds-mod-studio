@@ -612,6 +612,32 @@ func (s *Store) LookupArchiveAnalysis(ctx context.Context, root, archivePath str
 	return item, reusable == 1, nil
 }
 
+// LookupFolderAnalysis is the folder-mod equivalent of LookupArchiveAnalysis.
+// For folder mods the cache key is the listing fingerprint compared against the
+// stored artifact's central_fingerprint with the same analyzer version.
+func (s *Store) LookupFolderAnalysis(ctx context.Context, root, folderPath, fingerprint string) (LibraryItem, bool, error) {
+	var entityID string
+	var reusable int
+	err := s.db.QueryRowContext(ctx, `SELECT l.entity_id,
+			CASE WHEN a.central_fingerprint = ? AND a.analyzer_version = ? THEN 1 ELSE 0 END
+		FROM archive_links l
+		JOIN artifacts a ON a.id = l.artifact_id
+		WHERE l.path = ? COLLATE NOCASE
+		ORDER BY l.active DESC, l.last_seen_at DESC, l.id DESC
+		LIMIT 1`, fingerprint, modkit.AnalyzerVersion, folderPath).Scan(&entityID, &reusable)
+	if errors.Is(err, sql.ErrNoRows) {
+		return LibraryItem{}, false, nil
+	}
+	if err != nil {
+		return LibraryItem{}, false, err
+	}
+	item, err := s.GetLibraryItem(ctx, entityID)
+	if err != nil {
+		return LibraryItem{}, false, err
+	}
+	return item, reusable == 1, nil
+}
+
 func (s *Store) ReuseArchiveAnalysis(ctx context.Context, scanID, root, archivePath string, size int64, modified time.Time) (LibraryItem, bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

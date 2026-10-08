@@ -57,13 +57,17 @@ func (s *Store) archiveFileRemovalImpact(ctx context.Context, linkIDs []string) 
 		info, statErr := os.Stat(target.ArchivePath)
 		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) { return impact, statErr }
 		target.Missing = errors.Is(statErr, os.ErrNotExist)
-		if !target.Missing && !info.Mode().IsRegular() { return impact, fmt.Errorf("%s is not a regular archive", target.ArchivePath) }
+		if !target.Missing && !info.Mode().IsRegular() && !info.IsDir() { return impact, fmt.Errorf("%s is not a regular archive", target.ArchivePath) }
 		other, err := s.otherArchiveCopyAvailable(ctx, target)
 		if err != nil { return impact, err }
 		refused := record.activeCount <= 1 || (!target.Missing && !other)
 		if !target.Missing && !refused {
 			impact.ArchiveCount++
-			impact.ArchiveBytes += info.Size()
+			if info.IsDir() {
+				impact.ArchiveBytes += target.SizeBytes
+			} else {
+				impact.ArchiveBytes += info.Size()
+			}
 		}
 		impact.Files = append(impact.Files, target)
 		if refused { impact.Refusals = append(impact.Refusals, archiveFileLastLinkRefusal(target)) }
@@ -115,7 +119,7 @@ func archiveFileInfo(path string) (os.FileInfo, bool) {
 		return nil, false
 	}
 	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	if err != nil || (!info.Mode().IsRegular() && !info.IsDir()) {
 		return nil, false
 	}
 	return info, true
@@ -168,7 +172,7 @@ func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string, retire
 		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 			result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, statErr)); continue
 		}
-		if exists && !info.Mode().IsRegular() {
+		if exists && !info.Mode().IsRegular() && !info.IsDir() {
 			result.Failures = append(result.Failures, fmt.Sprintf("%s is not a regular archive", record.target.ArchivePath)); continue
 		}
 		other, err := s.otherArchiveCopyAvailable(ctx, record.target)
@@ -183,9 +187,16 @@ func (s *Store) deleteArchiveFiles(ctx context.Context, linkIDs []string, retire
 			}
 		}
 		if exists {
-			if err := recycleFile(record.target.ArchivePath); err != nil {
-				result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, err))
-				continue
+			if info.IsDir() {
+				if err := recycleWorkspaceRoot(record.target.ArchivePath); err != nil {
+					result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, err))
+					continue
+				}
+			} else {
+				if err := recycleFile(record.target.ArchivePath); err != nil {
+					result.Failures = append(result.Failures, archiveFileRemovalFailure(record.target, err))
+					continue
+				}
 			}
 		}
 		if err := s.deleteArchiveFileLinkTx(ctx, record.target); err != nil {

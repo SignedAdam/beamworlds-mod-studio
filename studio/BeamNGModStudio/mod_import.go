@@ -469,11 +469,31 @@ func (service *AppService) modImportDestination() (string, error) {
 }
 
 func (service *AppService) importOneMod(ctx context.Context, destination, input string) (LibraryItem, bool, error) {
-	source, err := canonicalModImportFile(input)
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return LibraryItem{}, false, errors.New("path is required")
+	}
+	path := absoluteModImportPath(trimmed)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return LibraryItem{}, false, fmt.Errorf("access %q: %w", trimmed, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return LibraryItem{}, false, errors.New("symlinks and junctions are not supported")
+	}
+	if info.IsDir() {
+		return service.importOneFolder(ctx, destination, path)
+	}
+	return service.importOneZIP(ctx, destination, path, trimmed)
+}
+
+func (service *AppService) importOneZIP(ctx context.Context, destination, source, input string) (LibraryItem, bool, error) {
+	validated, err := canonicalModImportFile(input)
 	if err != nil {
 		return LibraryItem{}, false, err
 	}
-	baseName := filepath.Base(filepath.FromSlash(strings.TrimSpace(input)))
+	source = validated
+	baseName := filepath.Base(source)
 	if baseName == "." || baseName == string(os.PathSeparator) || baseName == "" {
 		return LibraryItem{}, false, errors.New("selected archive has no usable filename")
 	}
@@ -542,8 +562,6 @@ func (service *AppService) importOneMod(ctx context.Context, destination, input 
 			manifestForIndex := modImportManifestForPath(manifest, candidate, existingInfo, checksum)
 			item, err := service.indexImportedArchive(ctx, destination, candidate, manifestForIndex)
 			if err != nil {
-				// UpsertArchive commits before hydration. Never remove an
-				// existing path when indexing reports an error.
 				return LibraryItem{}, false, fmt.Errorf("index existing archive %q: %w", candidate, err)
 			}
 			return item, true, nil
@@ -566,13 +584,100 @@ func (service *AppService) importOneMod(ctx context.Context, destination, input 
 		manifestForIndex := modImportManifestForPath(manifest, candidate, publishedInfo, checksum)
 		item, err := service.indexImportedArchive(ctx, destination, candidate, manifestForIndex)
 		if err != nil {
-			// The database may already contain the committed link. Preserve
-			// the final archive so the persisted state remains truthful.
 			return LibraryItem{}, false, fmt.Errorf("index imported archive %q: %w", candidate, err)
 		}
 		return item, false, nil
 	}
 	return LibraryItem{}, false, fmt.Errorf("could not choose a free destination filename for %q after %d attempts", baseName, modImportMaxConflictAttempts)
+}
+
+// importOneFolder copies a folder into <LibraryDir>/unpacked/<name>, verifies
+// the copy by comparing listings, then indexes it.
+func (service *AppService) importOneFolder(ctx context.Context, destination, source string) (LibraryItem, bool, error) {
+	// Refuse empty folders.
+	children, err := os.ReadDir(source)
+	if err != nil {
+		return LibraryItem{}, false, fmt.Errorf("read folder: %w", err)
+	}
+	hasFile := false
+	for _, child := range children {
+		if !isHiddenOrInternal(child.Name()) {
+			hasFile = true
+			break
+		}
+	}
+	if !hasFile {
+		return LibraryItem{}, false, errors.New("the folder is empty")
+	}
+
+	// Refuse folders inside Studio's own data or the library's own unpacked directories.
+	for _, blocked := range []string{service.config.DataDir, service.config.ProfileDir, service.config.WorkspaceDir, service.config.ImageCacheDir} {
+		if blocked != "" && pathWithin(source, blocked) {
+			return LibraryItem{}, false, errors.New("this folder is inside the app's own data and cannot be imported")
+		}
+	}
+	if service.config.LibraryDir != "" {
+		unpackedInLibrary := filepath.Join(service.config.LibraryDir, "unpacked")
+		if pathWithin(source, unpackedInLibrary) {
+			return LibraryItem{}, false, errors.New("this folder is already in the library")
+		}
+	}
+
+	// Target: <LibraryDir>/unpacked/<folder name>
+	unpackedDir := filepath.Join(destination, "unpacked")
+	if err := os.MkdirAll(unpackedDir, 0o755); err != nil {
+		return LibraryItem{}, false, fmt.Errorf("create unpacked directory: %w", err)
+	}
+	baseName := filepath.Base(source)
+	var targetDir string
+	for index := range modImportMaxConflictAttempts {
+		candidateName := baseName
+		if index > 0 {
+			candidateName = fmt.Sprintf("%s (%d)", baseName, index)
+		}
+		candidate := filepath.Join(unpackedDir, candidateName)
+		if _, err := os.Lstat(candidate); errors.Is(err, os.ErrNotExist) {
+			targetDir = candidate
+			break
+		}
+	}
+	if targetDir == "" {
+		return LibraryItem{}, false, fmt.Errorf("could not choose a free folder name for %q after %d attempts", baseName, modImportMaxConflictAttempts)
+	}
+
+	// Copy the folder, never following junctions/symlinks.
+	if err := copyFolderRecursive(source, targetDir); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return LibraryItem{}, false, fmt.Errorf("copy folder: %w", err)
+	}
+
+	// Verify by comparing listings.
+	if err := verifyFolderCopy(source, targetDir); err != nil {
+		_ = os.RemoveAll(targetDir)
+		return LibraryItem{}, false, fmt.Errorf("verify folder copy: %w", err)
+	}
+
+	// Inspect and index.
+	manifest, err := modkit.Inspect(ctx, targetDir)
+	if err != nil {
+		_ = os.RemoveAll(targetDir)
+		return LibraryItem{}, false, fmt.Errorf("inspect folder: %w", err)
+	}
+
+	var asset *AssetRecord
+	if manifest.SelectedImagePath != "" {
+		cachedAsset, imageErr := modkit.ExtractImage(targetDir, manifest.SelectedImagePath, service.config.ImageCacheDir)
+		if imageErr == nil {
+			asset = &AssetRecord{SHA256: cachedAsset.ID, Path: cachedAsset.Path, MIME: cachedAsset.MIME, Width: cachedAsset.Width, Height: cachedAsset.Height, SizeBytes: cachedAsset.SizeBytes}
+			_, _ = ensureAssetThumbnail(*asset)
+		}
+	}
+
+	item, err := service.store.UpsertArchive(ctx, "", destination, targetDir, manifest.SizeBytes, manifest.ModifiedAt, manifest, asset)
+	if err != nil {
+		return LibraryItem{}, false, fmt.Errorf("index imported folder: %w", err)
+	}
+	return item, false, nil
 }
 
 func canonicalModImportFile(value string) (string, error) {
@@ -704,4 +809,103 @@ func modImportManifestIssues(manifest modkit.Manifest) string {
 		}
 	}
 	return "archive inspection reported an invalid archive"
+}
+
+// copyFolderRecursive copies source into destination without following
+// junctions or symlinks. Destination must not exist yet.
+func copyFolderRecursive(source, destination string) error {
+	return filepath.WalkDir(source, func(current string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(source, current)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(destination, rel)
+		// Skip symlinks and junctions.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if d.IsDir() {
+			if isDirectoryJunction(current) && current != source {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		src, err := os.Open(current)
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+		dst, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return err
+		}
+		buf := make([]byte, modImportCopyBufferSize)
+		_, copyErr := io.CopyBuffer(dst, src, buf)
+		if syncErr := dst.Sync(); copyErr == nil {
+			copyErr = syncErr
+		}
+		if closeErr := dst.Close(); copyErr == nil {
+			copyErr = closeErr
+		}
+		return copyErr
+	})
+}
+
+// verifyFolderCopy compares the listing of source and destination by relative
+// path and file size. It does not open files.
+func verifyFolderCopy(source, destination string) error {
+	type listing struct {
+		rel  string
+		size int64
+	}
+	collect := func(root string) ([]listing, error) {
+		var result []listing
+		err := filepath.WalkDir(root, func(current string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(root, current)
+			if err != nil {
+				return err
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			result = append(result, listing{rel: filepath.ToSlash(rel), size: info.Size()})
+			return nil
+		})
+		sort.Slice(result, func(i, j int) bool { return result[i].rel < result[j].rel })
+		return result, err
+	}
+	srcList, err := collect(source)
+	if err != nil {
+		return fmt.Errorf("read source listing: %w", err)
+	}
+	dstList, err := collect(destination)
+	if err != nil {
+		return fmt.Errorf("read destination listing: %w", err)
+	}
+	if len(srcList) != len(dstList) {
+		return fmt.Errorf("file count mismatch: source %d, copy %d", len(srcList), len(dstList))
+	}
+	for i := range srcList {
+		if srcList[i].rel != dstList[i].rel || srcList[i].size != dstList[i].size {
+			return fmt.Errorf("mismatch at %q", srcList[i].rel)
+		}
+	}
+	return nil
 }

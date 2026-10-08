@@ -209,6 +209,17 @@ func (service *AppService) AuditArchiveStorage(ctx context.Context) (audit Stora
 			filepath.Join(service.config.ActiveModsDir,managedModDirectoryName),
 		} { if pathWithin(path,root) { generated=true; break } }
 		if generated { continue }
+		// Folder mods are directories; account using stored size from the manifest.
+		if info, statErr := os.Lstat(path); statErr == nil && info.IsDir() {
+			scanned[archivePathKey(path)]=true
+			items=append(items,StorageAuditItem{
+				ID:stableAuditItemID("canonical",path),Path:path,Purpose:"canonical",
+				Classification:classCanonicalSource,Reason:"authoritative indexed folder source",
+				EntityID:source.entityID,ArtifactID:source.artifactID,SHA256:source.sha256,
+				LogicalBytes:source.sizeBytes,AllocatedBytes:source.sizeBytes,
+			})
+			continue
+		}
 		identity, exists, err := archiveIdentityIfPresent(path)
 		if err != nil { warnings=append(warnings,fmt.Sprintf("inspect indexed archive %s: %v",path,err)); continue }
 		if !exists { continue }

@@ -93,7 +93,6 @@ type ArchiveDeploymentPlan struct {
 	AdditionalBytes            int64                    `json:"additionalBytes"`
 	ReusedCount                int                      `json:"reusedCount"`
 	LinkedCount                int                      `json:"linkedCount"`
-	InPlaceCount               int                      `json:"inPlaceCount"`
 	RequiresCopyConfirmation   bool                     `json:"requiresCopyConfirmation"`
 	Merge                      bool                     `json:"merge"`
 	Blockers                   []string                 `json:"blockers"`
@@ -143,7 +142,6 @@ const (
 
 // Deployment entry methods.
 const (
-	deployMethodInPlace  = "in-place"
 	deployMethodHardlink = "hardlink"
 	deployMethodCopy     = "copy"
 )

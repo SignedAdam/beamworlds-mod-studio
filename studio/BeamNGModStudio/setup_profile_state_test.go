@@ -7,6 +7,48 @@ import (
 	"testing"
 )
 
+func TestExplicitHomeDoesNotInheritParentConfiguration(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "isolated")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parentData := filepath.Join(parent, "live-data")
+	payload, err := json.Marshal(map[string]any{"setupComplete": true, "dataDir": parentData})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "config.json"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BEAMWORLDS_HOME", home)
+	config, err := LoadAppConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ConfigPath != "" || config.SetupComplete || !samePath(config.DataDir, filepath.Join(home, "studio-data")) {
+		t.Fatalf("explicit home inherited an outside configuration: %#v", config)
+	}
+	if _, err := os.Stat(parentData); !os.IsNotExist(err) {
+		t.Fatalf("parent data directory was touched: %v", err)
+	}
+	localData := filepath.Join(home, "own-data")
+	payload, err = json.Marshal(map[string]any{"dataDir": localData})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err = LoadAppConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePath(config.ConfigPath, filepath.Join(home, "config.json")) || !samePath(config.DataDir, localData) {
+		t.Fatalf("explicit home's own configuration was not used: %#v", config)
+	}
+}
+
 func TestSaveSetupPersistsValidatedPaths(t *testing.T) {
 	service := newTestAppService(t)
 	setupHome := t.TempDir()
@@ -78,80 +120,3 @@ func TestBeamNGPathHintsAndNativeCounts(t *testing.T) {
 	}
 }
 
-func TestBeamNGModStateAppliesExactSelection(t *testing.T) {
-	activeModsDir := t.TempDir()
-	selectedPath := filepath.Join(activeModsDir, "selected.zip")
-	otherPath := filepath.Join(activeModsDir, "repo", "other.zip")
-	if err := os.MkdirAll(filepath.Dir(otherPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, filename := range []string{selectedPath, otherPath} {
-		if err := os.WriteFile(filename, []byte("zip placeholder"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	selectedKey, err := beamNGModKey(selectedPath, activeModsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	otherKey, err := beamNGModKey(otherPath, activeModsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	database := map[string]any{"header": map[string]any{"version": 1.1}, "mods": map[string]any{
-		selectedKey: map[string]any{"active": false, "fullpath": "/mods/selected.zip"},
-		otherKey:    map[string]any{"active": true, "fullpath": "/mods/repo/other.zip"},
-	}}
-	payload, err := json.Marshal(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(activeModsDir, "db.json"), payload, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyBeamNGModSelection(activeModsDir, []string{selectedKey}); err != nil {
-		t.Fatal(err)
-	}
-	assertNativeModState(t, activeModsDir, selectedKey, true)
-	assertNativeModState(t, activeModsDir, otherKey, false)
-	// The pre-write backup is what a failed apply rolls back from; nothing
-	// keeps a one-shot "original selection" copy any more.
-	if _, err := os.Stat(filepath.Join(activeModsDir, "db.json.beamworlds-backup")); err != nil {
-		t.Fatalf("pre-write backup was not created: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(activeModsDir, "unregistered.zip"), []byte("new"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyBeamNGModSelection(activeModsDir, []string{selectedKey}); err == nil {
-		t.Fatal("unregistered inactive archive was silently enabled by BeamNG defaults")
-	}
-}
-
-func TestMissingBeamNGDatabaseAppliesWithoutCreatingState(t *testing.T) {
-	activeModsDir := t.TempDir()
-	if err := applyBeamNGModSelection(activeModsDir, []string{"beamworlds-managedexample"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(activeModsDir, "db.json")); !os.IsNotExist(err) {
-		t.Fatalf("a BeamNG database was invented where the game had none: %v", err)
-	}
-}
-
-func assertNativeModState(t *testing.T, activeModsDir, key string, want bool) {
-	t.Helper()
-	payload, err := os.ReadFile(filepath.Join(activeModsDir, "db.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var document struct {
-		Mods map[string]struct {
-			Active bool `json:"active"`
-		} `json:"mods"`
-	}
-	if err := json.Unmarshal(payload, &document); err != nil {
-		t.Fatal(err)
-	}
-	if got := document.Mods[key].Active; got != want {
-		t.Fatalf("mod %s active = %t, want %t; db=%s", key, got, want, payload)
-	}
-}

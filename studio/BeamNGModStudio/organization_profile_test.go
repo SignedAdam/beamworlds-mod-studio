@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -532,17 +533,16 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("existing user mod"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sentinelKey, err := beamNGModKey(sentinel, service.config.ActiveModsDir)
+	// Write a db.json to verify it stays untouched.
+	nativeDB, err := json.Marshal(map[string]any{"header": map[string]any{"version": 1.1}, "mods": map[string]any{"existing-user-mod": map[string]any{"active": true, "fullpath": "/mods/existing-user-mod.zip"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeDB, err := json.Marshal(map[string]any{"header": map[string]any{"version": 1.1}, "mods": map[string]any{sentinelKey: map[string]any{"active": true, "fullpath": "/mods/existing-user-mod.zip"}}})
-	if err != nil {
+	dbPath := filepath.Join(service.config.ActiveModsDir, "db.json")
+	if err := os.WriteFile(dbPath, nativeDB, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), nativeDB, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dbBefore, _ := os.ReadFile(dbPath)
 	progress := []PlayProgress{}
 	service.emit = func(name string, value any) {
 		if name == "play:progress" {
@@ -572,20 +572,28 @@ func TestPlaySelectionActivationUsesSharedBeamNGData(t *testing.T) {
 	if _, err := os.Stat(sentinel); err != nil {
 		t.Fatalf("existing active mod was touched: %v", err)
 	}
-	if !samePath(activation.UserPath, service.config.BeamNGRoot) {
-		t.Fatalf("Play selection changed BeamNG user data root: %s", activation.UserPath)
+	// The profile user path must NOT be the real BeamNG root.
+	playRoot, playErr := playUserPath(service.config)
+	if playErr != nil {
+		t.Fatal(playErr)
 	}
-	if !samePath(activation.ModsPath, filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)) {
-		t.Fatalf("managed mod path = %s", activation.ModsPath)
+	if !samePath(activation.UserPath, playRoot) {
+		t.Fatalf("Play selection did not use isolated profile: UserPath=%s, want %s", activation.UserPath, playRoot)
 	}
-	var appliedDB struct {
-		Mods map[string]struct {
-			Active bool `json:"active"`
-		} `json:"mods"`
+	if !samePath(activation.ModsPath, playProfileModsDir(playRoot)) {
+		t.Fatalf("managed mod path = %s, want %s", activation.ModsPath, playProfileModsDir(playRoot))
 	}
-	appliedPayload, err := os.ReadFile(filepath.Join(service.config.ActiveModsDir, "db.json"))
-	if err != nil || json.Unmarshal(appliedPayload, &appliedDB) != nil || appliedDB.Mods[sentinelKey].Active {
-		t.Fatalf("existing native mod was not disabled in BeamNG state: %s, err %v", appliedPayload, err)
+	// The real db.json must be byte-identical after Play.
+	dbAfter, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("real db.json disappeared: %v", err)
+	}
+	if !bytes.Equal(dbBefore, dbAfter) {
+		t.Fatalf("real db.json was modified by Play:\n before: %s\n after:  %s", dbBefore, dbAfter)
+	}
+	// No profile db.json (BeamNG regenerates it).
+	if _, err := os.Stat(filepath.Join(activation.ModsPath, "db.json")); !os.IsNotExist(err) {
+		t.Fatalf("profile db.json was not deleted: %v", err)
 	}
 	if len(progress) == 0 || !progress[len(progress)-1].Done || progress[len(progress)-1].Phase != "started" {
 		t.Fatalf("terminal launch progress missing: %#v", progress)

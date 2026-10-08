@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"strings"
 	"testing"
-	"time"
 )
 
 func reviewedStoragePlay(t *testing.T,service *AppService,collectionID string) PlayRequest {
@@ -125,26 +124,22 @@ func TestDeploymentDoesNotOverwriteFileCreatedDuringPreparation(t *testing.T){
 	content,err:=os.ReadFile(target);if err!=nil || string(content)!="user file created after review"{t.Fatal("late user file was lost",err)}
 }
 
-func TestMissingCanonicalArchiveRemainsRecoverableAfterSelectionChange(t *testing.T){
+func TestLastCopyOfDeployedArchiveIsKeptInLibraryAfterSelectionChange(t *testing.T){
 	service:=newTestAppService(t)
 	service.config.ArchiveDeploymentMode=DeploymentModeCopy
+	service.config.LibraryDir=filepath.Join(service.config.DataDir,"library")
 	items,collectionID:=scanAndCreateCollection(t,service,"Retained old copy",1,9900)
 	ctx:=context.Background()
+	content,err:=os.ReadFile(items[0].ArchivePath);if err!=nil{t.Fatal(err)}
 	if _,err:=service.activatePlaySelectionDirect(ctx,reviewedStoragePlay(t,service,collectionID));err!=nil{t.Fatal(err)}
-	owned,err:=service.store.listOwnedArchiveEntries(ctx);if err!=nil{t.Fatal(err)}
 	if err:=os.Remove(items[0].ArchivePath);err!=nil{t.Fatal(err)}
 	if _,err:=service.SetCollectionMods(collectionID,[]string{items[0].EntityID},false);err!=nil{t.Fatal(err)}
 	if _,err:=service.activatePlaySelectionDirect(ctx,reviewedStoragePlay(t,service,collectionID));err!=nil{t.Fatal(err)}
+	kept:=filepath.Join(service.config.LibraryDir,"Previous versions",filepath.Base(items[0].ArchivePath))
+	if data,err:=os.ReadFile(kept);err!=nil || !bytes.Equal(data,content){t.Fatal("the only remaining copy was not kept in the library",err)}
 	journals,err:=service.store.listPendingDeploymentJournals(ctx);if err!=nil{t.Fatal(err)}
-	retained:=false
-	for _,journal:=range journals{
-		if journal.State!=journalStateCleanup{continue}
-		path:=filepath.Join(journal.PreviousDir,owned[0].ID+stagingExtension)
-		current,err:=inspectArchiveFile(path)
-		if err==nil && sameArchiveObject(current,owned[0].TargetIdentity){retained=true}
-	}
-	if !retained{t.Fatal("the sole surviving independent archive was discarded")}
-	if _,err:=service.activatePlaySelectionDirect(ctx,reviewedStoragePlay(t,service,collectionID));err!=nil{t.Fatal("retained recovery data blocked an unaffected selection",err)}
+	for _,journal:=range journals{if journal.Purpose==archivePurposePlay{t.Fatalf("cleanup left for the player to review: %+v",journal.State)}}
+	if placed,err:=service.store.isStudioPlacedArchive(ctx,kept);err!=nil || !placed{t.Fatal("kept copy would be presented as a newly installed mod",err)}
 }
 
 func TestRestartRecoversInterruptedArchiveMoves(t *testing.T){
@@ -194,7 +189,7 @@ func TestRestartRecoversInterruptedArchiveMoves(t *testing.T){
 	}
 }
 
-func TestLegacyManagedFilesAdoptedOnlyWithVerifiedEvidence(t *testing.T) {
+func TestManagedFilesAdoptedOnlyWithVerifiedEvidence(t *testing.T) {
 	service := newTestAppService(t)
 	items, _ := scanAndCreateCollection(t, service, "Legacy", 3, 9960)
 	ctx := context.Background()
@@ -209,9 +204,6 @@ func TestLegacyManagedFilesAdoptedOnlyWithVerifiedEvidence(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(managed, copied), payload, 0o644); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(managed, altered), []byte("same legacy name, different bytes"), 0o644); err != nil { t.Fatal(err) }
-	if err := service.writePlayRuntimeMarker(PlayActivation{OperationID: "legacy", Fingerprint: "reviewed", ModCount: 3, ModsPath: managed,
-		UserPath: service.config.BeamNGRoot, ActivatedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)}); err != nil { t.Fatal(err) }
-	if err := service.store.AppendEvent(ctx, "", "archive_deployment_database_backup", map[string]any{"path": "backup"}); err != nil { t.Fatal(err) }
 
 	service.modImportMu.Lock()
 	err = service.adoptExistingManagedEntries(ctx)
@@ -228,4 +220,44 @@ func TestLegacyManagedFilesAdoptedOnlyWithVerifiedEvidence(t *testing.T) {
 	blockers := checkManagedRootOwnership(ctx, service.store, managed)
 	if len(blockers) != 1 || !strings.Contains(blockers[0], altered) { t.Fatalf("unverified file must still block exact selection: %#v", blockers) }
 	if data, err := os.ReadFile(filepath.Join(managed, altered)); err != nil || string(data) != "same legacy name, different bytes" { t.Fatal("unverified file was changed", err) }
+}
+
+func TestPlayPlanAdoptsVerifiedManagedCopyInsteadOfBlocking(t *testing.T) {
+	service := newTestAppService(t)
+	items, collectionID := scanAndCreateCollection(t, service, "Unowned copy", 2, 9970)
+	ctx := context.Background()
+	// Ownership migration already ran and no Play marker remains, as on an
+	// upgraded install that later lost or never recorded this file's row.
+	if err := service.store.AppendEvent(ctx, "", "archive_legacy_ownership_reviewed", map[string]any{"adopted": 0}); err != nil { t.Fatal(err) }
+	playRoot, playErr := playUserPath(service.config)
+	if playErr != nil { t.Fatal(playErr) }
+	managed := playProfileModsDir(playRoot)
+	if err := os.MkdirAll(managed, 0o755); err != nil { t.Fatal(err) }
+	// Colliding legacy names gave this copy a name derived from the other mod;
+	// only its bytes identify the owner.
+	name := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(items[0].ArchivePath), filepath.Ext(items[0].ArchivePath))) + "-" + shortPlayID(items[0].EntityID) + ".zip"
+	payload, err := os.ReadFile(items[1].ArchivePath)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(managed, name), payload, 0o644); err != nil { t.Fatal(err) }
+	// Place an unknown zip that should be harvested to the real mods folder.
+	unknownContent := []byte("bytes no catalog archive has")
+	if err := os.WriteFile(filepath.Join(managed, "unknown.zip"), unknownContent, 0o644); err != nil { t.Fatal(err) }
+
+	selection, err := service.ResolvePlaySelection([]string{collectionID}, nil)
+	if err != nil { t.Fatal(err) }
+	// PlanPlayDeployment runs adoption and harvest: the verified copy is adopted,
+	// the unknown zip is harvested to real mods, and the plan has no blockers.
+	plan, err := service.PlanPlayDeployment(ctx, PlayRequest{CollectionIDs: []string{collectionID}, Fingerprint: selection.Fingerprint, AllowCopy: true})
+	if err != nil { t.Fatal(err) }
+	if len(plan.Blockers) != 0 {
+		t.Fatalf("expected no blockers after harvest; got: %#v", plan.Blockers)
+	}
+	owned, err := service.store.listOwnedArchiveEntries(ctx)
+	if err != nil { t.Fatal(err) }
+	if len(owned) != 1 || owned[0].RelativePath != name || owned[0].EntityID != items[1].EntityID || owned[0].Method != deployMethodCopy {
+		t.Fatalf("verified copy was not adopted by the mod whose bytes it holds: %#v", owned)
+	}
+	// The unknown zip should now be in the real mods folder.
+	realUnknown := filepath.Join(service.config.ActiveModsDir, "unknown.zip")
+	if data, err := os.ReadFile(realUnknown); err != nil || !bytes.Equal(data, unknownContent) { t.Fatalf("unknown zip was not harvested to real mods: err=%v", err) }
 }

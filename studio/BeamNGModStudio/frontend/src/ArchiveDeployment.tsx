@@ -257,18 +257,12 @@ export function CopyConfirmation({
                 <dd>{plan.linkedCount.toLocaleString()}</dd>
               </div>
             )}
-            {plan.inPlaceCount > 0 && (
-              <div>
-                <dt>In place (native)</dt>
-                <dd>{plan.inPlaceCount.toLocaleString()}</dd>
-              </div>
-            )}
           </dl>
           {plan.copyBytes > 0 && (
             <p className="copy-confirmation__note">
               {plan.mode === "copy"
                 ? "Copies mode keeps separate game files. Unchanged copies are reused on later launches."
-                : "These archives are copied because hardlinks are unavailable between their folder and the game's mods folder."}
+                : "These archives are copied because hardlinks are unavailable between their source folder and the isolated game profile."}
             </p>
           )}
           <footer className="copy-confirmation__footer">

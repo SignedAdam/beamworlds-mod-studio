@@ -185,19 +185,36 @@ func TestDirectDeploymentCreatesHardlinks(t *testing.T) {
 		t.Fatalf("expected 1 mod, got %d", activation.ModCount)
 	}
 
-	// Verify managed directory was created with a deployed file.
-	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
-	entries, err := os.ReadDir(managedRoot)
+	// Verify profile mods directory was created with a deployed file.
+	playRoot, playErr := playUserPath(service.config)
+	if playErr != nil {
+		t.Fatal(playErr)
+	}
+	profileMods := playProfileModsDir(playRoot)
+	entries, err := os.ReadDir(profileMods)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) == 0 {
-		t.Fatal("expected at least one file in managed directory")
+	zipEntries := 0
+	for _, e := range entries {
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".zip") {
+			zipEntries++
+		}
+	}
+	if zipEntries == 0 {
+		t.Fatal("expected at least one zip in profile mods directory")
 	}
 
 	// Verify the deployed file shares identity with the source (hardlink).
 	sourcePath := filepath.Join(service.config.DataDir, "library", fmt.Sprintf("library-%05d.zip", 7001))
-	deployedPath := filepath.Join(managedRoot, entries[0].Name())
+	// Find the first zip entry in the profile mods directory.
+	var deployedPath string
+	for _, e := range entries {
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".zip") {
+			deployedPath = filepath.Join(profileMods, e.Name())
+			break
+		}
+	}
 	sourceInfo, _ := os.Stat(sourcePath)
 	deployedInfo, _ := os.Stat(deployedPath)
 	if sourceInfo != nil && deployedInfo != nil && os.SameFile(sourceInfo, deployedInfo) {
@@ -378,14 +395,24 @@ func TestDirectDeploymentReusesUnchangedEntries(t *testing.T) {
 		t.Fatalf("expected 2 mods on second launch, got %d", activation.ModCount)
 	}
 
-	// Verify managed directory still has files.
-	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
-	entries, err := os.ReadDir(managedRoot)
+	// Verify profile mods directory still has files.
+	playRoot, playErr := playUserPath(service.config)
+	if playErr != nil {
+		t.Fatal(playErr)
+	}
+	profileMods := playProfileModsDir(playRoot)
+	entries, err := os.ReadDir(profileMods)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) == 0 {
-		t.Fatal("expected files in managed directory after reuse")
+	zipCount := 0
+	for _, e := range entries {
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".zip") {
+			zipCount++
+		}
+	}
+	if zipCount == 0 {
+		t.Fatal("expected zip files in profile mods directory after reuse")
 	}
 }
 

@@ -44,7 +44,7 @@ Want to use Virgil? Connect your preferred AI account or API key under **Setting
 
 - **Can't find BeamNG?** Select the game folder containing `Bin64`. Use the BeamNG launcher to locate your existing user folder.
 - **Missing WebView2?** Install the [Microsoft WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
-- **Game starts with the wrong renderer?** Pick **Renderer** next to the Play button: **Default** (DirectX 12, falling back to DirectX 11, like the BeamNG launcher's main button), **Vulkan**, **DirectX 12, no fallback**, or **DirectX 11**. Studio remembers the choice for every launch, including ModMaker game tests.
+- **Game starts with the wrong renderer?** In **Play**, click the renderer line under the mod count (it reads **Default renderer** at first) and choose **Default** (DirectX 12, falling back to DirectX 11, like the BeamNG launcher's main button), **Vulkan**, **DirectX 12** without fallback, or **DirectX 11**. Studio remembers the choice for every launch, including ModMaker game tests.
 - **AI connections:** Virgil sends requests and relevant mod content to your selected provider. That provider's pricing and usage limits apply.
 
 ### Add existing mods

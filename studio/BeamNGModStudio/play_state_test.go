@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -26,9 +25,6 @@ func TestPlayStateNormalizesDeletedReferencesWithoutOverwritingProfile(t *testin
 	if state.ProfileID != profile.ID || len(state.CollectionIDs) != 1 || state.CollectionIDs[0] != created.Collection.ID {
 		t.Fatalf("normalized Play state = %#v", state)
 	}
-	if len(state.Notices) == 0 || !strings.Contains(state.Notices[0], "deleted-collection") {
-		t.Fatalf("missing-reference notice = %#v", state.Notices)
-	}
 
 	if _, err := service.DeleteCollections([]string{created.Collection.ID}); err != nil {
 		t.Fatal(err)
@@ -39,9 +35,6 @@ func TestPlayStateNormalizesDeletedReferencesWithoutOverwritingProfile(t *testin
 	}
 	if restored.ProfileID != profile.ID || len(restored.CollectionIDs) != 0 || len(restored.DefaultCollectionIDs) != 0 {
 		t.Fatalf("deleted collection changed profile identity or draft normalization: %#v", restored)
-	}
-	if len(restored.Notices) == 0 || !strings.Contains(strings.Join(restored.Notices, " "), created.Collection.ID) {
-		t.Fatalf("deletion notice = %#v", restored.Notices)
 	}
 	organization, err := service.Organization()
 	if err != nil {

@@ -530,7 +530,7 @@ func modFamilyInstalledKeys(activeModsDir string) (map[string]struct{}, map[stri
 	if activeModsDir == "" {
 		return paths, filenames
 	}
-	loadedPaths, loadedFilenames, _, err := beamNGEnabledArchiveKeysFrom(activeModsDir, filepath.Join(activeModsDir, "db.json"))
+	loadedPaths, loadedFilenames, _, _, err := beamNGEnabledArchiveKeysFrom(activeModsDir, filepath.Join(activeModsDir, "db.json"))
 	if err != nil {
 		// An unavailable database only means that presence cannot be proven.
 		return paths, filenames

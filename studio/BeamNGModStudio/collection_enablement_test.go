@@ -220,6 +220,10 @@ func TestFirstScanSeedsDefaultProfileFromEnabledMods(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// An existing file that has not been indexed is different from a stale db entry.
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "not-in-library.zip"), []byte("zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), database, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -321,5 +325,198 @@ func TestSeedingReadsSnapshotWhenLiveDatabaseHasNothingActive(t *testing.T) {
 	}
 	if len(organization.Collections) != 1 || organization.Collections[0].ModCount != 1 {
 		t.Fatalf("the snapshot was not used to seed: %#v", organization.Collections)
+	}
+}
+
+func TestSeedExcludesManagedAndStaleEntries(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	ctx := context.Background()
+
+	// Create a mod so the library has something to match.
+	created, err := service.CreateNewMod(NewModRequest{Name: "Repo Mod", ModID: "repo_mod", Kind: "script", Version: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := service.store.GetLibraryItem(ctx, created.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a db.json with:
+	//   1. A repo mod that matches the library (should be seeded).
+	//   2. A beamworlds-managed entry (should be excluded — it is a deployed copy).
+	//   3. A stale entry whose archive does not exist on disk (should be excluded).
+	database, err := json.Marshal(map[string]any{
+		"header": map[string]any{"version": 1.1},
+		"mods": map[string]any{
+			"repo-mod": map[string]any{
+				"active":   true,
+				"filename": filepath.Base(item.ArchivePath),
+				"fullpath": "/mods/repo/" + filepath.Base(item.ArchivePath),
+			},
+			"managed-deploy": map[string]any{
+				"active":   true,
+				"filename": "SomeCar-01a05ae8.zip",
+				"fullpath": "/mods/beamworlds-managed/SomeCar-01a05ae8.zip",
+			},
+			"stale-entry": map[string]any{
+				"active":   true,
+				"filename": "deleted_mod.zip",
+				"fullpath": "/mods/repo/deleted_mod.zip",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Place the repo mod on disk (it matches the library, no notice expected).
+	repoDir := filepath.Join(service.config.ActiveModsDir, "repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, filepath.Base(item.ArchivePath)), []byte("zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A managed deployment is not a separate library archive.
+	managedDir := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
+	if err := os.MkdirAll(managedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managedDir, "SomeCar-01a05ae8.zip"), []byte("zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Do NOT create deleted_mod.zip — it is a stale entry.
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), database, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service.seedDefaultPlayProfile(ctx)
+
+	state, err := service.GetPlayState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The managed entry and the stale entry must both be excluded, so there
+	// should be zero unmatched mods and therefore zero notices.
+	if len(state.Notices) != 0 {
+		t.Fatalf("expected no notices after excluding managed/stale entries, got %#v", state.Notices)
+	}
+	organization, err := service.Organization()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(organization.Collections) != 1 || organization.Collections[0].ModCount != 1 {
+		t.Fatalf("seeding should have created exactly one collection with one mod: %#v", organization.Collections)
+	}
+}
+
+func TestReconcilePlayNoticesClearsStaleNotices(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	ctx := context.Background()
+
+	// Seed a profile so Play state exists.
+	created, err := service.CreateNewMod(NewModRequest{Name: "Reconcile Mod", ModID: "reconcile_mod", Kind: "script", Version: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := service.store.GetLibraryItem(ctx, created.Entity.EntityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database, err := json.Marshal(map[string]any{
+		"header": map[string]any{"version": 1.1},
+		"mods": map[string]any{
+			"mod": map[string]any{
+				"active": true, "filename": filepath.Base(item.ArchivePath),
+				"fullpath": "/mods/repo/" + filepath.Base(item.ArchivePath),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoDir := filepath.Join(service.config.ActiveModsDir, "repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, filepath.Base(item.ArchivePath)), []byte("zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(service.config.ActiveModsDir, "db.json"), database, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	service.seedDefaultPlayProfile(ctx)
+
+	// Inject stale notices from old code versions into the persisted state.
+	state, err := service.GetPlayState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Notices = []string{
+		`1 mod enabled in BeamNG is not in your library yet, so it is not in "My mods".`,
+		`1 selected collection was removed from Play because it no longer exists.`,
+	}
+	if _, err := service.SavePlayState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reconciliation should clear both stale notices because:
+	// - The legacy seed notice is re-evaluated and there are no missing mods.
+	// - The legacy collection-removal notice is recognised as stale.
+	service.reconcilePlayNotices(ctx)
+
+	reconciled, err := service.GetPlayState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reconciled.Notices) != 0 {
+		t.Fatalf("expected zero notices after reconciliation, got %#v", reconciled.Notices)
+	}
+}
+
+func TestReconcilePlayNoticesPreservesUnknownNotices(t *testing.T) {
+	t.Parallel()
+	service := newTestAppService(t)
+	ctx := context.Background()
+
+	// Write a play state with an unknown notice.
+	unknownNotice := "Something unusual happened; please check your configuration."
+	if _, err := service.SavePlayState(PlayState{
+		Notices: []string{unknownNotice},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service.reconcilePlayNotices(ctx)
+
+	state, err := service.GetPlayState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Notices) != 1 || state.Notices[0] != unknownNotice {
+		t.Fatalf("unknown notice was not preserved: %#v", state.Notices)
+	}
+}
+
+func TestEnabledModNoticesKeepsUnindexedFileAfterManagedEntries(t *testing.T) {
+	t.Parallel()
+	activeDir := t.TempDir()
+	filenames := map[string]string{}
+	resolved := map[string]string{}
+	for _, name := range []string{"a.zip", "b.zip", "c.zip", "d.zip", "e.zip", "f.zip"} {
+		filenames[name] = name
+		resolved[name] = filepath.Join(activeDir, managedModDirectoryName, name)
+	}
+	unindexed := filepath.Join(activeDir, "z.zip")
+	if err := os.WriteFile(unindexed, []byte("unindexed archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	filenames["z.zip"] = "z.zip"
+	resolved["z.zip"] = unindexed
+	notices := enabledModNotices(filenames, nil, resolved, activeDir)
+	if len(notices) != 1 || !strings.Contains(notices[0], unindexed) {
+		t.Fatalf("unindexed file was hidden by managed entries: %#v", notices)
 	}
 }

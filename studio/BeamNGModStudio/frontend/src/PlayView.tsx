@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import type {
   CollectionMod,
+  GameStatus,
   ModCollection,
   ModProfile,
   OrganizationState,
@@ -13,6 +14,7 @@ import {
   CollectionMenuPopup,
 } from "./CollectionUI";
 import { CopyConfirmation } from "./ArchiveDeployment";
+import { GameRunningBanner } from "./GameRunningBanner";
 import { Icon } from "./icons";
 import { Badge, Button, Page, Spinner, thumbUrl } from "./ui";
 import type { PlaySession } from "./usePlaySession";
@@ -21,6 +23,7 @@ import "./PlayView.css";
 export interface PlayViewProps {
   organization: OrganizationState | null;
   session: PlaySession;
+  gameStatus: GameStatus | null;
   onOrganization: (state: OrganizationState) => void;
   onNotify: (message: string, tone?: "success" | "error" | "info") => void;
   onError: (error: unknown) => void;
@@ -125,6 +128,7 @@ function modProvenance(mod: CollectionMod, byID: Record<string, ModCollection>):
 export function PlayView({
   organization,
   session,
+  gameStatus,
   onOrganization,
   onNotify,
   onError,
@@ -140,6 +144,11 @@ export function PlayView({
   const [switchRequest, setSwitchRequest] = useState<SwitchRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ModProfile | null>(null);
   const [renameID, setRenameID] = useState("");
+  // The launch result the running-game banner has already covered.
+  const [playedResult, setPlayedResult] = useState<PlayResult | null>(null);
+  useEffect(() => {
+    if (gameStatus?.running && session.result) setPlayedResult(session.result);
+  }, [gameStatus?.running, session.result]);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameError, setRenameError] = useState("");
 
@@ -177,7 +186,10 @@ export function PlayView({
 
   // Readiness line: shows arithmetic from the resolved selection.
   const pickedCollections = session.selection.filter((id) => id !== ALL_MODS_ID).length;
-  const readinessText = session.planningDeployment
+  const gameRunning = Boolean(gameStatus?.running);
+  const readinessText = gameRunning
+    ? "Close BeamNG to launch a different selection"
+    : session.planningDeployment
     ? "Planning deployment\u2026"
     : session.previewLoading
     ? "Checking mods\u2026"
@@ -393,7 +405,21 @@ export function PlayView({
           {session.notices.length > 0 && (
             <div className="play-notices" role="status" aria-live="polite">
               <Icon name="warning" size={15} />
-              <div>{session.notices.map((notice) => <p key={notice}>{notice}</p>)}</div>
+              <div className="play-notices__list">
+                {session.notices.map((notice) => (
+                  <div className="play-notice" key={notice}>
+                    <p>{notice}</p>
+                    <button
+                      type="button"
+                      className="play-notice__dismiss"
+                      aria-label={`Dismiss notice: ${notice}`}
+                      onClick={() => void session.dismissNotice(notice)}
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {session.previewError && (
@@ -484,8 +510,11 @@ export function PlayView({
 
       <footer className="play-launch-bar" aria-label="Play controls">
         {(() => {
+          if (gameStatus?.running) return <GameRunningBanner status={gameStatus} />;
           const running = session.progress && !session.progress.done;
-          const finishedResult = Boolean(session.progress?.done && session.result);
+          // "BeamNG started" describes the session that just ended once the
+          // game has been seen running, so it is not repeated after exit.
+          const finishedResult = Boolean(session.progress?.done && session.result && session.result !== playedResult);
           // A backend-emitted failure has terminal progress but no result.
           const failure = session.progress?.done && !session.result ? session.progress.error : "";
           const warning = session.runtime?.warning ?? "";
@@ -534,7 +563,7 @@ export function PlayView({
             <button
               type="button"
               className="play-launch-button"
-              disabled={selectionBusy || session.previewLoading || !session.preview}
+              disabled={gameRunning || selectionBusy || session.previewLoading || !session.preview}
               aria-busy={session.operationBusy === "launch" || session.planningDeployment}
               onClick={() => void handlePlay()}
             >
@@ -587,7 +616,7 @@ export function PlayView({
       </CollectionDialog>}
 
       {deleteTarget && <CollectionDialog title={`Delete ${deleteTarget.name}?`} onClose={() => setDeleteTarget(null)} footer={<><Button tone="quiet" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button tone="danger" icon="trash" disabled={selectionBusy} onClick={() => void handleDelete()}>Delete profile</Button></>}>
-        <p className="play-dialog-copy">Only this saved selection will be deleted. Collections, mod archives, and the currently applied BeamNG selection remain untouched.</p>
+        <p className="play-dialog-copy">Only this saved selection will be deleted. Collections, mod archives, and your normal BeamNG folder remain untouched.</p>
         {deleteTarget.id === session.profileId && <div className="play-dialog-warning"><Icon name="warning" size={14} /><span>This is the active profile. Its current visible draft, including unsaved changes, will be detached into Default.</span></div>}
       </CollectionDialog>}
 

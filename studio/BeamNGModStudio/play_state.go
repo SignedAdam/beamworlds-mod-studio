@@ -125,7 +125,7 @@ func normalizePlayStateTx(ctx context.Context, tx *sql.Tx, input PlayState) (Pla
 		var exists int
 		err := tx.QueryRowContext(ctx, `SELECT 1 FROM play_profiles WHERE id=? LIMIT 1`, state.ProfileID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
-			state.Notices = appendPlayStateNotice(state.Notices, fmt.Sprintf("saved Play profile %q was deleted; switched to Default", state.ProfileID))
+			state.Notices = appendPlayStateNotice(state.Notices, "Your saved profile was deleted. Your mod selection is now under Default.")
 			state.ProfileID = ""
 		} else if err != nil {
 			return PlayState{}, err
@@ -169,7 +169,7 @@ func normalizePlayStateReferences(ctx context.Context, tx *sql.Tx, values []stri
 		var exists int
 		err := tx.QueryRowContext(ctx, `SELECT 1 FROM collections WHERE id=? LIMIT 1`, value).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
-			*notices = appendPlayStateNotice(*notices, fmt.Sprintf("collection %q was deleted and removed from the Play draft", value))
+			*notices = appendPlayStateNotice(*notices, "A collection in your saved Play selection was deleted. Review your selection before playing.")
 			continue
 		}
 		if err != nil {

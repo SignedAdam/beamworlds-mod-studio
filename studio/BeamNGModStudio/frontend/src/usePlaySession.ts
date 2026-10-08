@@ -62,8 +62,55 @@ export interface PlaySession {
   launchSelection: (deploymentFingerprint?: string, allowCopy?: boolean) => Promise<PlayResult>;
   refreshPreview: () => Promise<void>;
   reloadState: () => Promise<void>;
+  /** Dismiss one persisted or session-only Play notice. */
+  dismissNotice: (notice: string) => Promise<void>;
   /** Clear the current deployment plan (e.g. after selection change). */
   clearDeploymentPlan: () => void;
+}
+
+function uniqueNotices(notices: readonly string[] | null | undefined): string[] {
+  return Array.from(new Set((notices ?? []).map((notice) => notice.trim()).filter(Boolean)));
+}
+
+// These frontend-only messages have no collection identity, so an old saved
+// copy can never be reconciled with the current organization.
+function legacyFrontendNotice(notice: string): boolean {
+  return (
+    /^\d+ saved collection references? (?:was|were) removed because the collection no longer exists\.$/.test(notice) ||
+    /^\d+ selected collections? (?:was|were) removed from Play because it no longer exists\.$/.test(notice) ||
+    notice === "A saved profile was removed; its working selection is now Default." ||
+    notice === "The active profile was removed; the current selection is now Default."
+  );
+}
+
+function persistedNotices(notices: readonly string[] | null | undefined): string[] {
+  return uniqueNotices(notices).filter((notice) => !legacyFrontendNotice(notice));
+}
+
+function quotedList(values: readonly string[]): string {
+  const quoted = values.map((value) => `“${value}”`);
+  if (quoted.length <= 1) return quoted[0] ?? "";
+  if (quoted.length === 2) return `${quoted[0]} and ${quoted[1]}`;
+  return `${quoted.slice(0, -1).join(", ")}, and ${quoted[quoted.length - 1]}`;
+}
+
+function collectionRemovalNotice(
+  ids: readonly string[],
+  names: ReadonlyMap<string, string>,
+): string {
+  const labels = ids.map((id) => names.get(id));
+  if (labels.some((name) => !name)) {
+    return "A collection in your Play selection is no longer available. Review your selection before playing.";
+  }
+  const subject = quotedList(labels as string[]);
+  return `${subject} ${labels.length === 1 ? "was" : "were"} deleted. Your Play selection has been updated; your mod files are unchanged.`;
+}
+
+function profileRemovalNotice(profileID: string, names: ReadonlyMap<string, string>): string {
+  const name = names.get(profileID);
+  return name
+    ? `Profile “${name}” was deleted. Your current mod selection is now under Default.`
+    : "Your saved profile was deleted. Your current mod selection is now under Default.";
 }
 
 function uniqueIDs(ids: readonly string[] | null | undefined): string[] {
@@ -127,6 +174,9 @@ export function usePlaySession(
   organization: OrganizationState | null,
   onOrganization: (state: OrganizationState) => void,
   onError: (error: unknown) => void,
+  // App keeps this false while startup scan/refetch can expose a transient
+  // organization snapshot; no reference validation runs before it is true.
+  organizationReady: boolean,
 ): PlaySession {
   const organizationRef = useRef<OrganizationState | null>(organization);
   const onOrganizationRef = useRef(onOrganization);
@@ -165,6 +215,10 @@ export function usePlaySession(
   const profileIdRef = useRef("");
   const previewRef = useRef<PlaySelection | null>(null);
   const noticesRef = useRef<string[]>([]);
+  const persistentNoticesRef = useRef<string[]>([]);
+  const transientNoticesRef = useRef<string[]>([]);
+  const collectionNamesRef = useRef(new Map<string, string>());
+  const profileNamesRef = useRef(new Map<string, string>());
   const busyRef = useRef<PlayBusyState>("");
   const operationBusyRef = useRef<"" | "launch">("");
   const resultRef = useRef<PlayResult | null>(null);
@@ -181,14 +235,21 @@ export function usePlaySession(
   }, []);
 
   const setNotices = useCallback((next: string[]) => {
-    const deduped = Array.from(new Set(next.filter(Boolean)));
+    const deduped = uniqueNotices(next);
     noticesRef.current = deduped;
     setNoticesState(deduped);
   }, []);
 
+  const replaceHydratedNotices = useCallback((saved: readonly string[] | null | undefined) => {
+    persistentNoticesRef.current = persistedNotices(saved);
+    setNotices([...persistentNoticesRef.current, ...transientNoticesRef.current]);
+  }, [setNotices]);
+
   const appendNotice = useCallback((notice: string) => {
-    if (!notice || noticesRef.current.includes(notice)) return;
-    setNotices([...noticesRef.current, notice]);
+    const trimmed = notice.trim();
+    if (!trimmed || noticesRef.current.includes(trimmed)) return;
+    transientNoticesRef.current = [...transientNoticesRef.current, trimmed];
+    setNotices([...noticesRef.current, trimmed]);
   }, [setNotices]);
 
   const persistState = useCallback(async () => {
@@ -199,7 +260,7 @@ export function usePlaySession(
       excludedSelectionRef.current,
       defaultSelectionRef.current,
       defaultExcludedSelectionRef.current,
-      noticesRef.current,
+      persistentNoticesRef.current,
     );
     const write = persistTailRef.current
       .catch(() => undefined)
@@ -212,6 +273,17 @@ export function usePlaySession(
       if (version === persistVersionRef.current) onErrorRef.current(error);
     }
   }, []);
+
+  const dismissNotice = useCallback(async (notice: string) => {
+    const trimmed = notice.trim();
+    if (!trimmed || !noticesRef.current.includes(trimmed)) return;
+    const next = noticesRef.current.filter((current) => current !== trimmed);
+    noticesRef.current = next;
+    transientNoticesRef.current = transientNoticesRef.current.filter((current) => current !== trimmed);
+    persistentNoticesRef.current = persistentNoticesRef.current.filter((current) => current !== trimmed);
+    setNoticesState(next);
+    await persistState();
+  }, [persistState]);
 
   const refreshPreviewFor = useCallback(async (
     ids: readonly string[],
@@ -554,7 +626,20 @@ export function usePlaySession(
         deploymentFingerprint: "",
         allowCopy: false,
       };
-      const plan: ArchiveDeploymentPlan = await API.PlanPlayDeployment(request);
+      // Mods can change after the preview, for example when a ModMaker edit
+      // reaches the library. Plan the current selection instead of failing.
+      let plan: ArchiveDeploymentPlan;
+      try {
+        plan = await API.PlanPlayDeployment(request);
+      } catch (error) {
+        if (!/changed since it was reviewed/i.test(errorMessage(error))) throw error;
+        resolved = await API.ResolvePlaySelection(capturedSelection, capturedExcluded);
+        if (!mountedRef.current || version !== deploymentPlanVersionRef.current) return null;
+        previewRef.current = resolved;
+        setPreviewState(resolved);
+        setPreviewError("");
+        plan = await API.PlanPlayDeployment({ ...request, fingerprint: resolved.fingerprint });
+      }
       if (!mountedRef.current || version !== deploymentPlanVersionRef.current) return null;
       deploymentPlanRef.current = plan;
       setDeploymentPlan(plan);
@@ -615,7 +700,26 @@ export function usePlaySession(
         deploymentFingerprint: deploymentFingerprint ?? "",
         allowCopy: allowCopy ?? false,
       };
-      const nextResult = await API.LaunchPlaySelection(request);
+      // Mods can change after the preview, for example when a ModMaker edit
+      // reaches the library. Launch the current selection instead of asking
+      // again; missing archives and other problems still stop the launch.
+      let nextResult: PlayResult;
+      try {
+        nextResult = await API.LaunchPlaySelection(request);
+      } catch (error) {
+        if (!/changed since it was reviewed/i.test(errorMessage(error))) throw error;
+        const refreshed = await API.ResolvePlaySelection(capturedSelection, capturedExcluded);
+        if (
+          !sameSet(capturedSelection, selectionRef.current) ||
+          !sameSet(capturedExcluded, excludedSelectionRef.current)
+        ) {
+          throw error;
+        }
+        previewRef.current = refreshed;
+        setPreviewState(refreshed);
+        setPreviewError("");
+        nextResult = await API.LaunchPlaySelection({ ...request, fingerprint: refreshed.fingerprint });
+      }
       if (!mountedRef.current) return nextResult;
       resultRef.current = nextResult;
       setResult(nextResult);
@@ -629,25 +733,6 @@ export function usePlaySession(
         onErrorRef.current(error);
       }
       return nextResult;
-    } catch (error) {
-      const message = errorMessage(error);
-      // The backend refuses to activate a selection whose content changed since
-      // the reviewed preview. Refresh the preview here and make the user press
-      // Play again, so an unreviewed selection is never activated silently.
-      if (/changed since it was reviewed/i.test(message)) {
-        const refreshed = await API.ResolvePlaySelection(capturedSelection, capturedExcluded).catch(() => null);
-        if (refreshed && mountedRef.current && sameSet(capturedSelection, selectionRef.current)) {
-          previewRef.current = refreshed;
-          setPreviewState(refreshed);
-          setPreviewError("");
-        }
-        const staleError = new Error(
-          "Your mods changed since this selection was reviewed. The preview has been refreshed - press Play again to use it.",
-        );
-        appendNotice(staleError.message);
-        throw staleError;
-      }
-      throw error;
     } finally {
       operationBusyRef.current = "";
       if (mountedRef.current) setOperationBusy("");
@@ -667,11 +752,13 @@ export function usePlaySession(
       .then((state) => {
         if (!active) return;
         hydrationStateRef.current = state;
+        persistentNoticesRef.current = persistedNotices(state?.notices);
         setHydrationReady(true);
       })
       .catch((error) => {
         if (!active) return;
         hydrationStateRef.current = null;
+        persistentNoticesRef.current = [];
         setHydrationReady(true);
         onErrorRef.current(error);
       });
@@ -680,20 +767,26 @@ export function usePlaySession(
     };
   }, []);
 
-  // The first indexed library can seed a collection and profile on the backend
-  // after this hook already hydrated an empty state. Re-running hydration is
-  // safe only while nothing is chosen here, so a seed is never able to
-  // overwrite a selection the user made in the meantime.
+  // A scan can create or reconcile backend Play state after this hook has
+  // mounted. Always refresh durable notices, but only re-run selection
+  // hydration when the draft has not changed since the last restore.
   const reloadState = useCallback(async () => {
     if (operationBusyRef.current || busyRef.current) return;
-    if (selectionRef.current.length > 0 || profileIdRef.current) return;
+    const requestEditVersion = userEditVersionRef.current;
     const state = await API.GetPlayState();
     if (!mountedRef.current) return;
+    const draftChanged =
+      requestEditVersion !== hydrationEditVersionRef.current ||
+      userEditVersionRef.current !== requestEditVersion ||
+      selectionRef.current.length > 0 ||
+      Boolean(profileIdRef.current);
+    replaceHydratedNotices(state?.notices);
+    if (draftChanged) return;
     hydrationStateRef.current = state;
-    hydrationEditVersionRef.current = userEditVersionRef.current;
+    hydrationEditVersionRef.current = requestEditVersion;
     setHydrationApplied(false);
     setHydrationReady(true);
-  }, []);
+  }, [replaceHydratedNotices]);
 
   useEffect(() => {
     let active = true;
@@ -714,14 +807,22 @@ export function usePlaySession(
   }, []);
 
   useEffect(() => {
-    if (!hydrationReady || hydrationApplied || !organization) return;
-    if (userEditVersionRef.current !== hydrationEditVersionRef.current) {
-      appendNotice("A saved Play draft was not loaded because it changed before restore completed.");
-      setHydrationApplied(true);
-      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
-      return;
+    if (!organizationReady || !hydrationReady || hydrationApplied || !organization) return;
+    for (const collection of organization.collections ?? []) {
+      if (collection.id && collection.name.trim()) collectionNamesRef.current.set(collection.id, collection.name.trim());
+    }
+    for (const profile of organization.profiles ?? []) {
+      if (profile.id && profile.name.trim()) profileNamesRef.current.set(profile.id, profile.name.trim());
     }
     const state = hydrationStateRef.current;
+    if (userEditVersionRef.current !== hydrationEditVersionRef.current) {
+      replaceHydratedNotices(state?.notices);
+      appendNotice("Kept your new selection instead of restoring the previous one.");
+      setHydrationApplied(true);
+      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
+      void persistState();
+      return;
+    }
     const known = collectionIDs(organization);
     const isValid = (id: string) => id === "all-mods" || known.has(id);
     const validate = (ids: readonly string[]) => uniqueIDs(ids).filter(isValid);
@@ -735,19 +836,21 @@ export function usePlaySession(
     const validCurrent = validate(rawCurrent);
     const validDefaultExcluded = validate(rawDefaultExcluded);
     const validCurrentExcluded = validate(rawCurrentExcluded);
-    const missing = uniqueIDs([...rawDefault, ...rawCurrent]).filter((id) => !isValid(id));
+    const missing = uniqueIDs([
+      ...rawDefault,
+      ...rawCurrent,
+      ...rawDefaultExcluded,
+      ...rawCurrentExcluded,
+    ]).filter((id) => !isValid(id));
     const savedProfile = state?.profileId
       ? (organization.profiles ?? []).find((profile) => profile.id === state.profileId)
       : null;
     const nextProfileId = savedProfile?.id ?? "";
     if (state?.profileId && !savedProfile) {
-      appendNotice("A saved profile was removed; its working selection is now Default.");
+      appendNotice(profileRemovalNotice(state.profileId, profileNamesRef.current));
     }
-    if (missing.length) {
-      appendNotice(`${missing.length} saved collection reference${missing.length === 1 ? " was" : "s were"} removed because the collection no longer exists.`);
-    }
-    const nextNotices = [...(state?.notices ?? []), ...noticesRef.current];
-    setNotices(nextNotices);
+    if (missing.length) appendNotice(collectionRemovalNotice(missing, collectionNamesRef.current));
+    replaceHydratedNotices(state?.notices);
     profileIdRef.current = nextProfileId;
     setProfileIdState(nextProfileId);
     defaultSelectionRef.current = validDefault;
@@ -761,11 +864,26 @@ export function usePlaySession(
     setHydrationApplied(true);
     void refreshPreviewFor(validCurrent, validCurrentExcluded);
     void persistState();
-  }, [appendNotice, hydrationApplied, hydrationReady, organization, persistState, refreshPreviewFor, setNotices]);
+  }, [
+    appendNotice,
+    hydrationApplied,
+    hydrationReady,
+    organization,
+    organizationReady,
+    persistState,
+    refreshPreviewFor,
+    replaceHydratedNotices,
+  ]);
 
   useEffect(() => {
-    if (!organization) return;
+    if (!organizationReady || !organization) return;
+    for (const collection of organization.collections ?? []) {
+      if (collection.id && collection.name.trim()) collectionNamesRef.current.set(collection.id, collection.name.trim());
+    }
     const profiles = organization.profiles ?? [];
+    for (const profile of profiles) {
+      if (profile.id && profile.name.trim()) profileNamesRef.current.set(profile.id, profile.name.trim());
+    }
     setBaselineOverrides((current) => {
       const next: Record<string, ProfileBaseline> = {};
       let changed = false;
@@ -786,20 +904,17 @@ export function usePlaySession(
     const nextDefault = defaultSelectionRef.current.filter(isValid);
     const nextExcluded = excludedSelectionRef.current.filter(isValid);
     const nextDefaultExcluded = defaultExcludedSelectionRef.current.filter(isValid);
-    let needsRefresh = false;
     if (!sameList(nextSelection, selectionRef.current)) {
       const removed = selectionRef.current.filter((id) => !isValid(id));
       selectionRef.current = nextSelection;
       setSelectionState(nextSelection);
-      appendNotice(`${removed.length} selected collection${removed.length === 1 ? " was" : "s were"} removed from Play because it no longer exists.`);
+      appendNotice(collectionRemovalNotice(removed, collectionNamesRef.current));
       void persistState();
-      needsRefresh = true;
     }
     if (!sameList(nextExcluded, excludedSelectionRef.current)) {
       excludedSelectionRef.current = nextExcluded;
       setExcludedSelectionState(nextExcluded);
       void persistState();
-      needsRefresh = true;
     }
     if (!sameList(nextDefault, defaultSelectionRef.current)) {
       defaultSelectionRef.current = nextDefault;
@@ -812,22 +927,18 @@ export function usePlaySession(
       void persistState();
     }
     if (profileIdRef.current && !profiles.some((profile) => profile.id === profileIdRef.current)) {
+      const removedProfileID = profileIdRef.current;
       profileIdRef.current = "";
       setProfileIdState("");
       defaultSelectionRef.current = [...selectionRef.current];
       setDefaultSelectionState([...selectionRef.current]);
       defaultExcludedSelectionRef.current = [...excludedSelectionRef.current];
       setDefaultExcludedSelectionState([...excludedSelectionRef.current]);
-      appendNotice("The active profile was removed; the current selection is now Default.");
+      appendNotice(profileRemovalNotice(removedProfileID, profileNamesRef.current));
       void persistState();
-      needsRefresh = true;
     }
-    if (needsRefresh) {
-      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
-    } else {
-      void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
-    }
-  }, [appendNotice, hydrationApplied, organization, persistState, refreshPreviewFor]);
+    void refreshPreviewFor(selectionRef.current, excludedSelectionRef.current);
+  }, [appendNotice, hydrationApplied, organization, organizationReady, persistState, refreshPreviewFor]);
 
   const session = useMemo<PlaySession>(() => ({
     selection,
@@ -864,9 +975,10 @@ export function usePlaySession(
     launchSelection,
     refreshPreview,
     reloadState,
+    dismissNotice,
     clearDeploymentPlan,
   }), [
-    addCollections,
+    dismissNotice,
     busy,
     clearDeploymentPlan,
     clearSelection,

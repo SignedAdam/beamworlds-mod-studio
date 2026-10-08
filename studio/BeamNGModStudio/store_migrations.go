@@ -1050,6 +1050,10 @@ func ensureVersionedAdditiveMigrationsTx(ctx context.Context, tx *sql.Tx) error 
 	if err := ensureColumnTx(ctx, tx, "entities", "archived_at", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return fmt.Errorf("entity archived_at column: %w", err)
 	}
+	// After the v3 rebuild, which recreates archive_links without this column.
+	if err := ensureColumnTx(ctx, tx, "archive_links", "source_kind", `TEXT NOT NULL DEFAULT 'zip'`); err != nil {
+		return fmt.Errorf("archive link source_kind column: %w", err)
+	}
 	if err := ensureColumnTx(ctx, tx, "workspaces", "virgil_configured", `INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("workspace virgil_configured column: %w", err)
 	}
@@ -2269,7 +2273,6 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"workspaces", "library_state_key", `TEXT NOT NULL DEFAULT ''`},
 		{"workspaces", "changed_files", `INTEGER NOT NULL DEFAULT 0`},
 		{"workspaces", "files_changed_at", `TEXT NOT NULL DEFAULT ''`},
-		{"archive_links", "source_kind", `TEXT NOT NULL DEFAULT 'zip'`},
 	}
 	for _, column := range columns {
 		if err := ensureColumnTx(ctx, tx, column.table, column.column, column.definition); err != nil {

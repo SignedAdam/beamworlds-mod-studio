@@ -544,7 +544,6 @@ func (service *AppService) updateLibraryFromWorkspace(ctx context.Context, works
 		return service.updateFolderLibraryFromWorkspace(ctx, workspace, baseline, item, author)
 	}
 
-
 	row, err := service.store.workspaceLibraryRow(ctx, workspace.ID)
 	if err != nil {
 		return item.EntityID, err
@@ -1752,7 +1751,7 @@ func (service *AppService) removeWorkspaceVersions(workspace WorkspaceRecord) {
 		if _, err := os.Stat(target); err != nil {
 			continue
 		}
-		if err := recycleFile(target); err != nil {
+		if err := recycleWorkspaceRoot(target); err != nil {
 			log.Printf("recycle saved versions %s: %v", target, err)
 		}
 	}

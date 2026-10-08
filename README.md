@@ -24,8 +24,8 @@ Both packages contain the same app. Choose how you'd like to run it:
 
 | Download | How to use it |
 | --- | --- |
-| [Installer (.exe)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/download/v0.1.0-preview.1/BeamWorldsModStudio-windows-amd64-installer.exe) | Run setup, then open **BeamWorlds Mod Studio** from the Start menu. |
-| [Portable (.zip)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/download/v0.1.0-preview.1/BeamWorldsModStudio-windows-amd64.zip) | Extract the ZIP wherever you want to keep the app, then open **`beamngmodstudio.exe`**. No installation needed. |
+| [Installer (.exe)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/latest/download/BeamWorldsModStudio-windows-amd64-installer.exe) | Run setup, then open **BeamWorlds Mod Studio** from the Start menu. |
+| [Portable (.zip)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/latest/download/BeamWorldsModStudio-windows-amd64.zip) | Extract the ZIP wherever you want to keep the app, then open **`beamngmodstudio.exe`**. No installation needed. |
 
 ## Getting started
 

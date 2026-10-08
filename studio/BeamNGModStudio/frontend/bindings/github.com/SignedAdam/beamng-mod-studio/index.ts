@@ -121,6 +121,7 @@ export type {
     VirusScanStageReference,
     WorkspaceDetail,
     WorkspaceDraft,
+    WorkspaceImageFile,
     WorkspaceRecord,
     WorkspaceSearchMatch,
     WorkspaceSearchOptions,

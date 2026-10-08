@@ -63,6 +63,138 @@ function scrollTabIntoView(tab: HTMLButtonElement | undefined): void {
   }
 }
 
+const WHEEL_LINE_PIXELS = 40;
+// Fraction of the remaining distance covered per 60 Hz frame; scaled by real frame time.
+const WHEEL_EASE_PER_FRAME = 0.3;
+
+interface TabStripOverflow {
+  start: boolean;
+  end: boolean;
+}
+
+/**
+ * Turns vertical mouse-wheel input over an overflowing tab strip into eased horizontal
+ * scrolling and reports which edges still hide tabs. Native horizontal input (trackpads,
+ * tilt wheels) is left alone, and the wheel falls through to the page once the strip
+ * cannot move further in that direction.
+ */
+function useHorizontalTabScroll(list: HTMLDivElement | null): TabStripOverflow {
+  const [overflow, setOverflow] = useState<TabStripOverflow>({ start: false, end: false });
+
+  useEffect(() => {
+    if (!list) {
+      return;
+    }
+
+    const updateOverflow = (): void => {
+      const max = list.scrollWidth - list.clientWidth;
+      const start = max > 1 && list.scrollLeft > 1;
+      const end = max > 1 && list.scrollLeft < max - 1;
+      setOverflow(current => (
+        current.start === start && current.end === end ? current : { start, end }
+      ));
+    };
+
+    const reducedMotion = typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : undefined;
+    let frame = 0;
+    let target = list.scrollLeft;
+    let position = list.scrollLeft;
+    let written = list.scrollLeft;
+    let lastTime = 0;
+
+    const stop = (): void => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    };
+
+    const step = (time: number): void => {
+      frame = 0;
+      // Something else (keyboard focus, scrollIntoView, scrollbar drag) moved the strip.
+      if (Math.abs(list.scrollLeft - written) > 1) {
+        target = list.scrollLeft;
+        return;
+      }
+      const elapsed = lastTime ? Math.min(64, time - lastTime) : 16.67;
+      lastTime = time;
+      const ease = 1 - Math.pow(1 - WHEEL_EASE_PER_FRAME, elapsed / 16.67);
+      const remaining = target - position;
+      position = Math.abs(remaining) < 0.5 ? target : position + remaining * ease;
+      list.scrollLeft = position;
+      written = list.scrollLeft;
+      if (position !== target) {
+        frame = requestAnimationFrame(step);
+      }
+    };
+
+    const handleWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.defaultPrevented) {
+        return;
+      }
+      if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) {
+        return;
+      }
+      const max = list.scrollWidth - list.clientWidth;
+      if (max <= 0) {
+        return;
+      }
+
+      let delta = event.deltaY;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+        delta *= WHEEL_LINE_PIXELS;
+      } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        delta *= list.clientWidth;
+      }
+
+      const base = frame ? target : list.scrollLeft;
+      const next = Math.min(max, Math.max(0, base + delta));
+      if (Math.abs(next - base) < 0.5) {
+        return;
+      }
+
+      event.preventDefault();
+      target = next;
+      if (reducedMotion?.matches) {
+        stop();
+        list.scrollLeft = target;
+        return;
+      }
+      if (!frame) {
+        position = list.scrollLeft;
+        written = list.scrollLeft;
+        lastTime = 0;
+        frame = requestAnimationFrame(step);
+      }
+    };
+
+    const resizeObserver = typeof ResizeObserver === "function"
+      ? new ResizeObserver(updateOverflow)
+      : undefined;
+    resizeObserver?.observe(list);
+    // Adding, removing, or relabelling tabs changes scrollWidth without resizing the strip.
+    const mutationObserver = typeof MutationObserver === "function"
+      ? new MutationObserver(updateOverflow)
+      : undefined;
+    mutationObserver?.observe(list, { childList: true, subtree: true, characterData: true });
+    list.addEventListener("wheel", handleWheel, { passive: false });
+    list.addEventListener("scroll", updateOverflow, { passive: true });
+    updateOverflow();
+
+    return () => {
+      stop();
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      list.removeEventListener("wheel", handleWheel);
+      list.removeEventListener("scroll", updateOverflow);
+    };
+  }, [list]);
+
+  return overflow;
+}
+
 export function IndexCardTabs({
   items,
   value,
@@ -89,6 +221,8 @@ export function IndexCardTabs({
     isControlled ? undefined : initialSelection
   ));
   const [focusedId, setFocusedId] = useState<string | undefined>(() => initialSelection);
+  const [listElement, setListElement] = useState<HTMLDivElement | null>(null);
+  const listOverflow = useHorizontalTabScroll(listElement);
 
   const getItemToken = useCallback((itemId: string): string => {
     const existingToken = itemTokens.current.get(itemId);
@@ -264,10 +398,13 @@ export function IndexCardTabs({
     <div className={rootClassName}>
       <div className="index-card-tabs__bar">
         <div
+          ref={setListElement}
           className="index-card-tabs__list"
           role="tablist"
           aria-label={ariaLabel ?? "Tabs"}
           aria-orientation="horizontal"
+          data-overflow-start={listOverflow.start || undefined}
+          data-overflow-end={listOverflow.end || undefined}
         >
           {itemIdentifiers.map(({ item, tabId, panelId }) => {
             const selected = item.id === activeId;
@@ -307,6 +444,7 @@ export function IndexCardTabs({
                     <span className="index-card-tabs__icon">{item.icon}</span>
                   )}
                   <span className="index-card-tabs__label">{item.label}</span>
+                  {item.statusTone && <span className="index-card-tabs__pip" aria-hidden="true" />}
                   {item.count !== undefined && (
                     <span className="index-card-tabs__count" aria-label={`Count: ${item.count}`}>
                       {item.count}

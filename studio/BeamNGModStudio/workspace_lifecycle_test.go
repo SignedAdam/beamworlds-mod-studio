@@ -24,6 +24,14 @@ func TestDeleteWorkspaceRemovesRowsAndFiles(t *testing.T) {
 	if _, err := os.Stat(wsRoot); err != nil {
 		t.Fatalf("workspace directory should exist before deletion: %v", err)
 	}
+	versionsDir := filepath.Join(service.config.DataDir, "versions", wsID)
+	savedFile := filepath.Join(versionsDir, "saved", "v1", "files", "info.json")
+	if err := os.MkdirAll(filepath.Dir(savedFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(savedFile, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := service.DeleteWorkspace(wsID); err != nil {
 		t.Fatal(err)
@@ -37,6 +45,10 @@ func TestDeleteWorkspaceRemovesRowsAndFiles(t *testing.T) {
 	// Workspace files must be gone.
 	if _, err := os.Stat(wsRoot); !os.IsNotExist(err) {
 		t.Fatalf("workspace directory should be removed, stat: %v", err)
+	}
+	// Its saved versions go with it.
+	if _, err := os.Stat(versionsDir); !os.IsNotExist(err) {
+		t.Fatalf("saved versions should be removed, stat: %v", err)
 	}
 
 	// The library entity must survive — DeleteWorkspace never touches it.

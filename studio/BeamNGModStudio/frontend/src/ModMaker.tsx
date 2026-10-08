@@ -3348,6 +3348,8 @@ export function ModMaker({
   const handleDeleteProject = async (workspaceID: string) => {
     await API.DeleteWorkspace(workspaceID);
     setDeletedWorkspaceIDs((prev) => new Set([...prev, workspaceID]));
+    // The mod no longer has an editing history, so its Edited badge goes.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.library });
     if (selectedID === workspaceID) {
       onSelect("");
     }

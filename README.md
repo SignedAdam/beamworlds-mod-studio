@@ -30,7 +30,7 @@ Both packages contain the same app. Choose how you'd like to run it:
 ## Getting started
 
 1. **Connect your folders.** Close BeamNG and open Studio. Follow setup to select your game, user folder, and mod folders. Existing mods can stay where they are.
-2. **Explore your library.** Let the first scan finish, then browse **Mod Library**. Use **Add mod…** to import more ZIPs.
+2. **Explore your library.** Let the first scan finish, then browse **Mod Library**. Use **Add mod…** to import more ZIPs or unpacked mod folders.
 3. **Choose what to play.** Open **Play**, choose **All mods** or your **Collections**, and press **Play**. Save a profile to reuse that selection later.
 
 Want to use Virgil? Connect your preferred AI account or API key under **Settings → Virgil**. Library management and manual editing work without AI.
@@ -49,11 +49,15 @@ Want to use Virgil? Connect your preferred AI account or API key under **Setting
 
 ### Add existing mods
 
-Configured folders are scanned automatically. **Add mod…** copies ZIPs into your library without changing the originals. Use **Rescan mods** for files added outside Studio. Importing a mod doesn't enable it in the game; choose your mod set in **Play**.
+Configured folders are scanned automatically. **Add mod…** copies ZIPs or unpacked mod folders into your library without changing the originals. Use **Rescan mods** for files added outside Studio. Importing a mod doesn't enable it in the game; choose your mod set in **Play**.
+
+### Unpacked mods
+
+Every folder inside an `unpacked` folder, such as BeamNG's `mods/unpacked`, is one mod and shows an **Unpacked** badge. Studio uses these folders as they are: it never packs them into a ZIP and never looks inside them for more mods. Scans read only each folder's file list and its few info files, so a mod with thousands of files is checked in milliseconds; virus scans, opening in ModMaker, and importing read everything because you asked for it. **Play** links the selected unpacked mods into the game instead of copying them, and folders you unpack in game move back to your BeamNG `mods/unpacked` folder when it closes.
 
 ### Edited mods and versions
 
-Opening a mod in **ModMaker** edits that mod. When you or Virgil save a change, Studio updates the mod in your library a few seconds later. It keeps its name, collections, and file name, and **Play** picks it up automatically. The library shows edited mods with an **Edited** badge. **Versions** (in ModMaker, or the mod's **Versions** tab in **Mod Library**) lists each saved state and the original, and **Restore** returns to any of them. Your current state is kept, so a restore can be undone. Changes wait while BeamNG is running. Mods in BeamNG's own repository folder are never rewritten; their changes stay in ModMaker, and **Export** saves a copy.
+Opening a mod in **ModMaker** edits that mod. When you or Virgil save a change, Studio updates the mod in your library a few seconds later. It keeps its name, collections, and file name, and **Play** picks it up automatically. For an unpacked mod, only the changed files are written into its folder, and changes made there outside Studio (for example by BeamNG's World Editor) are kept and appear in ModMaker. The library shows edited mods with an **Edited** badge. **Versions** (in ModMaker, or the mod's **Versions** tab in **Mod Library**) lists each saved state and the original, and **Restore** returns to any of them. Your current state is kept, so a restore can be undone. Changes wait while BeamNG is running. Mods in BeamNG's own repository folder are never rewritten; their changes stay in ModMaker, and **Export** saves a copy.
 
 ### Table controls
 
@@ -66,7 +70,7 @@ Use checkboxes to select mods, Ctrl-click to toggle a selection, and Shift-click
 <details>
 <summary>Build from source, run tests, and package</summary>
 
-Go + Wails v3, React + TypeScript, and SQLite. The desktop app lives in `studio/BeamNGModStudio`; archive tools live in `modkit`.
+Go + Wails v3, React + TypeScript, and SQLite. The desktop app lives in `studio/BeamNGModStudio`; mod reading and editing tools live in `modkit`, where `modkit.Source` is the one place that knows whether a mod is a ZIP or an unpacked folder.
 
 ### Build
 
@@ -108,7 +112,7 @@ The [release workflow](.github/workflows/release.yml) builds an existing tag and
 
 ### Safety model
 
-Scanning reads library archives in place. Saving in ModMaker rebuilds that mod's library ZIP; Studio first moves the original into its data folder and keeps every saved version there until you delete the ModMaker project. Play applies the selected mod set; profiles themselves don't change mod files.
+Scanning reads library mods in place. Saving in ModMaker rebuilds a ZIP mod's file, or writes only the changed files of an unpacked mod; Studio first keeps the original (for unpacked mods, just the files it changes) in its data folder, along with every saved version, until you delete the ModMaker project. Play applies the selected mod set and links unpacked mods rather than copying them; removing a link never touches the mod's own files. Profiles themselves don't change mod files.
 
 If a scan can't read a library folder (an unplugged drive, an offline share, denied access), the mods in it keep their place in the library and in collections, and the status bar names the folder until a scan reaches it again.
 

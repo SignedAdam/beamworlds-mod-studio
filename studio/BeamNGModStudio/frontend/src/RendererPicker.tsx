@@ -6,13 +6,13 @@ import { Icon } from "./icons";
 // The renderers BeamNG's own launcher offers. "default" lets BeamNG choose:
 // DirectX 12, falling back to DirectX 11, like the launcher's main button.
 const RENDERERS = [
-  { id: "default", name: "Default", detail: "DirectX 12, falls back to DirectX 11" },
-  { id: "vulkan", name: "Vulkan", detail: "" },
-  { id: "d3d12", name: "DirectX 12", detail: "No fallback" },
-  { id: "d3d11", name: "DirectX 11", detail: "Older renderer" },
+  { id: "default", name: "Default", label: "Default renderer (DX12)", detail: "DirectX 12, falls back to DirectX 11" },
+  { id: "vulkan", name: "Vulkan", label: "Vulkan renderer", detail: "" },
+  { id: "d3d12", name: "DirectX 12", label: "DX12 renderer", detail: "No fallback" },
+  { id: "d3d11", name: "DirectX 11", label: "DX11 renderer", detail: "Older renderer" },
 ];
 
-/** A one-line "Default renderer ⌄" control; the choice applies to every launch. */
+/** A one-line "Default renderer (DX12) ⌄" control; the choice applies to every launch. */
 export function RendererPicker({ onError }: { onError: (error: unknown) => void }) {
   const [renderer, setRenderer] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -76,9 +76,9 @@ export function RendererPicker({ onError }: { onError: (error: unknown) => void 
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={!selected}
-        title="The graphics renderer BeamNG starts with. Studio remembers it for every launch."
+        onClick={() => setOpen((value) => !value)}
       >
-        {selected ? `${selected.name} renderer` : "Renderer"}
+        {selected?.label ?? "Renderer"}
         <Icon name="chevron" size={13} />
       </button>
       {open && (

@@ -98,8 +98,9 @@ func finalizeAppConfig(config AppConfig) (AppConfig, error) {
 func findProjectConfig() (string, string) {
 	if value := strings.TrimSpace(os.Getenv("BEAMWORLDS_HOME")); value != "" {
 		root := cleanOptionalPath(value)
-		if configRoot, configPath := findConfigFrom(root); configPath != "" {
-			return configRoot, configPath
+		configPath := filepath.Join(root, "config.json")
+		if info, err := os.Stat(configPath); err == nil && !info.IsDir() {
+			return root, configPath
 		}
 		return root, ""
 	}
@@ -171,10 +172,9 @@ func effectiveScanRoots(config AppConfig) []string {
 		}
 		add(candidate)
 	}
-	if len(roots) == 0 {
-		add(config.LibraryDir)
-		add(config.ActiveModsDir)
-	}
+	// Custom scan roots extend discovery; they must not hide installed game mods.
+	add(config.LibraryDir)
+	add(config.ActiveModsDir)
 	return roots
 }
 

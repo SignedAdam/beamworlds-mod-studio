@@ -323,10 +323,30 @@ func (service *AppService) analyzeRuntime(ctx context.Context, workspaceID strin
 }
 
 func (service *AppService) findRuntimeLog() string {
-	preferred := filepath.Join(service.config.BeamNGRoot, "current", "beamng.log")
-	if info, err := os.Stat(preferred); err == nil && !info.IsDir() {
-		return preferred
+	realLog := filepath.Join(service.config.BeamNGRoot, "current", "beamng.log")
+	// Also check the play profile log.
+	var profileLog string
+	if playRoot, err := playUserPath(service.config); err == nil {
+		profileLog = filepath.Join(playRoot, "current", "beamng.log")
 	}
+
+	// Return whichever was modified most recently.
+	var best string
+	var bestTime time.Time
+	for _, candidate := range []string{realLog, profileLog} {
+		if candidate == "" {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.ModTime().After(bestTime) {
+			best = candidate
+			bestTime = info.ModTime()
+		}
+	}
+	if best != "" {
+		return best
+	}
+
+	// Fallback: walk the BeamNG root as before.
 	var latest string
 	var latestTime time.Time
 	_ = filepath.WalkDir(service.config.BeamNGRoot, func(path string, entry os.DirEntry, walkErr error) error {

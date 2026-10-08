@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -769,5 +770,101 @@ func assertWorkspaceVirgilColumns(t *testing.T, store *Store) {
 		if count != 1 {
 			t.Fatalf("%s.%s columns = %d, want 1", item.table, item.column, count)
 		}
+	}
+}
+
+func TestVirgilPersistsAssistantOutcomes(t *testing.T) {
+	cases := []struct {
+		name       string
+		frames     []string
+		status     string
+		text       string
+		errorMatch string
+	}{
+		{
+			name: "provider rejection",
+			frames: []string{
+				`{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"The requested model is not supported for this account."}}`,
+				`{"type":"agent_end","isTerminal":true}`,
+			},
+			status: "failed", errorMatch: "not supported for this account",
+		},
+		{
+			name: "successful response after provider retry",
+			frames: []string{
+				`{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Temporary provider outage"}}`,
+				`{"type":"agent_end","isTerminal":false}`,
+				`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Inspection complete."}],"stopReason":"stop"}}`,
+				`{"type":"agent_end","isTerminal":true}`,
+			},
+			status: "complete", text: "Inspection complete.",
+		},
+		{
+			name: "final text without streaming deltas",
+			frames: []string{
+				`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Inspection "},{"type":"text","text":"complete."}],"stopReason":"stop"}}`,
+				`{"type":"agent_end","isTerminal":true}`,
+			},
+			status: "complete", text: "Inspection complete.",
+		},
+		{
+			name: "streamed text is not duplicated by final message",
+			frames: []string{
+				`{"type":"message_start","message":{"role":"assistant","content":[]}}`,
+				`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Inspection complete."}}`,
+				`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Inspection complete."}],"stopReason":"stop"}}`,
+				`{"type":"agent_end","isTerminal":true}`,
+			},
+			status: "complete", text: "Inspection complete.",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service := newTestAppService(t)
+			detail, err := service.CreateNewMod(NewModRequest{Name: "Provider outcome", ModID: "provider_outcome", Kind: "script"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			session := VirgilSessionRecord{
+				ID: "outcome-session", WorkspaceID: detail.Workspace.ID, Profile: "chatgpt",
+				Status: "running", CreatedAt: nowUTC(), UpdatedAt: nowUTC(),
+			}
+			record := AgentRunRecord{
+				ID: "outcome-run", SessionID: session.ID, WorkspaceID: session.WorkspaceID,
+				Prompt: "Inspect this mod", Status: "running", StartedAt: nowUTC(),
+			}
+			if err := service.store.CreateVirgilSessionAndRun(context.Background(), session, record); err != nil {
+				t.Fatal(err)
+			}
+			run := &agentRun{
+				id: record.ID, sessionID: session.ID, workspace: detail.Workspace,
+				manager: service.agents, persist: true, done: make(chan struct{}),
+				decoder: &rpcDecoder{
+					reader:   bufio.NewReader(strings.NewReader(strings.Join(test.frames, "\n") + "\n")),
+					maxFrame: maxRPCFrameBytes, maxReassembled: maxRPCReassembledBytes,
+				},
+			}
+			run.readLoop()
+			run.waitLoop()
+			runs, err := service.store.ListAgentRunsBySession(context.Background(), session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(runs) != 1 || runs[0].Status != test.status || runs[0].FinalText != test.text {
+				t.Fatalf("persisted response = %#v; want status %q, text %q", runs, test.status, test.text)
+			}
+			storedSession, err := service.store.GetVirgilSession(context.Background(), session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.errorMatch != "" {
+				if !strings.Contains(runs[0].Error, test.errorMatch) || storedSession.Status != "error" || !strings.Contains(storedSession.LastError, test.errorMatch) {
+					t.Fatalf("provider failure was hidden: run %#v, session %#v", runs[0], storedSession)
+				}
+			} else if runs[0].Error != "" || storedSession.Status != "idle" || storedSession.LastError != "" {
+				t.Fatalf("successful response retained a provider error: run %#v, session %#v", runs[0], storedSession)
+			}
+		})
 	}
 }

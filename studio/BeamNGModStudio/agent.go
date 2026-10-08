@@ -33,6 +33,16 @@ const (
 	launchWaitTimeout         = 1 * time.Second
 )
 
+const virgilGameTestingGuidance = `Live BeamNG diagnosis and testing:
+- When someone reports a broken mod, console errors, or problems while playing, call game_log before guessing. Read the error and nearby stack trace, then inspect the named workspace files. An extension inventory or another mod's name in a log is not evidence this mod caused the failure.
+- Use game_source to check API signatures and extension lifecycle behavior in the installed BeamNG Lua before inventing compatibility fixes. Paths are relative to its lua directory; query searches literal source text. It is read-only: do not copy base-game code or assets into the mod.
+- For an ongoing live-game reproduction, save the game_log cursor before the action and read again with that cursor afterward. Check rotation, byte ranges, and output bounds; old errors and missing or empty logs do not prove the current build works.
+- When live testing a build, use mod_game_test to validate, export, and exercise it in an isolated BeamNG session. Inspect the returned fresh log AND level/vehicle/simulation observations after every test. Fix the root cause, validate, and retest changed builds before reporting the issue resolved.
+- Do not remove features, swallow exceptions, or suppress diagnostics to make a test look clean. Distinguish the mod's errors from unrelated engine or environment messages using concrete evidence.
+- Never interrupt an already-running player session. Read its live log instead; if a separate isolated test is needed, explain that the game must be closed first.
+- Report exactly what was exercised. Vehicle spawn and simulation are not a driving or crash test. Name the tested export's SHA-256; do not claim a later, untested edit was tested.
+- Your workspace edits are the user's library mod: Studio updates it automatically shortly after you write files, and keeps earlier states in Versions so the user can restore them. Never tell the user to export, import, install, or copy a ZIP to use your changes. Use mod_export only when they ask for a separate ZIP, for example to share it.`
+
 const virgilGitCommitGuidance = `Git commit guidance (conditional):
 Follow these rules only when the person asks you to commit completed work or committing is an established part of the current request. Do not turn ordinary edits into automatic commits. This guidance is prompt-only: do not add application-side Git behavior or make remote calls.
 
@@ -67,6 +77,7 @@ type AgentManager struct {
 	store                    *Store
 	config                   AppConfig
 	runtime                  *managedAIRuntime
+	service                  *AppService
 	emit                     func(string, any)
 	mu                       sync.Mutex
 	runs                     map[string]*agentRun
@@ -152,16 +163,13 @@ func agentSelectionArguments(settings agentLaunchSettings) []string {
 	if !settings.SelectModel {
 		return nil
 	}
-	provider, defaultModel := agentProviderAndDefaultModel(settings.Profile)
+	provider := agentProvider(settings.Profile)
 	if provider == "" {
 		return nil
 	}
 	model := strings.TrimSpace(settings.Model)
 	if model == "" {
-		model = defaultModel
-	}
-	if model == "" {
-		return nil
+		return []string{"--provider", provider}
 	}
 	if !strings.Contains(model, "/") {
 		model = provider + "/" + model
@@ -169,20 +177,18 @@ func agentSelectionArguments(settings agentLaunchSettings) []string {
 	return []string{"--model", model}
 }
 
-func agentProviderAndDefaultModel(profile string) (string, string) {
+func agentProvider(profile string) string {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
 	case "chatgpt":
-		return "openai-codex", "openai-codex/gpt-5.4"
-	case "claude":
-		return "anthropic", "anthropic/claude-sonnet-4-6"
+		return "openai-codex"
+	case "claude", "anthropic":
+		return "anthropic"
 	case "openrouter":
-		return "openrouter", "openrouter/auto"
+		return "openrouter"
 	case "openai":
-		return "openai", "openai/gpt-5.4"
-	case "anthropic":
-		return "anthropic", "anthropic/claude-sonnet-4-6"
+		return "openai"
 	default:
-		return "", ""
+		return ""
 	}
 }
 
@@ -1088,7 +1094,7 @@ func (manager *AgentManager) launchRunContext(launchContext context.Context, wor
 }
 
 func buildVirgilPromptMessage(prompt string, firstTurn bool) string {
-	message := "Goal: " + prompt + "\n\nWork only in the provided editable workspace through the host tools. Inspect before editing. Do not create placeholders, copy third-party/base-game assets, suppress failures, export, install, or launch the game. Before finishing, run mod_validate and workspace_diff, fix validation errors, and report exact changed files and remaining warnings."
+	message := "Goal: " + prompt + "\n\nEdit only the provided workspace through the host tools. Use game_log and game_source for read-only game evidence. Inspect before editing. Do not create placeholders, copy third-party/base-game assets, or suppress failures. Before finishing, run mod_validate and workspace_diff, fix validation errors, and report exact changed files and remaining warnings."
 	if firstTurn {
 		message += "\n\nDuring this first turn, call session_set_title once with a concise 3–8 word title describing the work. Do not include punctuation-only or generic titles."
 	}
@@ -1400,8 +1406,10 @@ func (manager *AgentManager) writeAgentContextContext(ctx context.Context, runID
 	encoded, _ := json.MarshalIndent(manifestSummary, "", "  ")
 	var builder strings.Builder
 	builder.WriteString("You are the BeamWorlds ModMaker agent. The source archive is immutable and unavailable. ")
-	builder.WriteString("You can access only the copied workspace through host-owned tools. Never claim an edit without using those tools. ")
-	builder.WriteString("Do not create placeholders, copy third-party/base-game assets, suppress failures, export, install, or launch the game.\n\n")
+	builder.WriteString("Edit only the copied workspace through host-owned tools. Never claim an edit or game test without using those tools. ")
+	builder.WriteString("Do not create placeholders, copy third-party/base-game assets, or suppress failures.\n\n")
+	builder.WriteString(virgilGameTestingGuidance)
+	builder.WriteString("\n\n")
 	builder.WriteString(virgilGitCommitGuidance)
 	builder.WriteString("\n\n")
 	builder.WriteString("<mod-manifest>\n")
@@ -1439,6 +1447,8 @@ func (manager *AgentManager) writeAgentContextContext(ctx context.Context, runID
 }
 
 func (run *agentRun) readLoop() {
+	var assistantFailure error
+	messageStreamed := false
 	for {
 		frame, err := run.decoder.Read()
 		if err != nil {
@@ -1462,16 +1472,35 @@ func (run *agentRun) readLoop() {
 		case "host_tool_cancel":
 			targetID, _ := frame["targetId"].(string)
 			run.cancelHostTool(targetID)
-		case "message_update":
-			delta := extractAssistantDelta(frame)
-			if delta != "" {
-				run.textMu.Lock()
-				if run.text.Len()+len(delta) <= maxPersistedAgentText {
-					run.text.WriteString(delta)
-				}
-				run.textMu.Unlock()
-				run.activity(typeName, "", delta, "", false, nil, false)
+		case "message_start":
+			if nestedString(frame, "message", "role") == "assistant" {
+				messageStreamed = false
 			}
+			run.activity(typeName, activityMessage(frame), "", "", false, compactFrame(frame), false)
+		case "message_update":
+			if delta := extractAssistantDelta(frame); delta != "" {
+				messageStreamed = true
+				run.appendAssistantText(delta)
+			}
+		case "message_end":
+			if message, ok := frame["message"].(map[string]any); ok && nestedString(message, "role") == "assistant" {
+				assistantFailure = assistantMessageFailure(message)
+				if !messageStreamed {
+					if content, ok := message["content"].([]any); ok {
+						for _, raw := range content {
+							if block, ok := raw.(map[string]any); ok && nestedString(block, "type") == "text" {
+								run.appendAssistantText(nestedString(block, "text"))
+							}
+						}
+					}
+				}
+				messageStreamed = false
+			}
+			message := activityMessage(frame)
+			if assistantFailure != nil {
+				message = assistantFailure.Error()
+			}
+			run.activityWithMetrics(typeName, message, "", "", assistantFailure != nil, compactFrame(frame), true, sessionMetricsFromFrame(frame))
 		case "tool_execution_start", "tool_execution_update", "tool_execution_end":
 			toolName := nestedString(frame, "toolName")
 			if toolName == "" {
@@ -1504,17 +1533,44 @@ func (run *agentRun) readLoop() {
 			}
 		case "agent_end":
 			if terminal, exists := frame["isTerminal"].(bool); !exists || terminal {
+				if assistantFailure != nil {
+					run.setFailure(assistantFailure)
+				}
 				run.closeForTerminal()
 				return
 			}
 
-		case "agent_start", "turn_start", "turn_end", "message_start", "message_end", "auto_compaction_start", "auto_compaction_end", "auto_retry_start", "auto_retry_end", "notice", "goal_updated", "extension_error":
+		case "agent_start", "turn_start", "turn_end", "auto_compaction_start", "auto_compaction_end", "auto_retry_start", "auto_retry_end", "notice", "goal_updated", "extension_error":
 			var metrics *agentEventMetrics
 			if typeName == "turn_end" {
 				metrics = sessionMetricsFromFrame(frame)
 			}
 			run.activityWithMetrics(typeName, activityMessage(frame), "", "", typeName == "extension_error", compactFrame(frame), typeName != "message_start", metrics)
 		}
+	}
+}
+
+func (run *agentRun) appendAssistantText(text string) {
+	if text == "" {
+		return
+	}
+	run.textMu.Lock()
+	if run.text.Len()+len(text) <= maxPersistedAgentText {
+		run.text.WriteString(text)
+	}
+	run.textMu.Unlock()
+	run.activity("message_update", "", text, "", false, nil, false)
+}
+
+func assistantMessageFailure(message map[string]any) error {
+	switch nestedString(message, "stopReason") {
+	case "error", "aborted":
+		if message := strings.TrimSpace(nestedString(message, "errorMessage")); message != "" {
+			return errors.New(message)
+		}
+		return errors.New("the AI provider ended the response without completing it")
+	default:
+		return nil
 	}
 }
 func (run *agentRun) stderrLoop(stderr io.Reader) {
@@ -1706,7 +1762,12 @@ func (run *agentRun) handleHostTool(frame map[string]any) {
 		err = lockErr
 	} else {
 		workspaceLock := run.manager.workspaceToolMutex(run.workspace.ID)
-		if lockErr := lockMutexContext(requestContext, workspaceLock); lockErr != nil {
+		var lockErr error
+		lockWorkspace := toolName != "mod_game_test" && toolName != "game_log" && toolName != "game_source"
+		if lockWorkspace {
+			lockErr = lockMutexContext(requestContext, workspaceLock)
+		}
+		if lockErr != nil {
 			err = lockErr
 		} else {
 			if !run.beginHostToolExecution(requestID) || run.cancelRequested.Load() {
@@ -1738,7 +1799,9 @@ func (run *agentRun) handleHostTool(frame map[string]any) {
 					}
 				}
 			}
-			workspaceLock.Unlock()
+			if lockWorkspace {
+				workspaceLock.Unlock()
+			}
 		}
 		run.toolMu.Unlock()
 	}
@@ -1780,6 +1843,10 @@ func hostToolActivity(name string, arguments map[string]any) (string, map[string
 		"workspace_diff":    "Reviewed changes",
 		"mod_validate":      "Validated mod",
 		"mod_manifest":      "Reviewed mod manifest",
+		"game_log":          "Read BeamNG log",
+		"game_source":       "Read BeamNG Lua API",
+		"mod_export":        "Exported mod ZIP",
+		"mod_game_test":     "Tested build in BeamNG",
 		"session_set_title": "Named Virgil session",
 	}[name]
 	if label == "" {
@@ -1850,6 +1917,28 @@ func (run *agentRun) executeHostToolWithContext(ctx context.Context, name string
 		}
 	case "mod_manifest":
 		value = run.item.Manifest
+	case "game_log", "game_source", "mod_export", "mod_game_test":
+		if run.manager.service == nil {
+			return "", errors.New("Studio game and export services are unavailable")
+		}
+		switch name {
+		case "game_log":
+			value, err = run.manager.service.readLiveGameLog(ctx, RuntimeLogReadOptions{
+				Cursor: requiredString(arguments, "cursor"), MaxLines: int(numberValue(arguments["maxLines"])),
+			})
+		case "game_source":
+			value, err = readGameSource(ctx, run.manager.service.config.GameInstallDir, gameSourceOptions{
+				Path: requiredString(arguments, "path"), Query: requiredString(arguments, "query"),
+				StartLine: int(numberValue(arguments["startLine"])), MaxLines: int(numberValue(arguments["maxLines"])),
+			})
+		case "mod_export":
+			value, err = run.manager.service.exportWorkspace(ctx, run.workspace.ID, requiredString(arguments, "label"), "virgil")
+		case "mod_game_test":
+			value, err = run.manager.service.runWorkspaceGameTest(ctx, run.workspace.ID, WorkspaceGameTestOptions{
+				Level: requiredString(arguments, "level"), Vehicle: requiredString(arguments, "vehicle"),
+				Config: requiredString(arguments, "config"), DurationSeconds: int(numberValue(arguments["durationSeconds"])),
+			})
+		}
 	case "session_set_title":
 		title, titleErr := validateVirgilSessionTitle(requiredString(arguments, "title"), true)
 		if titleErr != nil {
@@ -1873,8 +1962,12 @@ func (run *agentRun) executeHostToolWithContext(ctx context.Context, name string
 		if err := run.manager.store.DeleteWorkspaceDrafts(ctx, run.workspace.ID, requiredString(arguments, "path")); err != nil {
 			return "", err
 		}
-		if err := run.manager.store.TouchWorkspace(ctx, run.workspace.ID); err != nil {
-			return "", err
+		touch := run.manager.store.TouchWorkspace(ctx, run.workspace.ID)
+		if run.manager.service != nil {
+			touch = run.manager.service.workspaceChanged(ctx, run.workspace.ID, "virgil")
+		}
+		if touch != nil {
+			return "", touch
 		}
 	}
 	if text, ok := value.(string); ok {
@@ -2141,6 +2234,10 @@ func hostToolDefinitions() []map[string]any {
 		{"name": "workspace_diff", "label": "Review workspace diff", "description": "Return added, modified, and deleted files with bounded text patches.", "loadMode": "essential", "parameters": object(map[string]any{})},
 		{"name": "mod_validate", "label": "Validate BeamNG mod", "description": "Run safe-path, JSON5, packaging, and category-aware workspace validation.", "loadMode": "essential", "parameters": object(map[string]any{})},
 		{"name": "mod_manifest", "label": "Inspect mod manifest", "description": "Return the analyzed source manifest, variants, structural metrics, and issues.", "loadMode": "essential", "parameters": object(map[string]any{})},
+		{"name": "game_log", "label": "Read live BeamNG log", "description": "Read recent errors, warnings and stack context from the player's configured BeamNG log, even without an installed test. Save the returned cursor and pass it after a reproduction to read only fresh output. Counts cover the returned byte window; bounded or empty output is not proof a mod works.", "loadMode": "essential", "parameters": object(map[string]any{"cursor": stringField, "maxLines": map[string]any{"type": "integer", "minimum": 1, "maximum": maxLogReadLines}})},
+		{"name": "game_source", "label": "Read installed BeamNG Lua", "description": "Read-only access to installed BeamNG Lua APIs. With query, search literal case-sensitive text under path (default all lua); without query, read the named .lua file. Paths are relative to the installation's lua directory. Returns numbered lines, bounded to maxLines; use startLine to read more context. Never copy base-game code into the mod.", "loadMode": "essential", "parameters": object(map[string]any{"path": stringField, "query": stringField, "startLine": map[string]any{"type": "integer", "minimum": 1}, "maxLines": map[string]any{"type": "integer", "minimum": 1, "maximum": 300}})},
+		{"name": "mod_export", "label": "Export mod ZIP", "description": "Validate and export the current workspace as a separate ZIP, for sharing. Not needed to use changes: the user's library mod already updates from this workspace automatically. Returns the export path and SHA-256.", "loadMode": "essential", "parameters": object(map[string]any{"label": stringField})},
+		{"name": "mod_game_test", "label": "Test mod in BeamNG", "description": "Validate and export this workspace, then launch BeamNG with only that ZIP in an isolated user folder. Load a level and target vehicle, run a bounded simulation, close only the owned test process, and return observations plus fresh log diagnostics and the tested ZIP. Refuses to interrupt an already-running game. Always inspect both observations and log; spawning and simulation do not prove driving or crash features.", "loadMode": "essential", "parameters": object(map[string]any{"level": stringField, "vehicle": stringField, "config": stringField, "durationSeconds": map[string]any{"type": "integer", "minimum": 1, "maximum": gameTestMaxDuration}})},
 		{"name": "session_set_title", "label": "Set Virgil session title", "description": "Set a concise 3–8 word title for this Virgil session. Call once during the first turn.", "loadMode": "essential", "parameters": object(map[string]any{"title": stringField}, "title")},
 	}
 }

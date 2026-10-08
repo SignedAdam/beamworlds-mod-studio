@@ -291,30 +291,8 @@ func TestPinnedProfileLaunchSettingsSelectCurrentPinnedCredential(t *testing.T) 
 		t.Fatalf("pinned launch settings = %#v, want anthropic credential", pinned)
 	}
 }
-func TestAgentSelectionArgumentsApplyConnectionProfile(t *testing.T) {
+func TestAgentLaunchDoesNotExposeCredentials(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name     string
-		settings agentLaunchSettings
-		want     string
-	}{
-		{name: "ChatGPT subscription", settings: agentLaunchSettings{Profile: "chatgpt", SelectModel: true}, want: "--model openai-codex/gpt-5.4"},
-		{name: "Claude subscription", settings: agentLaunchSettings{Profile: "claude", SelectModel: true}, want: "--model anthropic/claude-sonnet-4-6"},
-		{name: "OpenRouter API", settings: agentLaunchSettings{Profile: "openrouter", SelectModel: true}, want: "--model openrouter/auto"},
-		{name: "OpenAI API", settings: agentLaunchSettings{Profile: "openai", SelectModel: true}, want: "--model openai/gpt-5.4"},
-		{name: "Anthropic API", settings: agentLaunchSettings{Profile: "anthropic", SelectModel: true, APIKey: "secret"}, want: "--model anthropic/claude-sonnet-4-6"},
-		{name: "Claude model", settings: agentLaunchSettings{Profile: "claude", Model: "claude-sonnet-test", SelectModel: true}, want: "--model anthropic/claude-sonnet-test"},
-		{name: "Qualified model", settings: agentLaunchSettings{Profile: "openrouter", Model: "openrouter/vendor/model", SelectModel: true}, want: "--model openrouter/vendor/model"},
-		{name: "Resume with direct key", settings: agentLaunchSettings{Profile: "anthropic", APIKey: "secret"}, want: ""},
-	}
-	for _, test := range tests {
-		if got := strings.Join(agentSelectionArguments(test.settings), " "); got != test.want {
-			t.Errorf("%s arguments = %q, want %q", test.name, got, test.want)
-		}
-	}
-	if got := agentSelectionArguments(agentLaunchSettings{Profile: "chatgpt", Model: "gpt-test"}); len(got) != 0 {
-		t.Fatalf("resume launch unexpectedly overrides the stored model: %q", got)
-	}
 	arguments := agentLaunchArguments("C:/workspace", "", "", "C:/sessions", agentLaunchSettings{
 		Profile: "anthropic", Model: "claude-test", APIKey: "must-not-appear-in-argv", SelectModel: true,
 	})

@@ -22,14 +22,17 @@ References to base-game slots, materials, meshes, textures, extensions, UI event
 
 ## Editing workflow
 
+For reported in-game problems, begin with `game_log` and the surrounding stack trace. Save its cursor before a live reproduction and read again afterward; do not attribute unrelated mods' errors to the selected mod.
+Use `game_source` to check uncertain API signatures and lifecycle behavior against the installed game's Lua. It is read-only; keep repairs in the workspace.
+
 1. Inspect the manifest, issues, logical roots, namespaces, and metadata.
 2. Select the category-specific context for the mod's actual content, including every relevant context for a mixed mod.
 3. Search before changing names or references. Map producers to consumers across files.
 4. Make the smallest coherent source change. Update every in-workspace caller in the same change.
 5. Run workspace validation and inspect the source diff.
 6. Fix errors before export. Treat warnings as explicit review items, not automatic failures.
-7. Export to a new versioned ZIP. Test-install only that export.
-8. After launching BeamNG, inspect fresh runtime diagnostics for loader, parser, material, controller, extension, and UI errors.
+7. For live testing, use `mod_game_test` to export and run the build in an isolated BeamNG session without interrupting the player's game.
+8. Inspect its fresh log and level, vehicle, and simulation observations. Fix confirmed failures and retest changed builds. Report the scenario actually exercised. The user's library mod already holds your saved changes, so do not hand them ZIPs to install.
 
 ## Validation expectations
 

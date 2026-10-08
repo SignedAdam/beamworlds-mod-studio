@@ -1441,6 +1441,22 @@ export interface WorkspaceDraft {
     "updatedAt": string;
 }
 
+/**
+ * WorkspaceImageFile is a viewer-ready rendering of a workspace image. Width and Height
+ * describe the source image; DataURL may be a smaller decoded rendition (Downscaled).
+ */
+export interface WorkspaceImageFile {
+    "path": string;
+    "mime": string;
+    "format": string;
+    "dataUrl": string;
+    "width": number;
+    "height": number;
+    "sizeBytes": number;
+    "sha256": string;
+    "downscaled": boolean;
+}
+
 export interface WorkspaceRecord {
     "id": string;
     "entityId": string;

@@ -8,7 +8,7 @@ export type IconName =
   | 'book' | 'close' | 'copy' | 'refresh' | 'folder' | 'folderPlus' | 'settings' | 'chevron'
   | 'sun' | 'moon' | 'collapse' | 'more' | 'columns' | 'shield' | 'tag' | 'filter' | 'user'
   | 'plane' | 'helicopter' | 'boat' | 'truck' | 'wheel' | 'gauge' | 'mountain' | 'audio'
-  | 'bulb' | 'box' | 'flag' | 'layout' | 'brush' | 'wrench' | 'star' | 'globe'
+  | 'bulb' | 'box' | 'flag' | 'layout' | 'brush' | 'wrench' | 'star' | 'globe' | 'image'
 
 const paths: Record<IconName, JSX.Element> = {
   library: <><rect x="3.4" y="3.4" width="7.4" height="7.4" rx="1.8"/><rect x="13.2" y="3.4" width="7.4" height="7.4" rx="1.8"/><rect x="3.4" y="13.2" width="7.4" height="7.4" rx="1.8"/><rect x="13.2" y="13.2" width="7.4" height="7.4" rx="1.8"/></>,
@@ -73,6 +73,7 @@ const paths: Record<IconName, JSX.Element> = {
   wrench: <><path d="M14.8 3.5a5.5 5.5 0 0 0-2.4 8.4L4 20.3 5.7 22l8.4-8.4a5.5 5.5 0 0 0 6.4-7.4l-3 3-2.5-2.5z"/></>,
   star: <><path d="m12 3.6 2.7 5.6 6 .8-4.4 4.3 1.1 6.1L12 17.5l-5.4 2.9 1.1-6.1L3.3 10l6-.8z"/></>,
   globe: <><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.3 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.3-3.6-8.5S9.6 5.9 12 3.5z"/></>,
+  image: <><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5.5-5.5 3.5 3.5 2.5-2.5 4.5 4.5"/></>,
 }
 
 export function Icon({ name, size = 18, ...props }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>) {

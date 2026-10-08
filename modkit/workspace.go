@@ -351,39 +351,55 @@ func ReadWorkspaceText(filesRoot, relativePath string) (string, error) {
 }
 
 func ReadWorkspaceTextContext(ctx context.Context, filesRoot, relativePath string) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	filename, err := safeJoin(filesRoot, relativePath)
+	data, err := readWorkspaceLimited(ctx, filesRoot, relativePath, maxEditorBytes, "editor limit")
 	if err != nil {
 		return "", err
-	}
-	info, err := os.Stat(filename)
-	if err != nil {
-		return "", err
-	}
-	if info.Size() > maxEditorBytes {
-		return "", fmt.Errorf("file is %d bytes; editor limit is %d", info.Size(), maxEditorBytes)
-	}
-	file, err := os.Open(filename)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, maxEditorBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if int64(len(data)) > maxEditorBytes {
-		return "", fmt.Errorf("file is %d bytes; editor limit is %d", len(data), maxEditorBytes)
 	}
 	if !isText(data) {
 		return "", fmt.Errorf("file is binary")
 	}
 	return string(data), nil
+}
+
+// ReadWorkspaceBytesContext reads a regular workspace file of at most limit bytes.
+func ReadWorkspaceBytesContext(ctx context.Context, filesRoot, relativePath string, limit int64) ([]byte, error) {
+	return readWorkspaceLimited(ctx, filesRoot, relativePath, limit, "limit")
+}
+
+func readWorkspaceLimited(ctx context.Context, filesRoot, relativePath string, limit int64, limitName string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	filename, err := safeJoin(filesRoot, relativePath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(filename)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", relativePath)
+	}
+	if info.Size() > limit {
+		return nil, fmt.Errorf("file is %d bytes; %s is %d", info.Size(), limitName, limit)
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("file is %d bytes; %s is %d", len(data), limitName, limit)
+	}
+	return data, nil
 }
 
 func WriteWorkspaceText(filesRoot, relativePath, content string) error {

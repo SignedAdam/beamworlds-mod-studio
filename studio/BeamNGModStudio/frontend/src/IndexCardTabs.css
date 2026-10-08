@@ -1,10 +1,15 @@
 .index-card-tabs {
   --index-card-tabs-tab-height: var(--control-height, 34px);
-  --index-card-tabs-edge: clamp(5px, calc(6px * var(--interface-scale, 1)), 8px);
-  --index-card-tabs-overlap: clamp(3px, calc(4px * var(--interface-scale, 1)), 6px);
+  /* Card geometry: [flare][slant][content][slant][flare]. Neighbouring cards overlap by
+     two flares so their slanted feet meet at the baseline. */
+  --index-card-tabs-flare: clamp(5px, calc(6px * var(--interface-scale, 1)), 8px);
+  --index-card-tabs-slant: clamp(7px, calc(9px * var(--interface-scale, 1)), 11px);
+  --index-card-tabs-radius: clamp(6px, calc(7px * var(--interface-scale, 1)), 9px);
+  --index-card-tabs-lift: 3px;
   --index-card-tabs-gutter: var(--space-2, 8px);
-  --index-card-tabs-gap: clamp(3px, calc(4px * var(--interface-scale, 1)), 5px);
-  --index-card-tabs-close-size: clamp(24px, calc(26px * var(--interface-scale, 1)), 26px);
+  --index-card-tabs-gap: clamp(5px, calc(6px * var(--interface-scale, 1)), 7px);
+  --index-card-tabs-close-size: clamp(20px, calc(20px * var(--interface-scale, 1)), 24px);
+  --index-card-tabs-fade: 28px;
   --index-card-tabs-border: color-mix(
     in srgb,
     var(--line-strong) 84%,
@@ -19,6 +24,11 @@
     in srgb,
     var(--surface) 96%,
     var(--bg)
+  );
+  --index-card-tabs-card: color-mix(
+    in srgb,
+    var(--surface-raised) 45%,
+    var(--index-card-tabs-surface)
   );
   --index-card-tabs-surface-hover: color-mix(
     in srgb,
@@ -59,6 +69,11 @@ html[data-theme="light"] .index-card-tabs {
     var(--surface) 98%,
     var(--bg)
   );
+  --index-card-tabs-card: color-mix(
+    in srgb,
+    var(--surface-raised) 60%,
+    var(--index-card-tabs-surface)
+  );
   --index-card-tabs-surface-hover: color-mix(
     in srgb,
     var(--surface-raised) 96%,
@@ -69,9 +84,10 @@ html[data-theme="light"] .index-card-tabs {
 
 .index-card-tabs--compact {
   --index-card-tabs-tab-height: var(--control-height-small, 32px);
-  --index-card-tabs-edge: clamp(4px, calc(5px * var(--interface-scale, 1)), 7px);
-  --index-card-tabs-overlap: clamp(2px, calc(3px * var(--interface-scale, 1)), 4px);
-  --index-card-tabs-close-size: clamp(24px, calc(24px * var(--interface-scale, 1)), 26px);
+  --index-card-tabs-flare: clamp(4px, calc(5px * var(--interface-scale, 1)), 7px);
+  --index-card-tabs-slant: clamp(6px, calc(8px * var(--interface-scale, 1)), 10px);
+  --index-card-tabs-radius: clamp(5px, calc(6px * var(--interface-scale, 1)), 8px);
+  --index-card-tabs-lift: 2px;
 }
 
 .index-card-tabs__bar {
@@ -83,6 +99,8 @@ html[data-theme="light"] .index-card-tabs {
   align-items: stretch;
   flex-wrap: nowrap;
   background: var(--index-card-tabs-surface);
+  /* Baseline the selected card sits on and covers with its flared foot. */
+  box-shadow: inset 0 -1px 0 var(--index-card-tabs-border);
 }
 
 .index-card-tabs__actions {
@@ -118,107 +136,176 @@ html[data-theme="light"] .index-card-tabs {
   min-height: var(--index-card-tabs-tab-height);
   display: flex;
   align-items: stretch;
-  padding: 0 var(--index-card-tabs-gutter);
+  padding: 0 var(--index-card-tabs-gutter) 0 calc(var(--index-card-tabs-gutter) / 2);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
+  scrollbar-width: none;
   isolation: isolate;
 }
 
+.index-card-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.index-card-tabs__list[data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--index-card-tabs-fade));
+  mask-image: linear-gradient(to right, transparent, #000 var(--index-card-tabs-fade));
+}
+
+.index-card-tabs__list[data-overflow-end] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 var(--index-card-tabs-fade));
+  mask-image: linear-gradient(to left, transparent, #000 var(--index-card-tabs-fade));
+}
+
+.index-card-tabs__list[data-overflow-start][data-overflow-end] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--index-card-tabs-fade),
+    #000 calc(100% - var(--index-card-tabs-fade)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--index-card-tabs-fade),
+    #000 calc(100% - var(--index-card-tabs-fade)),
+    transparent
+  );
+}
+
 .index-card-tabs__item {
+  --index-card-tabs-item-border: var(--index-card-tabs-border-soft);
+  --index-card-tabs-item-fill: var(--index-card-tabs-card);
+  /* Horizontal reach of the outer foot: 0 flares into the baseline, a full flare stands
+     the card on its slanted edges. */
+  --index-card-tabs-foot: var(--index-card-tabs-flare);
+  --index-card-tabs-top: var(--index-card-tabs-lift);
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  min-width: max(76px, calc(64px * var(--interface-scale, 1)));
+  min-width: max(84px, calc(72px * var(--interface-scale, 1)));
   max-width: min(320px, 42vw);
   height: var(--index-card-tabs-tab-height);
   min-height: var(--index-card-tabs-tab-height);
   display: flex;
   align-items: stretch;
-  margin: 0 calc(-1 * var(--index-card-tabs-overlap)) 0 0;
+  margin: 0 calc(-2 * var(--index-card-tabs-flare)) 0 0;
   isolation: isolate;
   scroll-snap-align: start;
-  --index-card-tabs-item-border: var(--index-card-tabs-border);
 }
 
 .index-card-tabs__item:first-child {
   margin-inline-start: 0;
 }
 
+.index-card-tabs__item:last-child {
+  margin-inline-end: 0;
+}
+
+/* ::before paints the card outline, ::after the fill 1px inside it. Both share one
+   parametrised outline so the corners, slants, and feet stay concentric. */
 .index-card-tabs__item::before,
 .index-card-tabs__item::after {
+  --_flare: var(--index-card-tabs-flare);
+  --_slant: var(--index-card-tabs-slant);
+  --_radius: var(--index-card-tabs-radius);
+  --_foot: var(--index-card-tabs-foot);
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--index-card-tabs-top) 0 1px;
   pointer-events: none;
   clip-path: polygon(
-    var(--index-card-tabs-edge) 0,
-    calc(100% - var(--index-card-tabs-edge)) 0,
-    100% 100%,
-    0 100%
+    var(--_foot) 100%,
+    calc(var(--_flare) + var(--_slant)) 0,
+    calc(100% - var(--_flare) - var(--_slant)) 0,
+    calc(100% - var(--_foot)) 100%
   );
+  transition:
+    background-color 140ms ease,
+    top 140ms ease;
+}
+
+@supports (clip-path: shape(from 0 0, line to 100% 0, line to 0 100%, close)) {
+  .index-card-tabs__item::before,
+  .index-card-tabs__item::after {
+    clip-path: shape(
+      from var(--_foot) 100%,
+      curve to calc(var(--_flare) + var(--_slant) * 0.18) calc(100% - var(--_flare))
+        with var(--_flare) 100%,
+      line to calc(var(--_flare) + var(--_slant) * 0.8) var(--_radius),
+      curve to calc(var(--_flare) + var(--_slant) + var(--_radius)) 0
+        with calc(var(--_flare) + var(--_slant)) 0,
+      line to calc(100% - var(--_flare) - var(--_slant) - var(--_radius)) 0,
+      curve to calc(100% - var(--_flare) - var(--_slant) * 0.8) var(--_radius)
+        with calc(100% - var(--_flare) - var(--_slant)) 0,
+      line to calc(100% - var(--_flare) - var(--_slant) * 0.18) calc(100% - var(--_flare)),
+      curve to calc(100% - var(--_foot)) 100%
+        with calc(100% - var(--_flare)) 100%,
+      close
+    );
+  }
 }
 
 .index-card-tabs__item::before {
   z-index: -2;
   background: var(--index-card-tabs-item-border);
-  transition: background-color 140ms ease;
 }
 
 .index-card-tabs__item::after {
   z-index: -1;
-  inset: 1px 1px 0;
-  clip-path: polygon(
-    calc(var(--index-card-tabs-edge) + 1px) 0,
-    calc(100% - var(--index-card-tabs-edge) - 1px) 0,
-    calc(100% - 1px) 100%,
-    1px 100%
-  );
-  background: var(--index-card-tabs-surface);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  transition: background-color 140ms ease;
+  inset: calc(var(--index-card-tabs-top) + 1px) 1px 1px;
+  background: var(--index-card-tabs-item-fill);
 }
 
-.index-card-tabs__item:not(.is-selected):hover:not(.is-disabled)::after {
-  background: var(--index-card-tabs-surface-hover);
+.index-card-tabs__item:not(.is-selected):not(.is-disabled):hover {
+  --index-card-tabs-item-fill: var(--index-card-tabs-surface-hover);
+  --index-card-tabs-item-border: var(--index-card-tabs-border);
+  --index-card-tabs-top: calc(var(--index-card-tabs-lift) - 1px);
 }
 
-.index-card-tabs__item:not(.is-selected):active:not(.is-disabled)::after {
-  background: var(--index-card-tabs-surface);
+.index-card-tabs__item:not(.is-selected):not(.is-disabled):active {
+  --index-card-tabs-item-fill: var(--index-card-tabs-card);
 }
 
 .index-card-tabs__item.is-selected {
   z-index: 4;
   --index-card-tabs-item-border: var(--index-card-tabs-accent);
+  --index-card-tabs-item-fill: var(--index-card-tabs-panel);
+  --index-card-tabs-foot: 0px;
+  --index-card-tabs-top: 0px;
 }
 
-.index-card-tabs__item.status-accent {
-  --index-card-tabs-item-border: var(--index-card-tabs-status-accent);
-}
-
-.index-card-tabs__item.status-success {
-  --index-card-tabs-item-border: var(--index-card-tabs-status-success);
-}
-
-.index-card-tabs__item.status-warning {
-  --index-card-tabs-item-border: var(--index-card-tabs-status-warning);
-}
-
-.index-card-tabs__item.status-danger {
-  --index-card-tabs-item-border: var(--index-card-tabs-status-danger);
+/* The selected card runs through the baseline into the panel below it. */
+.index-card-tabs__item.is-selected::before {
+  bottom: 0;
 }
 
 .index-card-tabs__item.is-selected::after {
-  inset: 1px 1px 0;
-  background: var(--index-card-tabs-panel);
+  bottom: 0;
+}
+
+.index-card-tabs__item.status-accent {
+  --index-card-tabs-item-status: var(--index-card-tabs-status-accent);
+}
+
+.index-card-tabs__item.status-success {
+  --index-card-tabs-item-status: var(--index-card-tabs-status-success);
+}
+
+.index-card-tabs__item.status-warning {
+  --index-card-tabs-item-status: var(--index-card-tabs-status-warning);
+}
+
+.index-card-tabs__item.status-danger {
+  --index-card-tabs-item-status: var(--index-card-tabs-status-danger);
 }
 
 .index-card-tabs__item.is-disabled {
   z-index: 1;
   opacity: 0.58;
 }
-
 
 .index-card-tabs__tab,
 .index-card-tabs__close {
@@ -244,7 +331,7 @@ html[data-theme="light"] .index-card-tabs {
   align-items: center;
   justify-content: center;
   gap: var(--index-card-tabs-gap);
-  padding: 0 calc(var(--index-card-tabs-edge) + var(--space-1, 4px));
+  padding: var(--index-card-tabs-lift) calc(var(--index-card-tabs-flare) + var(--index-card-tabs-slant) + 3px) 0;
   overflow: hidden;
   text-align: center;
   white-space: nowrap;
@@ -256,7 +343,7 @@ html[data-theme="light"] .index-card-tabs {
 }
 
 .index-card-tabs__item:has(> .index-card-tabs__close) > .index-card-tabs__tab {
-  padding-inline-end: var(--space-1, 4px);
+  padding-inline-end: 2px;
 }
 
 .index-card-tabs__tab > .index-card-tabs__icon,
@@ -282,12 +369,39 @@ html[data-theme="light"] .index-card-tabs {
   border: 0;
 }
 
+.index-card-tabs__pip {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--index-card-tabs-item-status);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--index-card-tabs-item-status) 22%, transparent);
+}
+
+.index-card-tabs__item.status-accent .index-card-tabs__pip {
+  animation: index-card-tabs-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes index-card-tabs-pulse {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--index-card-tabs-item-status) 8%, transparent);
+  }
+}
+
 .index-card-tabs__tab > .index-card-tabs__icon {
   flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.index-card-tabs__item.is-selected .index-card-tabs__icon {
+  opacity: 1;
 }
 
 .index-card-tabs__tab > .index-card-tabs__label {
   flex: 1 1 auto;
+  /* Block (not inline-flex) so long paths end in an ellipsis instead of a hard cut. */
+  display: block;
+  text-align: start;
 }
 
 .index-card-tabs__tab > .index-card-tabs__count {
@@ -305,7 +419,6 @@ html[data-theme="light"] .index-card-tabs {
 }
 
 .index-card-tabs__item.is-selected .index-card-tabs__tab,
-.index-card-tabs__item.is-selected .index-card-tabs__close,
 .index-card-tabs__tab[aria-selected="true"] {
   color: var(--index-card-tabs-text);
 }
@@ -318,101 +431,57 @@ html[data-theme="light"] .index-card-tabs {
 
 .index-card-tabs__close {
   flex: 0 0 var(--index-card-tabs-close-size);
+  align-self: center;
   width: var(--index-card-tabs-close-size);
-  height: 100%;
+  height: var(--index-card-tabs-close-size);
   display: grid;
   place-items: center;
-  padding: 0 var(--space-1, 4px);
+  margin: var(--index-card-tabs-lift) calc(var(--index-card-tabs-flare) + var(--index-card-tabs-slant) - 3px) 0 0;
+  padding: 0;
+  border-radius: 50%;
   color: var(--index-card-tabs-text-subtle);
-  transition: color 120ms ease;
+  opacity: 0.7;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    opacity 120ms ease;
 }
 
-.index-card-tabs__close::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: 50%;
-  left: 50%;
-  width: 20px;
-  height: 20px;
-  border: 1px solid color-mix(
-    in srgb,
-    var(--index-card-tabs-status-danger) 28%,
-    var(--index-card-tabs-border-soft)
-  );
-  border-radius: 7px 9px 8px 6px;
-  background: color-mix(
-    in srgb,
-    var(--index-card-tabs-status-danger) 6%,
-    var(--index-card-tabs-surface)
-  );
-  pointer-events: none;
-  transform: translate(-50%, -50%) rotate(-7deg) scale(0.9);
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    border-radius 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
+.index-card-tabs__item.is-selected > .index-card-tabs__close,
+.index-card-tabs__item:hover > .index-card-tabs__close,
+.index-card-tabs__close:focus-visible {
+  opacity: 1;
 }
 
 .index-card-tabs__close > span {
-  position: relative;
-  z-index: 1;
   display: block;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 500;
   line-height: 1;
+  transform: translateY(-0.5px);
 }
 
-.index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled),
-.index-card-tabs__item > .index-card-tabs__close:focus-visible,
-.index-card-tabs__item > .index-card-tabs__close:active:not(:disabled) {
+.index-card-tabs__close:hover:not(:disabled),
+.index-card-tabs__close:focus-visible {
   color: var(--index-card-tabs-status-danger);
+  background: color-mix(in srgb, var(--index-card-tabs-status-danger) 16%, transparent);
 }
 
-.index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled)::before,
-.index-card-tabs__item > .index-card-tabs__close:focus-visible::before {
-  border-color: color-mix(
-    in srgb,
-    var(--index-card-tabs-status-danger) 62%,
-    var(--index-card-tabs-border)
-  );
-  border-radius: 8px 6px 7px 9px;
-  background: color-mix(
-    in srgb,
-    var(--index-card-tabs-status-danger) 17%,
-    var(--index-card-tabs-surface-hover)
-  );
-  transform: translate(-50%, -50%) rotate(0deg) scale(1.05);
+.index-card-tabs__close:active:not(:disabled) {
+  background: color-mix(in srgb, var(--index-card-tabs-status-danger) 26%, transparent);
 }
 
 .index-card-tabs__close:focus-visible {
   z-index: 2;
-  outline: none;
-}
-
-.index-card-tabs__close:focus-visible::before {
   outline: 2px solid var(--index-card-tabs-status-danger);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.index-card-tabs__item > .index-card-tabs__close:active:not(:disabled)::before {
-  border-color: var(--index-card-tabs-status-danger);
-  border-radius: 9px 7px 8px 6px;
-  background: color-mix(
-    in srgb,
-    var(--index-card-tabs-status-danger) 25%,
-    var(--index-card-tabs-surface)
-  );
-  transform: translate(-50%, -50%) rotate(4deg) scale(0.92);
+  outline-offset: 1px;
 }
 
 .index-card-tabs__tab:focus-visible {
   z-index: 2;
   outline: 2px solid var(--index-card-tabs-focus);
-  outline-offset: -3px;
+  outline-offset: -5px;
+  border-radius: calc(var(--index-card-tabs-radius) + 2px);
 }
 
 .index-card-tabs__icon > svg {
@@ -435,6 +504,7 @@ html[data-theme="light"] .index-card-tabs {
   min-height: 0;
   padding: var(--space-3, 12px);
   border: 1px solid var(--index-card-tabs-border);
+  border-top: 0;
   background: var(--index-card-tabs-panel);
   color: var(--index-card-tabs-text);
 }
@@ -461,45 +531,36 @@ html[data-theme="light"] .index-card-tabs {
     min-width: clamp(96px, 43vw, 188px);
     max-width: 76vw;
   }
-
-  .index-card-tabs__tab {
-    padding-inline: calc(var(--index-card-tabs-edge) + var(--space-1, 4px));
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .index-card-tabs__item,
   .index-card-tabs__item::before,
   .index-card-tabs__item::after,
   .index-card-tabs__tab,
-  .index-card-tabs__close,
-  .index-card-tabs__close::before {
+  .index-card-tabs__close {
     transition: none;
+  }
+
+  .index-card-tabs__item.status-accent .index-card-tabs__pip {
+    animation: none;
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .index-card-tabs__list {
-    background: var(--index-card-tabs-surface);
-  }
-
-  .index-card-tabs__item::after {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    background: var(--index-card-tabs-surface);
-  }
-
-  .index-card-tabs__item.is-selected::after,
-  .index-card-tabs__panel {
-    background: var(--index-card-tabs-panel);
+  .index-card-tabs__list[data-overflow-start],
+  .index-card-tabs__list[data-overflow-end] {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
 }
 
 @media (forced-colors: active) {
+  .index-card-tabs__bar {
+    box-shadow: inset 0 -1px 0 CanvasText;
+  }
+
   .index-card-tabs__list {
     background: Canvas;
-    border-color: CanvasText;
-    scrollbar-color: CanvasText Canvas;
   }
 
   .index-card-tabs__item::before {
@@ -507,7 +568,6 @@ html[data-theme="light"] .index-card-tabs {
   }
 
   .index-card-tabs__item::after,
-  .index-card-tabs__item.is-selected::after,
   .index-card-tabs__panel {
     background: Canvas;
   }
@@ -521,27 +581,19 @@ html[data-theme="light"] .index-card-tabs {
     color: CanvasText;
   }
 
-  .index-card-tabs__close::before {
-    border-color: CanvasText;
-    background: Canvas;
+  .index-card-tabs__pip {
+    background: CanvasText;
     box-shadow: none;
   }
 
-  .index-card-tabs__item > .index-card-tabs__close:hover:not(:disabled)::before,
-  .index-card-tabs__item > .index-card-tabs__close:focus-visible::before,
-  .index-card-tabs__item > .index-card-tabs__close:active:not(:disabled)::before {
-    border-color: Highlight;
+  .index-card-tabs__close:hover:not(:disabled),
+  .index-card-tabs__close:focus-visible {
+    color: Highlight;
     background: Canvas;
   }
 
-  .index-card-tabs__close:focus-visible::before {
+  .index-card-tabs__close:focus-visible {
     outline-color: Highlight;
-  }
-
-  .index-card-tabs__item.is-selected .index-card-tabs__tab,
-  .index-card-tabs__item.is-selected .index-card-tabs__close,
-  .index-card-tabs__tab[aria-selected="true"] {
-    color: HighlightText;
   }
 
   .index-card-tabs__tab:focus-visible,

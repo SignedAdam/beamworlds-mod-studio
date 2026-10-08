@@ -17,6 +17,7 @@ import type {
   NewModRequest,
   RuntimeReport,
   WorkspaceDetail,
+  WorkspaceImageFile,
   WorkspaceRecord,
   WorkspaceSearchMatch,
 } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
@@ -49,6 +50,7 @@ import {
   WorkspaceUtilityPanel,
   type WorkspaceTool,
 } from "./WorkspaceUtilityPanel";
+import { WorkspaceImageViewer, isWorkspaceImagePath } from "./WorkspaceImageViewer";
 import "./ModMaker.css";
 
 interface EditorDocument {
@@ -98,7 +100,15 @@ function editorDocumentLabel(document: EditorDocument) {
 }
 
 type ActiveEditorTab =
-  { kind: "file"; path: string } | { kind: "session"; id: string };
+  | { kind: "file"; path: string }
+  | { kind: "image"; path: string }
+  | { kind: "session"; id: string };
+
+interface ImageTab {
+  path: string;
+  image?: WorkspaceImageFile;
+  error?: unknown;
+}
 
 interface SessionTab {
   record: VirgilSessionRecord;
@@ -633,6 +643,9 @@ export function ModMaker({
   const [documents, setDocuments] = useState<EditorDocument[]>([]);
   const [activePath, setActivePath] = useState("");
   const [activeTab, setActiveTab] = useState<ActiveEditorTab | null>(null);
+  const [imageTabs, setImageTabs] = useState<ImageTab[]>([]);
+  const imageTabsRef = useRef<ImageTab[]>([]);
+  imageTabsRef.current = imageTabs;
   const [sessionTabs, setSessionTabs] = useState<SessionTab[]>([]);
   const [sessionPrompts, setSessionPrompts] = useState<Record<string, string>>(
     {},
@@ -1013,6 +1026,8 @@ export function ModMaker({
     sessionTabsRef.current = [];
     activeTabRef.current = null;
     setDocuments([]);
+    setImageTabs([]);
+    imageTabsRef.current = [];
     setActivePath("");
     setActiveTab(null);
     setSessionTabs([]);
@@ -1656,6 +1671,10 @@ export function ModMaker({
     }
     setTreeSelection({ path, kind: "file" });
     if (switchToEditor) setUtility(null);
+    if (switchToEditor && isWorkspaceImagePath(path)) {
+      void openImage(path);
+      return;
+    }
     if (switchToEditor && !isEditableSource(path) && !allowSearchText) {
       fileOpenVersion.current += 1;
       setFileLoadingPath("");
@@ -1710,6 +1729,91 @@ export function ModMaker({
       if (requestVersion === fileOpenVersion.current) setFileLoadingPath("");
     }
   };
+
+  const loadImage = async (workspaceID: string, path: string) => {
+    try {
+      const image = await API.ReadWorkspaceImage(workspaceID, path);
+      if (activeWorkspaceIDRef.current !== workspaceID) return;
+      setImageTabs((current) =>
+        current.map((tab) => (tab.path === path ? { path, image } : tab)),
+      );
+    } catch (error) {
+      if (activeWorkspaceIDRef.current !== workspaceID) return;
+      setImageTabs((current) =>
+        current.map((tab) =>
+          tab.path === path ? { ...tab, image: undefined, error } : tab,
+        ),
+      );
+    }
+  };
+
+  const openImage = async (path: string) => {
+    if (!workspace) return;
+    // Abandon any text file still loading so it cannot steal focus back.
+    fileOpenVersion.current += 1;
+    setFileLoadingPath("");
+    const nextActive = { kind: "image" as const, path };
+    activeEditorPathRef.current = "";
+    activeTabRef.current = nextActive;
+    setActivePath("");
+    setActiveTab(nextActive);
+    if (imageTabsRef.current.some((tab) => tab.path === path)) return;
+    imageTabsRef.current = [...imageTabsRef.current, { path }];
+    setImageTabs(imageTabsRef.current);
+    await loadImage(workspace.id, path);
+  };
+
+  // Picks what to show after the active tab disappears and no text document replaces it.
+  const activateFallbackTab = (
+    remainingImages: ImageTab[],
+    remainingDocuments: EditorDocument[],
+  ) => {
+    const lastImage = remainingImages[remainingImages.length - 1];
+    const lastDocument = remainingDocuments[remainingDocuments.length - 1];
+    const lastSession = sessionTabsRef.current[sessionTabsRef.current.length - 1];
+    const nextActive: ActiveEditorTab | null = lastImage
+      ? { kind: "image", path: lastImage.path }
+      : lastDocument
+        ? { kind: "file", path: lastDocument.path }
+        : lastSession
+          ? { kind: "session", id: lastSession.record.id }
+          : null;
+    const nextPath = nextActive?.kind === "file" ? nextActive.path : "";
+    activeEditorPathRef.current = nextPath;
+    activeTabRef.current = nextActive;
+    setActivePath(nextPath);
+    setActiveTab(nextActive);
+    setTreeSelection(
+      nextActive?.kind === "image" ||
+        (nextActive?.kind === "file" && !lastDocument?.untitled)
+        ? { path: nextActive.path, kind: "file" }
+        : null,
+    );
+  };
+
+  const closeImage = (path: string) => {
+    const remaining = imageTabsRef.current.filter((tab) => tab.path !== path);
+    imageTabsRef.current = remaining;
+    setImageTabs(remaining);
+    const currentActive = activeTabRef.current;
+    if (currentActive?.kind === "image" && currentActive.path === path) {
+      activateFallbackTab(remaining, documentsRef.current);
+    } else if (treeSelection?.path === path) {
+      setTreeSelection(null);
+    }
+  };
+
+  // Agents and external tools rewrite textures; refresh open previews when the file changes.
+  useEffect(() => {
+    if (!workspace) return;
+    const shaByPath = new Map(files.map((file) => [file.path, file.sha256]));
+    for (const tab of imageTabsRef.current) {
+      const sha256 = shaByPath.get(tab.path);
+      if (tab.image && sha256 && sha256 !== tab.image.sha256) {
+        void loadImage(workspace.id, tab.path);
+      }
+    }
+  }, [detail?.files, workspace?.id]);
 
   const runAutoFormat = async (snapshot: {
     workspaceID: string;
@@ -2195,16 +2299,7 @@ export function ModMaker({
             : { path: nextDocument.path, kind: "file" },
         );
       } else {
-        const nextSession =
-          sessionTabsRef.current[sessionTabsRef.current.length - 1];
-        const nextActive = nextSession
-          ? { kind: "session" as const, id: nextSession.record.id }
-          : null;
-        activeEditorPathRef.current = "";
-        activeTabRef.current = nextActive;
-        setActiveTab(nextActive);
-        setActivePath("");
-        setTreeSelection(null);
+        activateFallbackTab(imageTabsRef.current, []);
       }
     } else if (treeSelection?.path === path) {
       setTreeSelection(null);
@@ -2349,10 +2444,20 @@ export function ModMaker({
           path: migrate(document.path),
         })),
       );
+      const migratedImages = imageTabsRef.current.map((tab) => {
+        const path = migrate(tab.path);
+        return {
+          ...tab,
+          path,
+          image: tab.image && { ...tab.image, path },
+        };
+      });
+      imageTabsRef.current = migratedImages;
+      setImageTabs(migratedImages);
       setActivePath((current) => migrate(current));
       setActiveTab((current) =>
-        current?.kind === "file"
-          ? { kind: "file", path: migrate(current.path) }
+        current?.kind === "file" || current?.kind === "image"
+          ? { kind: current.kind, path: migrate(current.path) }
           : current,
       );
       setTreeSelection((current) =>
@@ -2426,7 +2531,17 @@ export function ModMaker({
       );
       documentsRef.current = remaining;
       setDocuments(remaining);
+      const remainingImages = imageTabsRef.current.filter(
+        (tab) => tab.path !== deleted && !tab.path.startsWith(`${deleted}/`),
+      );
+      imageTabsRef.current = remainingImages;
+      setImageTabs(remainingImages);
       if (
+        activeTab?.kind === "image" &&
+        (activeTab.path === deleted || activeTab.path.startsWith(`${deleted}/`))
+      ) {
+        activateFallbackTab(remainingImages, remaining);
+      } else if (
         activeTab?.kind === "file" &&
         (activeTab.path === deleted || activeTab.path.startsWith(`${deleted}/`))
       ) {
@@ -2446,12 +2561,7 @@ export function ModMaker({
               : { path: nextDocument.path, kind: "file" },
           );
         } else {
-          const nextSession = sessionTabs[sessionTabs.length - 1];
-          setActivePath("");
-          setActiveTab(
-            nextSession ? { kind: "session", id: nextSession.record.id } : null,
-          );
-          setTreeSelection(null);
+          activateFallbackTab(remainingImages, remaining);
         }
       } else if (
         treeSelection?.path === deleted ||
@@ -3261,9 +3371,15 @@ export function ModMaker({
   const activeItemID: string | null =
     activeTab?.kind === "file"
       ? `file:${activeTab.path}`
-      : activeTab?.kind === "session"
-        ? `session:${activeTab.id}`
-        : null;
+      : activeTab?.kind === "image"
+        ? `image:${activeTab.path}`
+        : activeTab?.kind === "session"
+          ? `session:${activeTab.id}`
+          : null;
+  const activeImageTab =
+    activeTab?.kind === "image"
+      ? imageTabs.find((tab) => tab.path === activeTab.path)
+      : undefined;
   const emptySurface = (
     <div className="editor-empty-message">Click a file to open it</div>
   );
@@ -3313,6 +3429,27 @@ export function ModMaker({
           setSessionTabBusy(activeSession.record.id, busy)
         }
       />
+    ) : activeImageTab ? (
+      activeImageTab.image ? (
+        <WorkspaceImageViewer image={activeImageTab.image} />
+      ) : activeImageTab.error !== undefined ? (
+        <div className="workspace-image-viewer-message" role="alert">
+          <Icon name="image" size={28} />
+          <strong>Can't preview {activeImageTab.path.split("/").pop()}</strong>
+          <span>
+            {activeImageTab.error instanceof Error
+              ? activeImageTab.error.message
+              : typeof activeImageTab.error === "string"
+                ? activeImageTab.error
+                : "The image could not be read."}
+          </span>
+        </div>
+      ) : (
+        <div className="center-loader">
+          <Spinner />
+          <span>Opening image</span>
+        </div>
+      )
     ) : activeDocument ? (
       <>
         {sourceSaveToast && (
@@ -3393,6 +3530,17 @@ export function ModMaker({
       title: activeTab.path,
     });
   }
+  const imageTabItems: IndexCardTabItem[] = imageTabs.map((tab) => ({
+    id: `image:${tab.path}`,
+    label: tab.path,
+    icon: <Icon name="image" size={14} />,
+    statusTone: tab.error !== undefined ? "danger" : undefined,
+    statusLabel: tab.error !== undefined ? "Preview failed" : undefined,
+    panel: null,
+    onClose: () => closeImage(tab.path),
+    closeLabel: `Close ${tab.path}`,
+    title: tab.path,
+  }));
   const activeDocumentNeedsSave = Boolean(
     activeDocument &&
     (activeDocument.untitled ||
@@ -3473,6 +3621,7 @@ export function ModMaker({
 
   const tabItems: IndexCardTabItem[] = [
     ...fileTabItems,
+    ...imageTabItems,
     ...sessionTabs.map((tab) => {
       const status = (tab.record.status || "idle").trim().toLowerCase();
       const title = tab.record.title || "Virgil session";
@@ -3690,7 +3839,7 @@ export function ModMaker({
               />
 
               <section
-                className={`source-editor source-editor--shared-tabs ${activeSession ? "source-editor--session" : documents.length > 0 || sessionTabs.length > 0 ? "source-editor--open" : "source-editor--empty"}`}
+                className={`source-editor source-editor--shared-tabs ${activeSession ? "source-editor--session" : documents.length > 0 || imageTabs.length > 0 || sessionTabs.length > 0 ? "source-editor--open" : "source-editor--empty"}`}
               >
                 <IndexCardTabs
                   items={tabItems}
@@ -3711,6 +3860,14 @@ export function ModMaker({
                       setTreeSelection(
                         document?.untitled ? null : { path, kind: "file" },
                       );
+                      return;
+                    }
+                    if (id.startsWith("image:")) {
+                      const path = id.slice("image:".length);
+                      editorInteractionVersion.current += 1;
+                      cancelFormatTasks();
+                      void openImage(path);
+                      setTreeSelection({ path, kind: "file" });
                       return;
                     }
                     if (!id.startsWith("session:")) return;

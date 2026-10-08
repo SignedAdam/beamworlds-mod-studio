@@ -468,6 +468,10 @@ export function ReadWorkspaceFile(workspaceID: string, relativePath: string): $C
     return $Call.ByID(3870910925, workspaceID, relativePath);
 }
 
+export function ReadWorkspaceImage(workspaceID: string, relativePath: string): $CancellablePromise<$models.WorkspaceImageFile> {
+    return $Call.ByID(196820008, workspaceID, relativePath);
+}
+
 /**
  * Recovery is an explicit import, not activation. Its source stays intact until
  * verified canonical bytes, indexing, and the recovery journal are durable.

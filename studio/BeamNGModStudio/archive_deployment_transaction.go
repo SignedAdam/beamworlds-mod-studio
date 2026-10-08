@@ -41,10 +41,9 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   }
  }
  if plan.Purpose==archivePurposePlay {
-  if blockers:=checkManagedRootOwnership(ctx,service.store,plan.DestinationRoot);len(blockers)>0{return result,fmt.Errorf("unowned files block exact selection: %s",strings.Join(blockers,"; "))}
+  if blockers:=checkManagedRootOwnership(ctx,service.store,plan.DestinationRoot);len(blockers)>0{return result,errors.New(strings.Join(blockers,"; "))}
  }
  for _,entry:=range plan.Entries {
-  if entry.Method==deployMethodInPlace {continue}
   if err:=validateArchiveChild(entry.DestinationPath,plan.DestinationRoot);err!=nil{return result,err}
   current,exists,err:=archiveIdentityIfPresent(entry.DestinationPath);if err!=nil{return result,err}
   if exists {
@@ -80,7 +79,6 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
    if entry.SHA256!="" && !strings.EqualFold(checksum,entry.SHA256){return result,fmt.Errorf("archive changed since indexing: %s",entry.SourcePath)}
    entry.SHA256=checksum
   }
-  if entry.Method==deployMethodInPlace{result.Entries=append(result.Entries,entry);continue}
   id,err:=modkit.NewID();if err!=nil{return result,err}
   if entry.Reuse {
    reusePath:=entry.ReusePath;if reusePath==""{reusePath=entry.DestinationPath}
@@ -142,7 +140,7 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   j.MovedFiles=append(j.MovedFiles,movedFileRecord{From:path,To:backup,SourceIdentity:identity})
  }
  for _,entry:=range result.Entries {
-  if entry.Method==deployMethodInPlace || unchanged[archivePathKey(entry.DestinationPath)]{continue}
+  if unchanged[archivePathKey(entry.DestinationPath)]{continue}
   source:=stagePaths[archivePathKey(entry.DestinationPath)]
   if entry.Reuse {
    oldPath:=entry.ReusePath;if oldPath==""{oldPath=entry.DestinationPath}
@@ -163,8 +161,8 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
    if err:=service.store.SetEntityArtifactSHA(ctx,entry.EntityID,entry.SHA256);err!=nil{return result,fmt.Errorf("persist verified archive checksum: %w",err)}
   }
  }
+ // Play uses an isolated profile; only the marker backup is needed for recovery.
  if plan.Purpose==archivePurposePlay {
-  j.NativeBackup,j.NativeExisted,err=readArchiveNativeBackup(filepath.Join(service.config.ActiveModsDir,"db.json"));if err!=nil{return result,err}
   j.MarkerBackup,j.MarkerExisted,err=readArchiveNativeBackup(playRuntimeMarkerPath(service.config));if err!=nil{return result,err}
  }
  j.State=journalStateActivating
@@ -232,27 +230,51 @@ func validateArchiveChild(path,root string)error{
  return nil
 }
 func(service *AppService)archiveTransactionWorkRoot(purpose string)string{
- if purpose==archivePurposePlay{return deploymentWorkDir(service.config.ActiveModsDir)}
+ if purpose==archivePurposePlay{
+  playRoot,err:=playUserPath(service.config)
+  if err!=nil{return deploymentWorkDir(service.config.ActiveModsDir)}
+  return playProfileDeploymentDir(playRoot)
+ }
  return filepath.Join(service.config.ExportDir,".beamworlds-deployment")
+}
+func(service *AppService)playManagedRoot()string{
+ playRoot,err:=playUserPath(service.config)
+ if err!=nil{return filepath.Join(service.config.ActiveModsDir,managedModDirectoryName)}
+ return playProfileModsDir(playRoot)
 }
 func(service *AppService)validateOwnedArchivePath(entry OwnedArchiveEntry)error{
  if entry.ID=="" || filepath.Base(entry.ID)!=entry.ID || entry.OwnerID=="" || filepath.Base(entry.OwnerID)!=entry.OwnerID{return errors.New("invalid deployment ownership identity")}
  if entry.RelativePath=="" || filepath.Base(entry.RelativePath)!=entry.RelativePath{return errors.New("invalid owned archive relative path")}
- root:=filepath.Join(service.config.ActiveModsDir,managedModDirectoryName)
- if entry.Purpose==archivePurposeCollection {root=filepath.Join(service.config.ExportDir,collectionFolderDirectory,entry.OwnerID)} else if entry.Purpose!=archivePurposePlay{return fmt.Errorf("unsupported deployment purpose %q",entry.Purpose)}
- return validateArchiveChild(filepath.Join(entry.TargetRoot,entry.RelativePath),root)
+ if entry.Purpose==archivePurposeCollection {return validateArchiveChild(filepath.Join(entry.TargetRoot,entry.RelativePath),filepath.Join(service.config.ExportDir,collectionFolderDirectory,entry.OwnerID))}
+ if entry.Purpose!=archivePurposePlay{return fmt.Errorf("unsupported deployment purpose %q",entry.Purpose)}
+ // Accept both the profile mods path and the legacy managed dir.
+ path:=filepath.Join(entry.TargetRoot,entry.RelativePath)
+ root:=service.playManagedRoot()
+ if err:=validateArchiveChild(path,root);err==nil{return nil}
+ legacyRoot:=filepath.Join(service.config.ActiveModsDir,managedModDirectoryName)
+ return validateArchiveChild(path,legacyRoot)
 }
 func(service *AppService)validateArchiveJournalPaths(j deploymentJournalEntry)error{
  if j.ID=="" || j.OperationID=="" || filepath.Base(j.OperationID)!=j.OperationID{return errors.New("invalid deployment operation ID")}
  for _,entry:=range j.PriorOwned {if err:=service.validateOwnedArchivePath(entry);err!=nil{return err}}
  for _,entry:=range j.PreparedEntries {if err:=service.validateOwnedArchivePath(entry);err!=nil{return err}}
- root:=filepath.Join(service.config.ActiveModsDir,managedModDirectoryName)
+ root:=service.playManagedRoot()
  if j.Purpose==archivePurposeCollection {root=filepath.Join(service.config.ExportDir,collectionFolderDirectory,j.OwnerID)} else if j.Purpose!=archivePurposePlay{return fmt.Errorf("unsupported deployment journal purpose %q",j.Purpose)}
- if !samePath(j.DestinationRoot,root) && !pathWithin(j.DestinationRoot,root){return errors.New("deployment journal destination no longer matches configured ownership")}
+ if !samePath(j.DestinationRoot,root) && !pathWithin(j.DestinationRoot,root){
+  // Accept the legacy managed-dir path for recovery of pre-migration journals.
+  legacyRoot:=filepath.Join(service.config.ActiveModsDir,managedModDirectoryName)
+  if !samePath(j.DestinationRoot,legacyRoot) && !pathWithin(j.DestinationRoot,legacyRoot){return errors.New("deployment journal destination no longer matches configured ownership")}
+ }
  work:=service.archiveTransactionWorkRoot(j.Purpose)
- if !samePath(j.StagingDir,filepath.Join(work,"staging-"+j.OperationID)) || !samePath(j.PreviousDir,filepath.Join(work,"previous-"+j.OperationID)){return errors.New("deployment journal staging paths do not match owned operation")}
- if err:=validateArchiveChild(filepath.Join(j.StagingDir,"entry"),work);err!=nil{return err}
- return validateArchiveChild(filepath.Join(j.PreviousDir,"entry"),work)
+ // Also accept the legacy work root for recovery.
+ legacyWork:=deploymentWorkDir(service.config.ActiveModsDir)
+ matchesWork:=samePath(j.StagingDir,filepath.Join(work,"staging-"+j.OperationID)) && samePath(j.PreviousDir,filepath.Join(work,"previous-"+j.OperationID))
+ matchesLegacy:=samePath(j.StagingDir,filepath.Join(legacyWork,"staging-"+j.OperationID)) && samePath(j.PreviousDir,filepath.Join(legacyWork,"previous-"+j.OperationID))
+ if !matchesWork && !matchesLegacy{return errors.New("deployment journal staging paths do not match owned operation")}
+ actualWork:=work
+ if matchesLegacy && !matchesWork{actualWork=legacyWork}
+ if err:=validateArchiveChild(filepath.Join(j.StagingDir,"entry"),actualWork);err!=nil{return err}
+ return validateArchiveChild(filepath.Join(j.PreviousDir,"entry"),actualWork)
 }
 func readArchiveNativeBackup(path string)([]byte,bool,error){data,err:=os.ReadFile(path);if errors.Is(err,os.ErrNotExist){return nil,false,nil};return data,err==nil,err}
 func restoreNativeBackup(path string,backup []byte,existed bool)error{
@@ -287,7 +309,6 @@ func(service *AppService)rollbackArchiveJournal(ctx context.Context,j deployment
    if err:=renameArchiveNoReplace(move.To,move.From);err!=nil{return err}
   }
   if j.Purpose==archivePurposePlay {
-   if err:=restoreNativeBackup(filepath.Join(service.config.ActiveModsDir,"db.json"),j.NativeBackup,j.NativeExisted);err!=nil{return err}
    if err:=restoreNativeBackup(playRuntimeMarkerPath(service.config),j.MarkerBackup,j.MarkerExisted);err!=nil{return err}
   }
  }
@@ -330,7 +351,13 @@ func(service *AppService)finishArchiveJournal(ctx context.Context,j deploymentJo
    after,err:=inspectArchiveFile(entry.SourcePath);if err!=nil{return removed,err}
    backed=sameArchiveObject(source,after) && strings.EqualFold(checksum,entry.SHA256)
   }
-  if !backed{return removed,fmt.Errorf("retained possible sole surviving archive for storage recovery: %s",backup)}
+  if !backed{backed=service.parkedArchiveLinkedElsewhere(backup,j)}
+  if !backed{
+   // The parked file is the last copy of these bytes. Keep it in the
+   // library instead of leaving the cleanup unfinished for the user.
+   if err:=service.keepLastArchiveCopyInLibrary(ctx,backup,entry);err!=nil{return removed,fmt.Errorf("keep the only remaining copy of %s: %w",backup,err)}
+   continue
+  }
   if err:=os.Remove(backup);err!=nil{return removed,err};removed++
  }
  for _,dir:=range []string{j.StagingDir,j.PreviousDir}{if err:=removeEmptyArchiveDirectory(dir);err!=nil{return removed,err}}
@@ -339,6 +366,33 @@ func(service *AppService)finishArchiveJournal(ctx context.Context,j deploymentJo
  for _,entry:=range j.PriorOwned{if _,err:=tx.ExecContext(ctx,`DELETE FROM owned_archive_entries WHERE id=? AND state=?`,entry.ID,archiveStatePendingRetire);err!=nil{return removed,err}}
  if _,err:=tx.ExecContext(ctx,`UPDATE archive_deployment_journal SET state=?,completed_at=?,updated_at=? WHERE id=?`,journalStateDone,nowUTC(),nowUTC(),j.ID);err!=nil{return removed,err}
  return removed,tx.Commit()
+}
+
+// parkedArchiveLinkedElsewhere reports whether another hard link outside this
+// deployment's work folders still names the parked file, for example a saved
+// mod version. Removing the parked link then loses no data.
+func(service *AppService)parkedArchiveLinkedElsewhere(backup string,j deploymentJournalEntry)bool{
+ others,err:=otherHardLinkPaths(backup);if err!=nil{return false}
+ work:=service.archiveTransactionWorkRoot(j.Purpose)
+ for _,other:=range others{
+  if pathWithin(other,j.StagingDir)||pathWithin(other,j.PreviousDir)||pathWithin(other,work){continue}
+  return true
+ }
+ return false
+}
+
+// keepLastArchiveCopyInLibrary moves the only remaining copy of a previously
+// deployed archive into the library's "Previous versions" folder. Studio placed
+// it there, so it is indexed without asking the user to sort it.
+func(service *AppService)keepLastArchiveCopyInLibrary(ctx context.Context,backup string,entry OwnedArchiveEntry)error{
+ if strings.TrimSpace(service.config.LibraryDir)==""{return errors.New("no library folder is configured")}
+ dir:=filepath.Join(service.config.LibraryDir,"Previous versions")
+ if err:=os.MkdirAll(dir,0o755);err!=nil{return err}
+ name:=filepath.Base(entry.SourcePath);if !isModArchive(name){name=entry.RelativePath}
+ dest:=uniqueFilePath(dir,name)
+ if err:=service.store.recordStudioPlacedArchive(ctx,dest);err!=nil{return err}
+ if err:=moveFileVerified(ctx,service,backup,dest);err!=nil{return err}
+ return service.store.AppendEvent(ctx,entry.EntityID,"archive_kept_in_library",map[string]any{"from":backup,"path":dest})
 }
 
 // Caller holds modImportMu (or runs before serving requests). Cleanup-only

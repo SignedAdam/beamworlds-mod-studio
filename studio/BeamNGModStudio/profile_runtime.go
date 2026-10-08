@@ -26,6 +26,8 @@ func (service *AppService) LaunchPlaySelection(ctx context.Context, request Play
 	if err := service.requireGameStopped(); err != nil {
 		return PlayResult{}, err
 	}
+	// ModMaker edits waiting to reach the library go into this launch.
+	service.flushLibrarySyncs(ctx)
 	activation, err := service.activatePlaySelectionDirect(ctx, request)
 	if err != nil {
 		return PlayResult{}, err
@@ -81,6 +83,7 @@ func (service *AppService) LaunchPlaySelection(ctx context.Context, request Play
 		"collectionIds": activation.CollectionIDs, "fingerprint": activation.Fingerprint,
 		"pid": launch.PID, "userPath": activation.UserPath,
 	})
+	// The game monitor detects exit transitions and harvests session downloads.
 	return PlayResult{Applied: true, Started: true, Activation: activation, Process: launch}, nil
 }
 
@@ -132,6 +135,9 @@ func (service *AppService) GetPlayRuntimeState() (PlayRuntimeState, error) {
 		return PlayRuntimeState{}, err
 	}
 	state := PlayRuntimeState{GameRunning: running}
+	if service.playProfileWarning != "" {
+		state.Warning = appendPlayWarning(state.Warning, service.playProfileWarning)
+	}
 	activation, markerExists, markerErr := service.readPlayRuntimeMarker()
 	if markerErr != nil {
 		state.Warning = appendPlayWarning(state.Warning, markerErr.Error())
@@ -150,13 +156,12 @@ func (service *AppService) GetPlayRuntimeState() (PlayRuntimeState, error) {
 	}
 	journals, err := service.store.listPendingDeploymentJournals(context.Background())
 	if err != nil { return state, err }
+	// Unfinished cleanup of a previous selection is retried automatically at
+	// startup and before every Play; it needs nothing from the player.
 	for _, journal := range journals {
-		if journal.Purpose != archivePurposePlay { continue }
-		if journal.State == journalStateActivating {
+		if journal.Purpose == archivePurposePlay && journal.State == journalStateActivating {
 			state.Applied = false
 			state.Warning = appendPlayWarning(state.Warning, "An interrupted deployment requires recovery while BeamNG is stopped.")
-		} else if journal.State == journalStateApplied || journal.State == journalStateCleanup {
-			state.Warning = appendPlayWarning(state.Warning, "Some previous archive data is retained for storage review.")
 		}
 	}
 	if state.Applied {

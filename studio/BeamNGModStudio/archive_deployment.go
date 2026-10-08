@@ -701,20 +701,42 @@ func findExistingReadableFile(root string) string {
 // ---------------------------------------------------------------------------
 
 // PlanPlayDeployment builds a reviewed deployment plan for a Play selection.
-// Does not mutate the filesystem or database. The plan includes a fingerprint
-// that must be presented to apply it. OwnerID is the stable logical owner
-// "active-play", not a per-invocation UUID; operationID is generated only at
-// apply time.
+// Besides adopting managed archives verified identical to catalog archives,
+// it does not mutate the filesystem or database. The plan includes a
+// fingerprint that must be presented to apply it. OwnerID is the stable
+// logical owner "active-play", not a per-invocation UUID; operationID is
+// generated only at apply time.
 func (service *AppService) PlanPlayDeployment(ctx context.Context, request PlayRequest) (ArchiveDeploymentPlan, error) {
+	service.flushLibrarySyncs(ctx)
 	ids := normalizePlayCollectionIDs(request.CollectionIDs)
 	excludedIDs := normalizePlayCollectionIDs(request.ExcludedCollectionIDs)
+
+	playRoot, err := playUserPath(service.config)
+	if err != nil {
+		return ArchiveDeploymentPlan{}, err
+	}
+	destinationRoot := playProfileModsDir(playRoot)
+
+	service.modImportMu.Lock()
+	if adoptErr := service.adoptExistingManagedEntries(ctx); adoptErr != nil {
+		service.modImportMu.Unlock()
+		return ArchiveDeploymentPlan{}, fmt.Errorf("adopt managed entries: %w", adoptErr)
+	}
+	if syncErr := service.syncPlayProfile(ctx); syncErr != nil {
+		service.modImportMu.Unlock()
+		return ArchiveDeploymentPlan{}, fmt.Errorf("sync play profile: %w", syncErr)
+	}
+	if _, harvestErr := service.reconcileProfileSessionDownloads(ctx, playRoot); harvestErr != nil {
+		service.modImportMu.Unlock()
+		return ArchiveDeploymentPlan{}, fmt.Errorf("harvest session downloads: %w", harvestErr)
+	}
+	service.modImportMu.Unlock()
 
 	selection, err := service.store.ResolvePlaySelection(ctx, ids, excludedIDs)
 	if err != nil {
 		return ArchiveDeploymentPlan{}, err
 	}
 
-	destinationRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 	return service.buildArchiveDeploymentPlan(ctx, selection, destinationRoot, archivePurposePlay, playDeploymentOwnerID)
 }
 
@@ -765,8 +787,6 @@ func (service *AppService) buildArchiveDeploymentPlan(ctx context.Context, selec
 		}
 	}
 
-
-	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 	fileLimit, fileLimitErr := archiveDestinationFileLimit(destinationRoot)
 
 	for _, mod := range selection.Mods {
@@ -797,20 +817,6 @@ func (service *AppService) buildArchiveDeploymentPlan(ctx context.Context, selec
 		if entry.SHA256=="" && !recordedArchiveMetadataHolds(mod,info){plan.Blockers=append(plan.Blockers,fmt.Sprintf("%s changed since indexing; rescan before verifying its first checksum",mod.DisplayName));continue}
 		entry.SourceIdentity = srcIdent
 		entry.SizeBytes = srcIdent.SizeBytes
-		// In-place detection: ONLY for Play purpose. Repository/native mods
-		// already inside ActiveModsDir are used in-place for Play but must be
-		// materialized into collection mirrors.
-		if purpose == archivePurposePlay &&
-			strings.EqualFold(filepath.Ext(sourcePath), ".zip") &&
-			pathWithin(sourcePath, service.config.ActiveModsDir) &&
-			!pathWithin(sourcePath, managedRoot) {
-			entry.Method = deployMethodInPlace
-			if entry.VerifySource { plan.HashBytes+=entry.SizeBytes }
-			entry.DestinationPath = sourcePath
-			plan.InPlaceCount++
-			plan.Entries = append(plan.Entries, entry)
-			continue
-		}
 
 		// Determine method from capability and mode.
 		cap := capForSource(sourcePath)
@@ -932,9 +938,6 @@ func (service *AppService) buildArchiveDeploymentPlan(ctx context.Context, selec
 	if plan.AdditionalBytes<0{plan.AdditionalBytes=0}
 	plan.OwnershipFingerprint=hex.EncodeToString(ownershipHash.Sum(nil))
 	if purpose==archivePurposePlay {
-		keys:=make([]string,0,len(plan.Entries))
-		for _,entry:=range plan.Entries{key,err:=beamNGModKeyForEntry(entry,service.config.ActiveModsDir);if err!=nil{return ArchiveDeploymentPlan{},err};keys=append(keys,key)}
-		if _,_,err:=prepareBeamNGModSelection(service.config.ActiveModsDir,keys);err!=nil{plan.Blockers=append(plan.Blockers,err.Error())}
 		plan.Blockers=append(plan.Blockers,checkManagedRootOwnership(ctx,service.store,destinationRoot)...)
 	}
 	// Check available space against the actual destination.
@@ -1066,40 +1069,44 @@ func checkManagedRootOwnership(ctx context.Context, store *Store, managedRoot st
 			blockers = append(blockers, fmt.Sprintf("owned archive changed outside Studio: %s", path))
 			continue
 		}
-		if file.IsDir() || file.Type()&os.ModeSymlink != 0 || isModArchive(file.Name()) {
-			blockers = append(blockers, fmt.Sprintf("unowned game entry %q; recover it through Review storage or move it out before applying", file.Name()))
+		if file.IsDir() {
+			// Empty subdirectories in the profile mods dir are not blockers.
+			sub, _ := os.ReadDir(path)
+			if len(sub) == 0 { continue }
+			blockers = append(blockers, fmt.Sprintf("%q in Studio's game mod folder doesn't match any mod in your library. Add it to your library from Review storage, or move it out of that folder", file.Name()))
+		} else if file.Type()&os.ModeSymlink != 0 || isModArchive(file.Name()) {
+			blockers = append(blockers, fmt.Sprintf("%q in Studio's game mod folder doesn't match any mod in your library. Add it to your library from Review storage, or move it out of that folder", file.Name()))
 		}
 	}
 	return blockers
 }
 
 
-// adoptExistingManagedEntries scans the beamworlds-managed directory for files
-// that pre-date the ownership ledger (v6→v7 upgrade) and creates ownership
-// records for them, given a pre-migration Play marker. A file is adopted when
-// it is a hardlink of its catalog archive, or when its legacy Studio name maps
-// to exactly one catalog archive and its bytes are checksum-verified identical
-// (adopted as a copy). Anything else stays unadopted and blocks deployment
-// until the user reviews it in Review storage.
+// adoptExistingManagedEntries gives Studio ownership of unowned archives in
+// beamworlds-managed whose bytes are verified identical to a catalog archive:
+// a hardlink of the catalog file, or an independent copy whose full SHA-256
+// matches. Such files are Studio deployments whose ledger rows were lost or
+// never written (for example, legacy names that collided before the v7
+// ledger); their contents remain available from the catalog, so adopting them
+// cannot lose data. Anything else stays unowned and blocks deployment.
 //
 // Lock contract:
 //   - Caller MUST hold modImportMu (this mutates the ledger and inspects files)
-//   - This function does NOT run at unguarded startup
 func (service *AppService) adoptExistingManagedEntries(ctx context.Context) error {
-	managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
-	marker, markerExists, err := service.readPlayRuntimeMarker()
-	if err != nil || !markerExists { return err }
-	if marker.OperationID == "" || marker.Fingerprint == "" || !samePath(marker.ModsPath, managedRoot) || !samePath(marker.UserPath, service.config.BeamNGRoot) { return nil }
-	var migrationAt string
-	var alreadyReviewed int
-	if err := service.store.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(at),'') FROM events WHERE type='archive_deployment_database_backup'`).Scan(&migrationAt); err != nil { return err }
-	if migrationAt == "" { return nil }
-	if err := service.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE type='archive_legacy_ownership_reviewed'`).Scan(&alreadyReviewed); err != nil { return err }
-	if alreadyReviewed != 0 { return nil }
-	appliedTime, err := time.Parse(time.RFC3339Nano, marker.ActivatedAt)
-	if err != nil { return nil }
-	migratedTime, err := time.Parse(time.RFC3339Nano, migrationAt)
-	if err != nil || appliedTime.After(migratedTime) { return nil }
+	// Scan the current profile mods directory.
+	managedRoot := service.playManagedRoot()
+	if err := service.adoptManagedEntriesInRoot(ctx, managedRoot); err != nil {
+		return err
+	}
+	// Also scan the legacy managed directory for backward compatibility.
+	legacyRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
+	if !samePath(legacyRoot, managedRoot) {
+		return service.adoptManagedEntriesInRoot(ctx, legacyRoot)
+	}
+	return nil
+}
+
+func (service *AppService) adoptManagedEntriesInRoot(ctx context.Context, managedRoot string) error {
 	files, err := os.ReadDir(managedRoot)
 	if errors.Is(err, os.ErrNotExist) { return nil }
 	if err != nil { return err }
@@ -1107,69 +1114,68 @@ func (service *AppService) adoptExistingManagedEntries(ctx context.Context) erro
 	if err != nil { return err }
 	ownedPaths := make(map[string]bool, len(existing))
 	for _, entry := range existing { ownedPaths[archivePathKey(filepath.Join(entry.TargetRoot, entry.RelativePath))] = true }
-	rows, err := service.store.db.QueryContext(ctx, `SELECT l.entity_id,l.artifact_id,l.path,COALESCE(a.sha256,''),e.display_name
-		FROM archive_links l JOIN artifacts a ON a.id=l.artifact_id JOIN entities e ON e.id=l.entity_id
+	type orphan struct { name string; identity ArchiveFileIdentity }
+	var orphans []orphan
+	sizes := map[int64]bool{}
+	for _, file := range files {
+		if !file.Type().IsRegular() || !isModArchive(file.Name()) { continue }
+		path := filepath.Join(managedRoot, file.Name())
+		if ownedPaths[archivePathKey(path)] { continue }
+		identity, exists, err := archiveIdentityIfPresent(path)
+		if err != nil || !exists { continue }
+		orphans = append(orphans, orphan{file.Name(), identity})
+		sizes[identity.SizeBytes] = true
+	}
+	if len(orphans) == 0 { return nil }
+	rows, err := service.store.db.QueryContext(ctx, `SELECT l.entity_id,l.artifact_id,l.path,COALESCE(a.sha256,'')
+		FROM archive_links l JOIN artifacts a ON a.id=l.artifact_id
 		ORDER BY l.active DESC,l.last_seen_at DESC,l.id DESC`)
 	if err != nil { return err }
-	type legacySource struct { entry OwnedArchiveEntry; expectedName string; ambiguous bool }
-	sources := map[physicalFileKey]legacySource{}
-	byName := map[string][]legacySource{}
+	var sources []OwnedArchiveEntry
 	for rows.Next() {
 		var entry OwnedArchiveEntry
-		var name string
-		if err := rows.Scan(&entry.EntityID,&entry.ArtifactID,&entry.SourcePath,&entry.SHA256,&name); err != nil { rows.Close(); return err }
-		if pathWithin(entry.SourcePath,managedRoot) || pathWithin(entry.SourcePath,service.config.ProfileDir) || pathWithin(entry.SourcePath,service.config.ExportDir) { continue }
+		if err := rows.Scan(&entry.EntityID, &entry.ArtifactID, &entry.SourcePath, &entry.SHA256); err != nil { rows.Close(); return err }
+		if pathWithin(entry.SourcePath, managedRoot) || pathWithin(entry.SourcePath, service.config.ProfileDir) || pathWithin(entry.SourcePath, service.config.ExportDir) { continue }
 		identity, exists, err := archiveIdentityIfPresent(entry.SourcePath)
-		if err != nil || !exists || !identity.IdentityKnown { continue }
+		if err != nil || !exists || !sizes[identity.SizeBytes] { continue }
 		entry.SourceIdentity = identity
-		key := physicalFileKey{identity.VolumeID,identity.FileID}
-		base := sanitizeArchiveLabel(strings.TrimSuffix(filepath.Base(entry.SourcePath),filepath.Ext(entry.SourcePath)))
-		if base == "" { base = sanitizeArchiveLabel(name) }
-		if base == "" { base = "mod" }
-		candidate := legacySource{entry:entry, expectedName:base+"-"+shortPlayID(entry.EntityID)+".zip"}
-		byName[strings.ToLower(candidate.expectedName)] = append(byName[strings.ToLower(candidate.expectedName)], candidate)
-		if previous, exists := sources[key]; exists {
-			if previous.entry.EntityID != entry.EntityID || previous.entry.ArtifactID != entry.ArtifactID { previous.ambiguous=true; sources[key]=previous }
-			continue
-		}
-		sources[key]=candidate
+		sources = append(sources, entry)
 	}
 	if err := rows.Err(); err != nil { rows.Close(); return err }
 	if err := rows.Close(); err != nil { return err }
 	var adopted []OwnedArchiveEntry
-	for _, file := range files {
-		if file.IsDir() || file.Type()&os.ModeSymlink!=0 { continue }
-		path := filepath.Join(managedRoot,file.Name())
-		if ownedPaths[archivePathKey(path)] { continue }
-		identity, exists, err := archiveIdentityIfPresent(path)
-		if err != nil || !exists { continue }
-		source, matches := sources[physicalFileKey{identity.VolumeID,identity.FileID}]
+	for _, file := range orphans {
+		path := filepath.Join(managedRoot, file.name)
+		var match *OwnedArchiveEntry
 		method := deployMethodHardlink
-		if !matches || source.ambiguous || !strings.EqualFold(file.Name(),source.expectedName) || !sameArchiveObject(identity,source.entry.SourceIdentity) {
-			// An independent legacy copy is adopted only when its Studio name maps
-			// to exactly one catalog archive and the bytes are verified identical.
-			named := byName[strings.ToLower(file.Name())]
-			if len(named) == 0 { continue }
-			unique := true
-			for _, other := range named[1:] { if other.entry.EntityID != named[0].entry.EntityID || other.entry.ArtifactID != named[0].entry.ArtifactID { unique = false } }
-			source = named[0]
-			if !unique || identity.SizeBytes != source.entry.SourceIdentity.SizeBytes { continue }
-			copyHash, _, err := service.verifiedArchiveHash(ctx, path, identity)
-			if err != nil { continue }
-			sourceHash, _, err := service.verifiedArchiveHash(ctx, source.entry.SourcePath, source.entry.SourceIdentity)
-			if err != nil || copyHash != sourceHash || (source.entry.SHA256 != "" && !strings.EqualFold(source.entry.SHA256, sourceHash)) { continue }
-			source.entry.SHA256, method = sourceHash, deployMethodCopy
+		for i := range sources {
+			if sameArchiveObject(file.identity, sources[i].SourceIdentity) { match = &sources[i]; break }
 		}
+		if match == nil {
+			copyHash, _, err := service.verifiedArchiveHash(ctx, path, file.identity)
+			if err != nil { if ctx.Err() != nil { return ctx.Err() }; continue }
+			for i := range sources {
+				source := &sources[i]
+				if source.SourceIdentity.SizeBytes != file.identity.SizeBytes || (source.SHA256 != "" && !strings.EqualFold(source.SHA256, copyHash)) { continue }
+				sourceHash, _, err := service.verifiedArchiveHash(ctx, source.SourcePath, source.SourceIdentity)
+				if err != nil || sourceHash != copyHash { if ctx.Err() != nil { return ctx.Err() }; continue }
+				source.SHA256, match, method = sourceHash, source, deployMethodCopy
+				break
+			}
+		}
+		if match == nil { continue }
 		id, err := modkit.NewID(); if err != nil { return err }
-		entry := source.entry
+		entry := *match
 		entry.ID, entry.Purpose, entry.OwnerID = id, archivePurposePlay, playDeploymentOwnerID
-		entry.TargetRoot, entry.RelativePath = managedRoot, file.Name()
-		entry.Method, entry.State, entry.TargetIdentity = method, archiveStateActive, identity
-		adopted=append(adopted,entry)
+		entry.TargetRoot, entry.RelativePath = managedRoot, file.name
+		entry.Method, entry.State, entry.TargetIdentity = method, archiveStateActive, file.identity
+		adopted = append(adopted, entry)
 	}
-	if len(adopted)>marker.ModCount { return errors.New("legacy managed files exceed the recorded selection; review storage before adoption") }
-	if err := service.store.saveOwnedArchiveEntries(ctx,adopted); err != nil { return err }
-	return service.store.AppendEvent(ctx,"","archive_legacy_ownership_reviewed",map[string]any{"adopted":len(adopted),"markerOperationId":marker.OperationID})
+	if len(adopted) == 0 { return nil }
+	if err := service.store.saveOwnedArchiveEntries(ctx, adopted); err != nil { return err }
+	names := make([]string, len(adopted))
+	for i, entry := range adopted { names[i] = entry.RelativePath }
+	return service.store.AppendEvent(ctx, "", "archive_managed_ownership_adopted", map[string]any{"files": names})
 }
 
 
@@ -1236,6 +1242,20 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 		return PlayActivation{}, err
 	}
 
+	playRoot, err := playUserPath(service.config)
+	if err != nil {
+		return PlayActivation{}, err
+	}
+	destinationRoot := playProfileModsDir(playRoot)
+
+	// Sync profile and harvest before planning.
+	if err := service.syncPlayProfile(ctx); err != nil {
+		return PlayActivation{}, fmt.Errorf("sync play profile: %w", err)
+	}
+	if _, err := service.reconcileProfileSessionDownloads(ctx, playRoot); err != nil {
+		return PlayActivation{}, fmt.Errorf("harvest session downloads: %w", err)
+	}
+
 	ids := normalizePlayCollectionIDs(request.CollectionIDs)
 	excludedIDs := normalizePlayCollectionIDs(request.ExcludedCollectionIDs)
 	operationID, err := modkit.NewID()
@@ -1255,14 +1275,11 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 		}
 	}()
 
-	// Resolve selection.
 	selection, err := service.store.ResolvePlaySelection(ctx, ids, excludedIDs)
 	if err != nil {
 		resultErr = err
 		return PlayActivation{}, err
 	}
-
-	// Validate selection against request (fingerprint check).
 	if err := validatePlaySelectionRequest(request, selection); err != nil {
 		resultErr = err
 		return PlayActivation{}, err
@@ -1277,8 +1294,6 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 	}
 	service.emitPlayProgress(progress)
 
-	// Build deployment plan.
-	destinationRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 	plan, err := service.buildArchiveDeploymentPlan(ctx, selection, destinationRoot, archivePurposePlay, playDeploymentOwnerID)
 	if err != nil {
 		resultErr = err
@@ -1289,46 +1304,18 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 		resultErr = errors.New("the deployment plan changed or was not reviewed; refresh and review it before applying")
 		return PlayActivation{}, resultErr
 	}
-
-	// Check copy confirmation.
 	if plan.RequiresCopyConfirmation && plan.CopyBytes > 0 && !request.AllowCopy {
 		resultErr = fmt.Errorf("this deployment requires copying %d bytes; set allowCopy to proceed", plan.CopyBytes)
 		return PlayActivation{}, resultErr
 	}
-
-	// Check blockers.
 	if len(plan.Blockers) > 0 {
 		resultErr = fmt.Errorf("deployment blocked: %s", strings.Join(plan.Blockers, "; "))
 		return PlayActivation{}, resultErr
 	}
 
-	progress.Phase = "preparing"
-	service.emitPlayProgress(progress)
-
-	// Payload verification is performed once by the shared deployment engine.
-	// Copies are hashed while streaming; links and native entries are read only
-	// when their trusted source snapshot is absent or changed.
-
-	// Build selected keys for native db.json integration.
-	selectedKeys := make([]string, 0, len(plan.Entries))
-	selectedKeySet := make(map[string]struct{}, len(plan.Entries))
-	for _, entry := range plan.Entries {
-		key, err := beamNGModKeyForEntry(entry, service.config.ActiveModsDir)
-		if err != nil {
-			resultErr = fmt.Errorf("resolve native archive key: %w", err)
-			return PlayActivation{}, resultErr
-		}
-		if _, exists := selectedKeySet[key]; !exists {
-			selectedKeys = append(selectedKeys, key)
-			selectedKeySet[key] = struct{}{}
-		}
-	}
-
 	progress.Phase = "activating"
 	service.emitPlayProgress(progress)
 
-	// Re-validate deployment mode before mutation — a mode change since
-	// planning must not silently proceed.
 	service.archivePolicyMu.RLock()
 	currentMode := service.archiveDeploymentMode()
 	service.archivePolicyMu.RUnlock()
@@ -1337,33 +1324,24 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 		return PlayActivation{}, resultErr
 	}
 
-
-	// Build activation record for the marker (written inside commit callback).
 	activatedAt := nowUTC()
 	activation := PlayActivation{
 		OperationID:           operationID,
 		ModCount:              len(selection.Mods),
-		UserPath:              service.config.BeamNGRoot,
-		ModsPath:              filepath.Join(service.config.ActiveModsDir, managedModDirectoryName),
+		UserPath:              playRoot,
+		ModsPath:              destinationRoot,
 		ActivatedAt:           activatedAt,
 		CollectionIDs:         append([]string(nil), ids...),
 		ExcludedCollectionIDs: append([]string(nil), excludedIDs...),
 		Fingerprint:           strings.TrimSpace(selection.Fingerprint),
 	}
 
-	if err := service.adoptExistingManagedEntries(ctx); err != nil {
-		resultErr = err
-		return PlayActivation{}, err
-	}
 	plan.operationID=operationID
 	deployResult, err := service.applyArchiveDeployment(ctx, plan,
-		service.requireGameStopped, // beforeActivate: recheck game stopped after staging
+		service.requireGameStopped,
 		func() error {
-			// Commit callback: apply native db.json selection AND write the
-			// runtime marker. Both must succeed atomically with the deploy.
-			if err := applyBeamNGModSelection(service.config.ActiveModsDir, selectedKeys); err != nil {
-				return err
-			}
+			// Delete profile db.json so BeamNG mounts all present zips as active.
+			_ = os.Remove(filepath.Join(destinationRoot, "db.json"))
 			if err := service.writePlayRuntimeMarker(activation); err != nil {
 				return fmt.Errorf("write play marker: %w", err)
 			}
@@ -1376,7 +1354,6 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 		resultErr = err
 		return PlayActivation{}, err
 	}
-
 
 	progress.Phase = "ready"
 	progress.Completed = progress.Total
@@ -1394,17 +1371,6 @@ func (service *AppService) activatePlaySelectionDirect(ctx context.Context, requ
 	})
 
 	return activation, nil
-}
-
-
-// beamNGModKeyForEntry computes the native db.json key for a deployment entry.
-func beamNGModKeyForEntry(entry ArchiveDeploymentEntry, activeModsDir string) (string, error) {
-	if entry.Method == deployMethodInPlace {
-		return beamNGModKey(entry.SourcePath, activeModsDir)
-	}
-	managedRoot := filepath.Join(activeModsDir, managedModDirectoryName)
-	destInManaged := filepath.Join(managedRoot, filepath.Base(entry.DestinationPath))
-	return beamNGModKey(destInManaged, activeModsDir)
 }
 
 // emitStorageProgress sends a storage:progress event. Used by the cleanup

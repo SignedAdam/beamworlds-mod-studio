@@ -3,11 +3,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -182,21 +184,115 @@ func availableArchiveBytes(path string) (int64, error) {
 // exists. Uses MoveFileExW WITHOUT MOVEFILE_REPLACE_EXISTING so the
 // destination is never silently overwritten. MOVEFILE_WRITE_THROUGH ensures
 // the rename is flushed to disk before returning.
+//
+// Windows refuses to rename a file while another process holds it open
+// without delete sharing. Antivirus scanners, search indexing, and Explorer
+// previews do this briefly, so the move is retried before failing. A lasting
+// lock is reported with the file and the programs holding it.
 func renameArchiveNoReplace(from, to string) error {
-	fromNorm := normalizeLongPath(from)
-	toNorm := normalizeLongPath(to)
-	fromUTF16, err := windows.UTF16PtrFromString(fromNorm)
+	fromUTF16, err := windows.UTF16PtrFromString(normalizeLongPath(from))
 	if err != nil {
 		return fmt.Errorf("encode source path: %w", err)
 	}
-	toUTF16, err := windows.UTF16PtrFromString(toNorm)
+	toUTF16, err := windows.UTF16PtrFromString(normalizeLongPath(to))
 	if err != nil {
 		return fmt.Errorf("encode destination path: %w", err)
 	}
 	// MOVEFILE_WRITE_THROUGH = 0x8: flush to disk.
 	// No MOVEFILE_REPLACE_EXISTING: fail if destination exists.
 	const movefileWriteThrough = 0x8
-	return windows.MoveFileEx(fromUTF16, toUTF16, movefileWriteThrough)
+	delay := 25 * time.Millisecond
+	deadline := time.Now().Add(archiveMoveLockTimeout)
+	for {
+		err = windows.MoveFileEx(fromUTF16, toUTF16, movefileWriteThrough)
+		if err == nil || !transientFileLock(err) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(delay)
+		delay = min(delay*2, time.Second)
+	}
+	if err == nil {
+		return nil
+	}
+	if transientFileLock(err) {
+		if holders := fileLockHolders(from); len(holders) > 0 {
+			return fmt.Errorf("%s is open in %s; close it and try again: %w", from, strings.Join(holders, ", "), err)
+		}
+		return fmt.Errorf("%s is open in another program; close it and try again: %w", from, err)
+	}
+	return fmt.Errorf("move %s to %s: %w", from, to, err)
+}
+
+// archiveMoveLockTimeout bounds how long one move waits for another program
+// to release a file.
+var archiveMoveLockTimeout = 10 * time.Second
+
+func transientFileLock(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}
+
+var (
+	restartManager          = windows.NewLazySystemDLL("rstrtmgr.dll")
+	procRmStartSession      = restartManager.NewProc("RmStartSession")
+	procRmRegisterResources = restartManager.NewProc("RmRegisterResources")
+	procRmGetList           = restartManager.NewProc("RmGetList")
+	procRmEndSession        = restartManager.NewProc("RmEndSession")
+)
+
+// rmProcessInfo is RM_PROCESS_INFO.
+type rmProcessInfo struct {
+	ProcessID        uint32
+	ProcessStartTime windows.Filetime
+	AppName          [256]uint16
+	ServiceShortName [64]uint16
+	ApplicationType  uint32
+	AppStatus        uint32
+	TSSessionID      uint32
+	Restartable      int32
+}
+
+// fileLockHolders asks the Windows Restart Manager which processes have path
+// open. It returns nothing when the holders cannot be determined.
+func fileLockHolders(path string) []string {
+	if restartManager.Load() != nil {
+		return nil
+	}
+	var session uint32
+	var key [33]uint16 // CCH_RM_SESSION_KEY + 1
+	if code, _, _ := procRmStartSession.Call(uintptr(unsafe.Pointer(&session)), 0, uintptr(unsafe.Pointer(&key[0]))); code != 0 {
+		return nil
+	}
+	defer procRmEndSession.Call(uintptr(session))
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil
+	}
+	if code, _, _ := procRmRegisterResources.Call(uintptr(session), 1, uintptr(unsafe.Pointer(&name)), 0, 0, 0, 0); code != 0 {
+		return nil
+	}
+	var infos []rmProcessInfo
+	for range 3 {
+		var needed, count, reasons uint32
+		count = uint32(len(infos))
+		var first uintptr
+		if count > 0 {
+			first = uintptr(unsafe.Pointer(&infos[0]))
+		}
+		code, _, _ := procRmGetList.Call(uintptr(session), uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&count)), first, uintptr(unsafe.Pointer(&reasons)))
+		if code == 0 {
+			infos = infos[:count]
+			break
+		}
+		if windows.Errno(code) != windows.ERROR_MORE_DATA {
+			return nil
+		}
+		infos = make([]rmProcessInfo, needed)
+	}
+	holders := make([]string, 0, len(infos))
+	for _, info := range infos {
+		holders = append(holders, fmt.Sprintf("%s (process %d)", windows.UTF16ToString(info.AppName[:]), info.ProcessID))
+	}
+	return holders
 }
 
 // Returns a known per-file size restriction, or zero when no special limit was

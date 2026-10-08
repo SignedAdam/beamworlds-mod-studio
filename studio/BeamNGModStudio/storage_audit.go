@@ -294,7 +294,20 @@ func (service *AppService) AuditArchiveStorage(ctx context.Context) (audit Stora
 		}
 	}
 
-	// 7. Scan managed deployment directory.
+	// 7. Scan managed deployment directory (profile mods + legacy managed dir).
+	if playRoot, playErr := playUserPath(service.config); playErr == nil {
+		profileMods := playProfileModsDir(playRoot)
+		deployItems, deployWarnings, scanErr := service.scanManagedDeployment(ctx, profileMods, ownedByTarget, sourceByPath, scanned, &progress)
+		if scanErr != nil {
+			if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+				return StorageAudit{}, scanErr
+			}
+			warnings = append(warnings, fmt.Sprintf("profile mods: %v", scanErr))
+		} else {
+			items = append(items, deployItems...)
+			warnings = append(warnings, deployWarnings...)
+		}
+	}
 	if service.config.ActiveModsDir != "" {
 		managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 		deployItems, deployWarnings, scanErr := service.scanManagedDeployment(ctx, managedRoot, ownedByTarget, sourceByPath, scanned, &progress)
@@ -502,6 +515,11 @@ func (service *AppService) ApplyStorageCleanup(ctx context.Context, fingerprint 
 // Core's applyArchiveDeployment uses for journaled staging.
 func (service *AppService) deploymentWorkDirRoots() []string {
 	var roots []string
+	// Profile-based Play deployment work directory.
+	if playRoot, err := playUserPath(service.config); err == nil {
+		roots = append(roots, playProfileDeploymentDir(playRoot))
+	}
+	// Legacy managed-dir work root (for pre-migration journals).
 	if service.config.ActiveModsDir != "" {
 		managedRoot := filepath.Join(service.config.ActiveModsDir, managedModDirectoryName)
 		roots = append(roots, deploymentWorkDir(managedRoot))
@@ -748,6 +766,10 @@ func (service *AppService) scanCanonicalSources(ctx context.Context, root string
 				dirName == collectionFolderDirectory ||
 				strings.HasPrefix(dirName, ".beamworlds-managed-next-") ||
 				dirName == ".beamworlds-managed-previous" {
+				return filepath.SkipDir
+			}
+			// Skip Studio data directories that may be nested under a scan root.
+			if service.config.DataDir != "" && pathWithin(path, service.config.DataDir) {
 				return filepath.SkipDir
 			}
 			return nil

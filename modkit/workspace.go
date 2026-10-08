@@ -40,25 +40,27 @@ type ExportResult struct {
 }
 
 func CreateWorkspace(ctx context.Context, sourceArchive, destination, id, entityID, artifactID string, kind Kind) (WorkspaceManifest, error) {
-	sourceKind, err := SourceKindOf(sourceArchive)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sourceFingerprint, err := SourceContentID(ctx, sourceArchive)
 	if err != nil {
-		return WorkspaceManifest{}, err
+		return WorkspaceManifest{}, fmt.Errorf("fingerprint source: %w", err)
 	}
-	if sourceKind == SourceFolder {
-		return createWorkspaceFromFolder(ctx, sourceArchive, destination, id, entityID, artifactID, kind)
-	}
-	sourceFingerprint, err := FullSHA256(ctx, sourceArchive)
+	src, err := OpenSource(ctx, sourceArchive)
 	if err != nil {
-		return WorkspaceManifest{}, fmt.Errorf("fingerprint source ZIP: %w", err)
+		return WorkspaceManifest{}, fmt.Errorf("open source: %w", err)
 	}
-	reader, err := zip.OpenReader(sourceArchive)
-	if err != nil {
-		return WorkspaceManifest{}, fmt.Errorf("open source ZIP: %w", err)
+	defer src.Close()
+	// Reject sources with unsafe paths (e.g. ../escape.txt in a ZIP).
+	if issues := SourceConstructionIssues(src); len(issues) > 0 {
+		for _, issue := range issues {
+			if issue.Code == "unsafe-path" && issue.Severity == SeverityError {
+				return WorkspaceManifest{}, fmt.Errorf("source contains unsafe path: %s", issue.Path)
+			}
+		}
 	}
-	defer reader.Close()
-	if len(reader.File) > maxEntries {
-		return WorkspaceManifest{}, fmt.Errorf("archive has %d entries; workspace limit is %d", len(reader.File), maxEntries)
-	}
+	entries := src.Entries()
 	if _, err := os.Stat(destination); err == nil {
 		return WorkspaceManifest{}, fmt.Errorf("workspace already exists: %s", destination)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -82,41 +84,36 @@ func CreateWorkspace(ctx context.Context, sourceArchive, destination, id, entity
 	if err := os.MkdirAll(filesRoot, 0o755); err != nil {
 		return WorkspaceManifest{}, err
 	}
-
-	snapshots := make([]FileSnapshot, 0, len(reader.File))
+	snapshots := make([]FileSnapshot, 0, len(entries))
 	var extracted int64
-	for _, entry := range reader.File {
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return WorkspaceManifest{}, err
 		}
-		name, pathErr := normalizeArchivePath(entry.Name)
+		destinationPath, pathErr := safeJoin(filesRoot, entry.Path)
 		if pathErr != nil {
 			return WorkspaceManifest{}, pathErr
 		}
-		destinationPath, pathErr := safeJoin(filesRoot, name)
-		if pathErr != nil {
-			return WorkspaceManifest{}, pathErr
-		}
-		if entry.FileInfo().IsDir() {
+		if entry.Dir {
 			if err := os.MkdirAll(destinationPath, 0o755); err != nil {
 				return WorkspaceManifest{}, err
 			}
 			continue
 		}
 		if entry.Flags&0x1 != 0 {
-			return WorkspaceManifest{}, fmt.Errorf("cannot create workspace from encrypted entry: %s", name)
+			return WorkspaceManifest{}, fmt.Errorf("cannot create workspace from encrypted entry: %s", entry.Path)
 		}
-		if entry.UncompressedSize64 > uint64(maxWorkspaceFile) {
-			return WorkspaceManifest{}, fmt.Errorf("entry %s exceeds workspace file limit", name)
+		if entry.Size > maxWorkspaceFile {
+			return WorkspaceManifest{}, fmt.Errorf("entry %s exceeds workspace file limit", entry.Path)
 		}
-		extracted += int64(entry.UncompressedSize64)
+		extracted += entry.Size
 		if extracted > maxWorkspaceBytes {
 			return WorkspaceManifest{}, fmt.Errorf("workspace exceeds %d-byte extraction limit", maxWorkspaceBytes)
 		}
 		if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 			return WorkspaceManifest{}, err
 		}
-		input, err := openZipEntry(entry)
+		input, err := src.Open(entry.Path)
 		if err != nil {
 			return WorkspaceManifest{}, err
 		}
@@ -138,24 +135,24 @@ func CreateWorkspace(ctx context.Context, sourceArchive, destination, id, entity
 		if closeInErr != nil {
 			return WorkspaceManifest{}, closeInErr
 		}
-		if written != int64(entry.UncompressedSize64) || written > maxWorkspaceFile {
-			return WorkspaceManifest{}, fmt.Errorf("entry size mismatch for %s", name)
+		if written > maxWorkspaceFile {
+			return WorkspaceManifest{}, fmt.Errorf("entry size limit exceeded for %s", entry.Path)
 		}
-		if !entry.Modified.IsZero() {
-			_ = os.Chtimes(destinationPath, entry.Modified, entry.Modified)
+		if !entry.ModifiedAt.IsZero() {
+			_ = os.Chtimes(destinationPath, entry.ModifiedAt, entry.ModifiedAt)
 		}
-		snapshots = append(snapshots, FileSnapshot{Path: name, SHA256: hex.EncodeToString(hash.Sum(nil)), SizeBytes: written, ModifiedNS: entry.Modified.UnixNano()})
+		snapshots = append(snapshots, FileSnapshot{Path: entry.Path, SHA256: hex.EncodeToString(hash.Sum(nil)), SizeBytes: written, ModifiedNS: entry.ModifiedAt.UnixNano()})
 	}
 	sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].Path < snapshots[j].Path })
 	manifest := WorkspaceManifest{
 		ID: id, EntityID: entityID, ArtifactID: artifactID, CreatedAt: time.Now().UTC(), Kind: kind, Files: snapshots,
 	}
-	afterFingerprint, err := FullSHA256(ctx, sourceArchive)
+	afterFingerprint, err := SourceContentID(ctx, sourceArchive)
 	if err != nil {
 		return WorkspaceManifest{}, err
 	}
-	if !strings.EqualFold(sourceFingerprint, afterFingerprint) {
-		return WorkspaceManifest{}, errors.New("source archive changed while creating the workspace")
+	if sourceFingerprint != afterFingerprint {
+		return WorkspaceManifest{}, errors.New("source changed while creating the workspace")
 	}
 	manifest.SourceFingerprint = sourceFingerprint
 	metadataDir := filepath.Join(temporary, ".modstudio")
@@ -501,87 +498,12 @@ func DiffWorkspaceContext(ctx context.Context, sourceArchive, filesRoot string, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	current, err := ListWorkspaceFilesContext(ctx, filesRoot)
+	src, err := OpenSource(ctx, sourceArchive)
 	if err != nil {
 		return nil, err
 	}
-	before := make(map[string]FileSnapshot, len(baseline))
-	after := make(map[string]FileSnapshot, len(current))
-	for _, item := range baseline {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		before[strings.ToLower(item.Path)] = item
-	}
-	for _, item := range current {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		after[strings.ToLower(item.Path)] = item
-	}
-	differ := diffmatchpatch.New()
-	changes := []WorkspaceChange{}
-	for key, oldItem := range before {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		newItem, exists := after[key]
-		if !exists {
-			change := WorkspaceChange{Path: oldItem.Path, Type: "deleted", BeforeSHA: oldItem.SHA256, SizeBytes: oldItem.SizeBytes}
-			if oldItem.SizeBytes <= maxDiffBytes {
-				if oldText, oldErr := readArchiveTextContext(ctx, sourceArchive, oldItem.Path, maxDiffBytes); oldErr == nil {
-					if err := ctx.Err(); err != nil {
-						return nil, err
-					}
-					change.TextDiff = semanticTextDiff(differ, oldItem.Path, oldText, "")
-				} else if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-			}
-			changes = append(changes, change)
-			continue
-		}
-		if oldItem.SHA256 == newItem.SHA256 {
-			continue
-		}
-		change := WorkspaceChange{Path: newItem.Path, Type: "modified", BeforeSHA: oldItem.SHA256, AfterSHA: newItem.SHA256, SizeBytes: newItem.SizeBytes}
-		if oldItem.SizeBytes <= maxDiffBytes && newItem.SizeBytes <= maxDiffBytes {
-			oldText, oldErr := readArchiveTextContext(ctx, sourceArchive, oldItem.Path, maxDiffBytes)
-			newText, newErr := ReadWorkspaceTextContext(ctx, filesRoot, newItem.Path)
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			if oldErr == nil && newErr == nil {
-				change.TextDiff = semanticTextDiff(differ, newItem.Path, oldText, newText)
-			}
-		}
-		changes = append(changes, change)
-	}
-	for key, newItem := range after {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if _, exists := before[key]; exists {
-			continue
-		}
-		change := WorkspaceChange{Path: newItem.Path, Type: "added", AfterSHA: newItem.SHA256, SizeBytes: newItem.SizeBytes}
-		if newItem.SizeBytes <= maxDiffBytes {
-			if newText, newErr := ReadWorkspaceTextContext(ctx, filesRoot, newItem.Path); newErr == nil {
-				if err := ctx.Err(); err != nil {
-					return nil, err
-				}
-				change.TextDiff = semanticTextDiff(differ, newItem.Path, "", newText)
-			} else if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-		}
-		changes = append(changes, change)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
-	return changes, nil
+	defer src.Close()
+	return DiffWorkspaceSource(ctx, src, filesRoot, baseline)
 }
 
 func semanticTextDiff(differ *diffmatchpatch.DiffMatchPatch, relativePath, before, after string) string {
@@ -682,13 +604,6 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 	if err := ctx.Err(); err != nil {
 		return ExportResult{}, err
 	}
-	kind, kindErr := SourceKindOf(sourceArchive)
-	if kindErr != nil {
-		return ExportResult{}, kindErr
-	}
-	if kind == SourceFolder {
-		return exportWorkspaceFromFolder(ctx, filesRoot, outputPath)
-	}
 	if _, err := os.Stat(outputPath); err == nil {
 		return ExportResult{}, fmt.Errorf("export already exists: %s", outputPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -701,22 +616,19 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 	currentByLower := make(map[string]FileSnapshot, len(current))
 	baselineByLower := make(map[string]FileSnapshot, len(baseline))
 	for _, item := range current {
-		if err := ctx.Err(); err != nil {
-			return ExportResult{}, err
-		}
 		currentByLower[strings.ToLower(item.Path)] = item
 	}
 	for _, item := range baseline {
-		if err := ctx.Err(); err != nil {
-			return ExportResult{}, err
-		}
 		baselineByLower[strings.ToLower(item.Path)] = item
 	}
-	reader, err := zip.OpenReader(sourceArchive)
-	if err != nil {
-		return ExportResult{}, err
+
+	// Open source for ZIP raw-copy optimisation.
+	src, srcErr := OpenSource(ctx, sourceArchive)
+	if srcErr != nil {
+		return ExportResult{}, srcErr
 	}
-	defer reader.Close()
+	defer src.Close()
+
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return ExportResult{}, err
 	}
@@ -735,19 +647,26 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 	writer := zip.NewWriter(temporary)
 	written := map[string]bool{}
 	entryCount := 0
-	for _, source := range reader.File {
+	for _, entry := range src.Entries() {
 		if err := ctx.Err(); err != nil {
 			_ = writer.Close()
 			return ExportResult{}, err
 		}
-		name, pathErr := normalizeArchivePath(source.Name)
-		if pathErr != nil {
-			_ = writer.Close()
-			return ExportResult{}, pathErr
-		}
-		key := strings.ToLower(name)
-		if source.FileInfo().IsDir() {
-			if err := copyArchiveEntryContext(ctx, writer, source); err != nil {
+		key := strings.ToLower(entry.Path)
+		if entry.Dir {
+			// ZIP raw-copy for directory entries when available.
+			if zs, ok := src.(*zipSource); ok {
+				if rawFile := zs.rawZipFile(entry.Path); rawFile != nil {
+					if err := writer.Copy(rawFile); err != nil {
+						_ = writer.Close()
+						return ExportResult{}, err
+					}
+					entryCount++
+					continue
+				}
+			}
+			header := &zip.FileHeader{Name: entry.Path + "/", Modified: entry.ModifiedAt}
+			if _, err := writer.CreateHeader(header); err != nil {
 				_ = writer.Close()
 				return ExportResult{}, err
 			}
@@ -760,11 +679,24 @@ func ExportWorkspace(ctx context.Context, sourceArchive, filesRoot, outputPath s
 		}
 		baselineItem := baselineByLower[key]
 		if baselineItem.SHA256 != "" && baselineItem.SHA256 == currentItem.SHA256 {
-			if err := copyArchiveEntryContext(ctx, writer, source); err != nil {
+			// Unchanged: raw-copy from ZIP source if possible.
+			if zs, ok := src.(*zipSource); ok {
+				if rawFile := zs.rawZipFile(entry.Path); rawFile != nil {
+					if err := copyArchiveEntryContext(ctx, writer, rawFile); err != nil {
+						_ = writer.Close()
+						return ExportResult{}, err
+					}
+					written[key] = true
+					entryCount++
+					continue
+				}
+			}
+			// Folder or no raw file: write from workspace (unchanged file is identical).
+			if err := writeWorkspaceEntryContext(ctx, writer, zip.FileHeader{Name: entry.Path, Method: zip.Deflate, Modified: entry.ModifiedAt}, filesRoot, currentItem.Path); err != nil {
 				_ = writer.Close()
 				return ExportResult{}, err
 			}
-		} else if err := writeWorkspaceEntryContext(ctx, writer, source.FileHeader, filesRoot, currentItem.Path); err != nil {
+		} else if err := writeWorkspaceEntryContext(ctx, writer, zip.FileHeader{Name: entry.Path, Method: zip.Deflate, Modified: entry.ModifiedAt}, filesRoot, currentItem.Path); err != nil {
 			_ = writer.Close()
 			return ExportResult{}, err
 		}
@@ -902,36 +834,12 @@ func readArchiveTextContext(ctx context.Context, archivePath, memberPath string,
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	kind, kindErr := SourceKindOf(archivePath)
-	if kindErr != nil {
-		return "", kindErr
-	}
-	if kind == SourceFolder {
-		return readFolderArchiveText(ctx, archivePath, memberPath, limit)
-	}
-	reader, err := zip.OpenReader(archivePath)
+	src, err := OpenSource(ctx, archivePath)
 	if err != nil {
 		return "", err
 	}
-	defer reader.Close()
-	for _, file := range reader.File {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		name, pathErr := normalizeArchivePath(file.Name)
-		if pathErr != nil || !strings.EqualFold(name, memberPath) {
-			continue
-		}
-		data, err := readZipEntryContext(ctx, file, limit)
-		if err != nil {
-			return "", err
-		}
-		if !isText(data) {
-			return "", fmt.Errorf("file is binary")
-		}
-		return string(data), nil
-	}
-	return "", os.ErrNotExist
+	defer src.Close()
+	return readSourceText(ctx, src, memberPath, limit)
 }
 
 func safeJoin(root, relativePath string) (string, error) {

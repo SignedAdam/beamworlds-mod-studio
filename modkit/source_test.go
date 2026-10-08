@@ -141,6 +141,11 @@ func TestFolderMemberReadRejectsEscapingPaths(t *testing.T) {
 	writeTestFolder(t, modRoot, map[string]string{
 		"info.json": `{}`,
 	})
+	src, err := OpenSource(context.Background(), modRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
 
 	cases := []string{
 		"../info.json",
@@ -149,8 +154,8 @@ func TestFolderMemberReadRejectsEscapingPaths(t *testing.T) {
 		"vehicles/../../etc/hosts",
 	}
 	for _, badPath := range cases {
-		_, _, err := readFolderMember(modRoot, badPath, 1024)
-		if err == nil {
+		_, openErr := src.Open(badPath)
+		if openErr == nil {
 			t.Fatalf("expected error for path %q, got nil", badPath)
 		}
 	}
@@ -417,4 +422,71 @@ func writeTestFolder(t *testing.T, root string, entries map[string]string) {
 		_ = os.Chtimes(d, fixedTime, fixedTime)
 	}
 	_ = os.Chtimes(root, fixedTime, fixedTime)
+}
+
+// TestLayeredSourceUpperLayerWins verifies that the first layer wins for
+// entries present in both layers, and the union listing contains entries
+// from both layers.
+func TestLayeredSourceUpperLayerWins(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	upper := filepath.Join(root, "upper")
+	writeTestFolder(t, upper, map[string]string{
+		"info.json":             `{"title":"Upper"}`,
+		"vehicles/a/a.pc":      `{"format":2}`,
+	})
+	lower := filepath.Join(root, "lower")
+	writeTestFolder(t, lower, map[string]string{
+		"info.json":             `{"title":"Lower"}`,
+		"vehicles/b/b.pc":      `{"format":1}`,
+		"lua/test.lua":          `return {}`,
+	})
+
+	upperSrc, err := OpenSource(context.Background(), upper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upperSrc.Close()
+	lowerSrc, err := OpenSource(context.Background(), lower)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lowerSrc.Close()
+
+	layered := LayeredSource(upperSrc, lowerSrc)
+
+	// Union listing should contain entries from both.
+	entries := layered.Entries()
+	entryPaths := map[string]bool{}
+	for _, e := range entries {
+		entryPaths[strings.ToLower(e.Path)] = true
+	}
+	if !entryPaths["vehicles/a/a.pc"] {
+		t.Fatal("upper-only entry vehicles/a/a.pc missing from layered listing")
+	}
+	if !entryPaths["lua/test.lua"] {
+		t.Fatal("lower-only entry lua/test.lua missing from layered listing")
+	}
+	if !entryPaths["info.json"] {
+		t.Fatal("shared entry info.json missing from layered listing")
+	}
+
+	// Upper layer should win for shared entries.
+	data, _, err := ReadSourceEntry(layered, "info.json", 4096)
+	if err != nil {
+		t.Fatalf("read info.json from layered: %v", err)
+	}
+	if !strings.Contains(string(data), "Upper") {
+		t.Fatalf("expected upper layer to win, got: %s", data)
+	}
+
+	// Lower-only entry should be readable.
+	data, _, err = ReadSourceEntry(layered, "lua/test.lua", 4096)
+	if err != nil {
+		t.Fatalf("read lua/test.lua from layered: %v", err)
+	}
+	if !strings.Contains(string(data), "return") {
+		t.Fatalf("unexpected content from lower layer: %s", data)
+	}
 }

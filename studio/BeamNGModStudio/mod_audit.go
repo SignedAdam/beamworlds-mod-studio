@@ -1,14 +1,12 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -263,27 +261,24 @@ func (service *AppService) learnModAuditBaseline(ctx context.Context) (auditBase
 }
 
 func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAuditLocalReport, ModAuditAttackSurface, []modAuditArtifactRecord, error) {
-	kind, err := modkit.SourceKindOf(archivePath)
+	src, err := modkit.OpenSource(context.Background(), archivePath)
 	if err != nil {
-		return ModAuditLocalReport{}, ModAuditAttackSurface{}, nil, err
+		return ModAuditLocalReport{}, ModAuditAttackSurface{}, nil, fmt.Errorf("open source for Virus Scanner: %w", err)
 	}
-	if kind == modkit.SourceFolder {
-		return scanFolderForModAudit(archivePath, baseline)
-	}
-	reader, err := zip.OpenReader(archivePath)
-	defer reader.Close()
+	defer src.Close()
 
 	report := ModAuditLocalReport{Signals: []ModAuditSignal{}}
-	artifacts := make([]modAuditArtifactRecord, 0, min(len(reader.File), maxAuditArtifacts))
-	artifactIndexes := make(map[string]int, min(len(reader.File), maxAuditArtifacts))
-	canonicalPaths := make(map[string]string, min(len(reader.File), maxAuditArtifacts))
+	entries := src.Entries()
+	artifacts := make([]modAuditArtifactRecord, 0, min(len(entries), maxAuditArtifacts))
+	artifactIndexes := make(map[string]int, min(len(entries), maxAuditArtifacts))
+	canonicalPaths := make(map[string]string, min(len(entries), maxAuditArtifacts))
 	var inspected int64
-	for _, file := range reader.File {
-		if file.FileInfo().IsDir() {
+	for entryIndex, entry := range entries {
+		if entry.Dir {
 			continue
 		}
 		report.ScannedEntries++
-		path := normalizeAuditPath(file.Name)
+		path := normalizeAuditPath(entry.Path)
 		artifactKey := strings.ToLower(path)
 		canonicalPath, duplicatePath := canonicalPaths[artifactKey]
 		if !duplicatePath {
@@ -295,17 +290,18 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 		mediaType := auditImageMediaTypes[extension]
 		signals := make([]ModAuditSignal, 0, 5)
 		if duplicatePath {
-			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "duplicate_archive_path", Path: canonicalPath, Detail: "Multiple archive entries resolve to the same path", Evidence: "Duplicate normalized archive path"})
+			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "duplicate_archive_path", Path: canonicalPath, Detail: "Multiple entries resolve to the same path", Evidence: "Duplicate normalized path"})
 		}
 		if !safeAuditArchivePath(path) {
-			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "archive", Code: "unsafe_archive_path", Path: canonicalPath, Detail: "Archive entry escapes its extraction root", Evidence: "Absolute or parent-relative archive path"})
+			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "archive", Code: "unsafe_archive_path", Path: canonicalPath, Detail: "Entry escapes its root", Evidence: "Absolute or parent-relative path"})
 		}
-		if file.UncompressedSize64 > 256<<20 || file.CompressedSize64 > 0 && file.UncompressedSize64/file.CompressedSize64 > 150 {
-			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "decompression_bomb", Path: canonicalPath, Detail: "Entry has an extreme expanded size or compression ratio", Evidence: fmt.Sprintf("%d compressed bytes → %d expanded bytes", file.CompressedSize64, file.UncompressedSize64)})
+		// ZIP-only bomb check: for folders CompressedSize==Size so ratio is 1.
+		if entry.Size > 256<<20 || entry.CompressedSize > 0 && entry.Size/entry.CompressedSize > 150 {
+			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "decompression_bomb", Path: canonicalPath, Detail: "Entry has an extreme expanded size or compression ratio", Evidence: fmt.Sprintf("%d compressed bytes → %d expanded bytes", entry.CompressedSize, entry.Size)})
 		}
 		if auditExecutableExtensions[extension] {
 			report.ExecutableFiles++
-			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "host_executable", Path: canonicalPath, Detail: "Archive contains a host-executable payload", Evidence: "Executable extension " + extension})
+			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "host_executable", Path: canonicalPath, Detail: "Source contains a host-executable payload", Evidence: "Executable extension " + extension})
 		}
 
 		textCandidate := auditTextExtensions[extension] || entryType != "" || auditExecutableExtensions[extension]
@@ -319,7 +315,7 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 			if remaining < limit {
 				limit = remaining
 			}
-			data, readErr := readAuditZipPrefix(file, limit)
+			data, _, readErr := modkit.ReadSourceEntryAt(src, entryIndex, limit)
 			if readErr != nil {
 				signals = append(signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "entry_read_failed", Path: canonicalPath, Detail: "Could not inspect this candidate file", Evidence: trimAuditString(readErr.Error(), 240)})
 			} else {
@@ -344,7 +340,7 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 		report.Signals = append(report.Signals, signals...)
 		if entryType != "" || mediaType != "" || len(signals) > 0 {
 			record := modAuditArtifactRecord{ModAuditFileArtifact: ModAuditFileArtifact{
-				Path: canonicalPath, Fingerprint: fmt.Sprintf("%08x:%d", file.CRC32, file.UncompressedSize64), SizeBytes: int64(file.UncompressedSize64), EntrypointType: entryType, MediaType: mediaType, Signals: signals,
+				Path: canonicalPath, Fingerprint: fmt.Sprintf("%08x:%d", entry.CRC32, entry.Size), SizeBytes: entry.Size, EntrypointType: entryType, MediaType: mediaType, Signals: signals,
 			}, Excerpt: excerpt}
 			if index, exists := artifactIndexes[artifactKey]; exists {
 				existing := &artifacts[index]
@@ -368,6 +364,27 @@ func scanArchiveForModAudit(archivePath string, baseline auditBaseline) (ModAudi
 				artifactIndexes[artifactKey] = len(artifacts)
 				artifacts = append(artifacts, record)
 			}
+		}
+	}
+	// Include unsafe-path entries from source construction issues (audit needs them).
+	for _, issue := range modkit.SourceConstructionIssues(src) {
+		if issue.Code == "unsafe-path" {
+			report.ScannedEntries++
+			canonicalPath := normalizeAuditPath(issue.Path)
+			signals := []ModAuditSignal{{Severity: "critical", Category: "archive", Code: "unsafe_archive_path", Path: canonicalPath, Detail: "Entry escapes its root", Evidence: "Absolute or parent-relative path"}}
+			entryType, _ := classifyAuditEntrypoint(canonicalPath)
+			extension := strings.ToLower(filepath.Ext(canonicalPath))
+			if auditExecutableExtensions[extension] {
+				report.ExecutableFiles++
+				signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "host_executable", Path: canonicalPath, Detail: "Source contains a host-executable payload", Evidence: "Executable extension " + extension})
+			}
+			report.Signals = append(report.Signals, signals...)
+			record := modAuditArtifactRecord{ModAuditFileArtifact: ModAuditFileArtifact{
+				Path: canonicalPath, SizeBytes: 0, EntrypointType: entryType,
+				MediaType: auditImageMediaTypes[extension], Signals: signals,
+			}}
+			artifactIndexes[strings.ToLower(canonicalPath)] = len(artifacts)
+			artifacts = append(artifacts, record)
 		}
 	}
 	report.BytesInspected = inspected
@@ -496,154 +513,11 @@ func scanAuditContentSignals(path, lower string) []ModAuditSignal {
 	return result
 }
 
-func readAuditZipPrefix(file *zip.File, limit int64) ([]byte, error) {
-	reader, err := file.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	return io.ReadAll(io.LimitReader(reader, limit))
-}
+
 
 // scanFolderForModAudit scans an unpacked folder mod. It reads file contents
 // via modkit but skips ZIP-only checks (decompression bomb, compression ratio).
-func scanFolderForModAudit(folderPath string, baseline auditBaseline) (ModAuditLocalReport, ModAuditAttackSurface, []modAuditArtifactRecord, error) {
-	manifest, err := modkit.Inspect(context.Background(), folderPath)
-	if err != nil {
-		return ModAuditLocalReport{}, ModAuditAttackSurface{}, nil, fmt.Errorf("inspect folder for audit: %w", err)
-	}
-	report := ModAuditLocalReport{Signals: []ModAuditSignal{}}
-	artifacts := make([]modAuditArtifactRecord, 0, min(len(manifest.Members), maxAuditArtifacts))
-	artifactIndexes := make(map[string]int, min(len(manifest.Members), maxAuditArtifacts))
-	canonicalPaths := make(map[string]string, min(len(manifest.Members), maxAuditArtifacts))
-	var inspected int64
-	for _, member := range manifest.Members {
-		if member.Directory {
-			continue
-		}
-		report.ScannedEntries++
-		path := normalizeAuditPath(member.Path)
-		artifactKey := strings.ToLower(path)
-		canonicalPath, duplicatePath := canonicalPaths[artifactKey]
-		if !duplicatePath {
-			canonicalPath = path
-			canonicalPaths[artifactKey] = path
-		}
-		entryType, _ := classifyAuditEntrypoint(path)
-		extension := strings.ToLower(filepath.Ext(path))
-		mediaType := auditImageMediaTypes[extension]
-		signals := make([]ModAuditSignal, 0, 5)
-		if duplicatePath {
-			signals = append(signals, ModAuditSignal{Severity: "high", Category: "archive", Code: "duplicate_archive_path", Path: canonicalPath, Detail: "Multiple entries resolve to the same path", Evidence: "Duplicate normalized path"})
-		}
-		if !safeAuditArchivePath(path) {
-			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "archive", Code: "unsafe_archive_path", Path: canonicalPath, Detail: "Entry escapes its root", Evidence: "Absolute or parent-relative path"})
-		}
-		if auditExecutableExtensions[extension] {
-			report.ExecutableFiles++
-			signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "host_executable", Path: canonicalPath, Detail: "Folder contains a host-executable payload", Evidence: "Executable extension " + extension})
-		}
-		// Skip ZIP-only decompression bomb check for folders.
 
-		textCandidate := auditTextExtensions[extension] || entryType != "" || auditExecutableExtensions[extension]
-		var excerpt string
-		if inspected < maxAuditTotalRead {
-			remaining := maxAuditTotalRead - inspected
-			limit := int64(4 << 10)
-			if textCandidate {
-				limit = maxAuditEntryRead
-			}
-			if remaining < limit {
-				limit = remaining
-			}
-			data, _, readErr := modkit.ReadArchiveMemberLimited(folderPath, member.Path, limit)
-			if readErr != nil {
-				signals = append(signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "entry_read_failed", Path: canonicalPath, Detail: "Could not inspect this candidate file", Evidence: trimAuditString(readErr.Error(), 240)})
-			} else {
-				inspected += int64(len(data))
-				if looksLikePE(data) && !auditExecutableExtensions[extension] {
-					report.ExecutableFiles++
-					signals = append(signals, ModAuditSignal{Severity: "critical", Category: "executable", Code: "disguised_pe", Path: canonicalPath, Detail: "File content has a Windows executable header despite its extension", Evidence: "MZ/PE signature"})
-				}
-				if mediaType != "" && !auditImageMatches(mediaType, data) {
-					signals = append(signals, ModAuditSignal{Severity: "medium", Category: "archive", Code: "image_type_mismatch", Path: canonicalPath, Detail: "File uses a supported image extension but does not have the corresponding image signature", Evidence: "Expected " + mediaType + " content"})
-				}
-				if textCandidate && isProbablyAuditText(data) {
-					excerpt = sanitizeAuditExcerpt(data)
-					signals = append(signals, scanAuditText(canonicalPath, excerpt)...)
-				}
-			}
-		} else {
-			report.Truncated = true
-		}
-		signals = append(signals, scanAuditContentSignals(canonicalPath, strings.ToLower(path))...)
-		signals = dedupeAuditSignals(signals)
-		report.Signals = append(report.Signals, signals...)
-		if entryType != "" || mediaType != "" || len(signals) > 0 {
-			record := modAuditArtifactRecord{ModAuditFileArtifact: ModAuditFileArtifact{
-				Path: canonicalPath, Fingerprint: fmt.Sprintf("00000000:%d", member.UncompressedBytes), SizeBytes: int64(member.UncompressedBytes), EntrypointType: entryType, MediaType: mediaType, Signals: signals,
-			}, Excerpt: excerpt}
-			if index, exists := artifactIndexes[artifactKey]; exists {
-				existing := &artifacts[index]
-				existingPriority := auditArtifactPriority(*existing)
-				recordPriority := auditArtifactPriority(record)
-				existing.Signals = dedupeAuditSignals(append(existing.Signals, record.Signals...))
-				if existing.EntrypointType == "" {
-					existing.EntrypointType = record.EntrypointType
-				}
-				if existing.MediaType == "" {
-					existing.MediaType = record.MediaType
-				}
-				if recordPriority > existingPriority && record.Excerpt != "" {
-					existing.Fingerprint = record.Fingerprint
-					existing.SizeBytes = record.SizeBytes
-					existing.Excerpt = record.Excerpt
-				} else if existing.Excerpt == "" {
-					existing.Excerpt = record.Excerpt
-				}
-			} else {
-				artifactIndexes[artifactKey] = len(artifacts)
-				artifacts = append(artifacts, record)
-			}
-		}
-	}
-	report.BytesInspected = inspected
-	sort.SliceStable(artifacts, func(left, right int) bool {
-		leftScore := auditArtifactPriority(artifacts[left])
-		rightScore := auditArtifactPriority(artifacts[right])
-		if leftScore == rightScore {
-			return artifacts[left].Path < artifacts[right].Path
-		}
-		return leftScore > rightScore
-	})
-	if len(artifacts) > maxAuditArtifacts {
-		artifacts = artifacts[:maxAuditArtifacts]
-		report.Truncated = true
-	}
-	report.Signals = dedupeAuditSignals(report.Signals)
-	report.CandidateFiles = len(artifacts)
-	suspicious := map[string]bool{}
-	for _, signal := range report.Signals {
-		if auditSeverityRank(signal.Severity) >= auditSeverityRank("medium") {
-			suspicious[signal.Path] = true
-		}
-		if strings.HasPrefix(signal.Category, "content_") {
-			report.ContentSignals++
-		}
-	}
-	report.SuspiciousFiles = len(suspicious)
-	sort.SliceStable(report.Signals, func(left, right int) bool {
-		leftRank, rightRank := auditSeverityRank(report.Signals[left].Severity), auditSeverityRank(report.Signals[right].Severity)
-		if leftRank == rightRank {
-			if report.Signals[left].Path == report.Signals[right].Path {
-				return report.Signals[left].Code < report.Signals[right].Code
-			}
-			return report.Signals[left].Path < report.Signals[right].Path
-		}
-		return leftRank > rightRank
-	})
-	return report, buildModAuditAttackSurface(artifacts, baseline), artifacts, nil
-}
 
 func looksLikePE(data []byte) bool {
 	// MZ is the executable container signature. A malformed or truncated PE is

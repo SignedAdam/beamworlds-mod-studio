@@ -2,6 +2,7 @@ package modkit
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,27 +52,12 @@ func ReadArchiveMember(archivePath, memberPath string, limit int64) ([]byte, err
 // result is useful. The archive and requested member path are both validated.
 func ReadArchiveMemberLimited(archivePath, memberPath string, limit int64) ([]byte, bool, error) {
 	limit = boundedArchiveLimit(limit)
-	kind, err := SourceKindOf(archivePath)
+	src, err := OpenSource(context.Background(), archivePath)
 	if err != nil {
 		return nil, false, err
 	}
-	if kind == SourceFolder {
-		return readFolderMember(archivePath, memberPath, limit)
-	}
-	reader, files, err := openValidatedArchive(archivePath)
-	if err != nil {
-		return nil, false, err
-	}
-	defer reader.Close()
-
-	file, err := archiveMember(files, memberPath)
-	if err != nil {
-		return nil, false, err
-	}
-	if file.FileInfo().IsDir() {
-		return nil, false, fmt.Errorf("archive member %q is a directory", memberPath)
-	}
-	return readZipMemberLimited(file, limit)
+	defer src.Close()
+	return ReadSourceEntry(src, memberPath, limit)
 }
 
 // CopyArchiveMember streams one non-directory member into destination while
@@ -81,38 +67,19 @@ func CopyArchiveMember(archivePath, memberPath string, destination io.Writer, li
 		return 0, fmt.Errorf("archive member destination is nil")
 	}
 	limit = boundedArchiveLimit(limit)
-	kind, err := SourceKindOf(archivePath)
+	src, err := OpenSource(context.Background(), archivePath)
 	if err != nil {
 		return 0, err
 	}
-	if kind == SourceFolder {
-		return copyFolderMember(archivePath, memberPath, destination, limit)
+	defer src.Close()
+	rc, openErr := src.Open(memberPath)
+	if openErr != nil {
+		return 0, openErr
 	}
-	reader, files, err := openValidatedArchive(archivePath)
-	if err != nil {
-		return 0, err
-	}
-	defer reader.Close()
-
-	file, err := archiveMember(files, memberPath)
-	if err != nil {
-		return 0, err
-	}
-	if file.FileInfo().IsDir() {
-		return 0, fmt.Errorf("archive member %q is a directory", memberPath)
-	}
-	if file.UncompressedSize64 > uint64(limit) {
-		return 0, fmt.Errorf("archive member %q is %d bytes; limit is %d", memberPath, file.UncompressedSize64, limit)
-	}
-	input, err := openZipEntry(file)
-	if err != nil {
-		return 0, err
-	}
-	defer input.Close()
-
-	copied, err := io.CopyN(destination, input, limit+1)
-	if err != nil && err != io.EOF {
-		return copied, err
+	defer rc.Close()
+	copied, copyErr := io.CopyN(destination, rc, limit+1)
+	if copyErr != nil && copyErr != io.EOF {
+		return copied, copyErr
 	}
 	if copied > limit {
 		return copied, fmt.Errorf("archive member %q exceeded %d-byte read limit", memberPath, limit)

@@ -1,8 +1,8 @@
 package modkit
 
 import (
-	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -32,44 +32,14 @@ func ExtractImage(archivePath, memberPath, cacheRoot string) (CachedAsset, error
 	if err != nil {
 		return CachedAsset{}, err
 	}
-
-	var data []byte
-	kind, kindErr := SourceKindOf(archivePath)
-	if kindErr != nil {
-		return CachedAsset{}, kindErr
+	src, err := OpenSource(context.Background(), archivePath)
+	if err != nil {
+		return CachedAsset{}, err
 	}
-	if kind == SourceFolder {
-		raw, _, readErr := readFolderMember(archivePath, normalizedTarget, maxCachedImageBytes)
-		if readErr != nil {
-			return CachedAsset{}, fmt.Errorf("read image: %w", readErr)
-		}
-		data = raw
-	} else {
-		reader, zipErr := zip.OpenReader(archivePath)
-		if zipErr != nil {
-			return CachedAsset{}, fmt.Errorf("open ZIP: %w", zipErr)
-		}
-		defer reader.Close()
-
-		var selected *zip.File
-		for _, file := range reader.File {
-			name, pathErr := normalizeArchivePath(file.Name)
-			if pathErr == nil && strings.EqualFold(name, normalizedTarget) {
-				selected = file
-				break
-			}
-		}
-		if selected == nil {
-			return CachedAsset{}, fmt.Errorf("image entry not found: %s", memberPath)
-		}
-		if selected.UncompressedSize64 > maxCachedImageBytes {
-			return CachedAsset{}, fmt.Errorf("image is %d bytes; limit is %d", selected.UncompressedSize64, maxCachedImageBytes)
-		}
-		raw, readErr := readZipEntry(selected, maxCachedImageBytes)
-		if readErr != nil {
-			return CachedAsset{}, fmt.Errorf("read image: %w", readErr)
-		}
-		data = raw
+	defer src.Close()
+	data, _, err := ReadSourceEntry(src, normalizedTarget, maxCachedImageBytes)
+	if err != nil {
+		return CachedAsset{}, fmt.Errorf("read image: %w", err)
 	}
 
 	extension := strings.ToLower(filepath.Ext(normalizedTarget))

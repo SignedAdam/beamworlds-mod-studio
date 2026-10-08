@@ -1078,19 +1078,23 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
 .inspector-stale-warning strong{font-weight:700}
 .inspector__actions{grid-row:3}
 .inspector__body{grid-row:4}
-.maker-main{grid-template-rows:auto 0 auto minmax(0,1fr)}
-.maker-main.is-stale{grid-template-rows:auto auto auto minmax(0,1fr)}
+.maker-main{grid-template-rows:auto 0 auto auto minmax(0,1fr)}
+.maker-main.is-stale{grid-template-rows:auto auto auto auto minmax(0,1fr)}
 .maker-header{grid-row:1}
 .maker-stale-warning{grid-row:2;min-height:38px;display:flex;align-items:center;gap:8px;padding:7px 16px;border-bottom:1px solid color-mix(in srgb,var(--warning) 42%,var(--line));background:color-mix(in srgb,var(--warning) 12%,var(--surface));color:var(--text-2);font-size:var(--font-caption);line-height:1.3}
 .maker-stale-warning>svg{flex:none;color:var(--warning)}
 .maker-stale-warning strong{font-weight:700}
-.workspace-tool-toggles{grid-row:3}
-.maker-content{grid-row:4}
+.version-strip,.version-strip-area{grid-row:3;min-width:0}
+.workspace-tool-toggles{grid-row:4}
+.maker-content{grid-row:5}
 .app-statusbar{grid-template-columns:max(240px,var(--sidebar)) minmax(0,1fr) auto}
 .app-statusbar__scan{min-width:0;display:flex;align-items:center;gap:9px;line-height:1.2}
 .app-statusbar__scan>svg{flex:none;align-self:center}
 .app-statusbar__scan>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-statusbar__scan--warning>svg{color:var(--warning)}
+.app-statusbar__game{display:flex;align-items:center;gap:6px;padding-right:8px;border-right:1px solid var(--line)}
+.app-statusbar__game>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-statusbar__arriving{color:var(--emphasis);font-weight:600;white-space:nowrap;padding-right:8px;border-right:1px solid var(--line)}
 @media(max-width:680px){
   .app-statusbar{grid-template-columns:240px minmax(0,1fr)}
 }
@@ -1217,3 +1221,38 @@ html:not([data-theme="light"]) .inspector .index-card-tabs{--index-card-tabs-acc
 @container inspector (max-width:380px){
   .inspector .tag-editor__color-options,.inspector .tag-editor__icon-options{grid-template-columns:repeat(5,minmax(0,1fr))}
 }
+
+/* ---------- Mod versions ---------- */
+.versions-panel{min-width:0;padding:var(--space-3)}
+.versions-panel--loading{display:flex;align-items:center;justify-content:center;gap:var(--space-2);min-height:120px;color:var(--text-3)}
+.versions-panel__empty{padding:var(--space-5);color:var(--text-3);font-size:var(--font-control);text-align:center}
+.versions-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--space-2)}
+.versions-list__row{min-width:0;display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:5px;background:var(--surface)}
+.versions-list__row.is-active{border-color:color-mix(in srgb,var(--emphasis) 42%,var(--line));background:color-mix(in srgb,var(--emphasis) 7%,var(--surface))}
+.versions-list__info{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.versions-list__heading{min-width:0;display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.versions-list__heading strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:var(--font-control);font-weight:700}
+.versions-list__meta{display:flex;flex-wrap:wrap;align-items:center;gap:0 var(--space-2);color:var(--text-3);font-size:var(--font-caption)}
+.versions-list__meta>span{white-space:nowrap}
+.versions-list__actions{flex:none;display:flex;align-items:center;gap:var(--space-1);padding-top:2px}
+.versions-overview-link{display:inline;padding:0;border:0;background:transparent;color:var(--emphasis);font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.versions-overview-link:hover{color:var(--active-tab)}
+.versions-overview-link:focus-visible{outline:2px solid var(--active-tab);outline-offset:2px;border-radius:2px}
+
+/* Version strip in ModMaker header area */
+.version-strip{display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--line);background:var(--surface);font-size:var(--font-caption);line-height:1.35}
+.version-strip--ready{border-left:3px solid var(--emphasis)}
+.version-strip--active{border-left:3px solid var(--success)}
+.version-strip__text{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+.version-strip__headline{display:flex;align-items:center;gap:var(--space-2);color:var(--text);font-weight:700}
+.version-strip__detail{color:var(--text-3)}
+.version-strip .button{flex:none}
+.version-strip__drawer{max-height:320px;overflow:auto;border-bottom:1px solid var(--line);background:var(--surface)}
+
+/* Edited badge in library table and preview cards */
+.mod-edited-badge{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;border:1px solid color-mix(in srgb,var(--active-tab) 48%,var(--line));border-radius:3px;background:color-mix(in srgb,var(--active-tab) 12%,transparent);color:var(--active-tab);font-size:var(--font-caption);font-weight:650;line-height:1;white-space:nowrap;cursor:default}
+
+/* Export history rows */
+.export-history__row{min-height:34px;display:grid;grid-template-columns:minmax(0,1fr) 130px;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--line);font-size:var(--font-caption)}
+.export-history__row code,.export-history__row>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3)}
+.export-history__row>code:first-child{color:var(--text-2)}

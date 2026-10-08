@@ -21,6 +21,7 @@ import type {
 import { Icon } from "./icons";
 import { isTagIcon, tagColor } from "./tagIcons";
 import "./ModTable.css";
+import { NewBadge } from "./NewBadge";
 
 import {
   Badge,
@@ -1390,6 +1391,15 @@ function Cell({
         <td className="mod-table__name">
           <span className="mod-table__name-content">
             <strong>{item.displayName}</strong>
+            {item.new && <NewBadge />}
+            {item.edited && (
+              <span
+                className="mod-edited-badge"
+                title="Changed in ModMaker. Earlier versions, including the original, are in Versions."
+              >
+                Edited
+              </span>
+            )}
             {familyBadge && (
               <button
                 type="button"

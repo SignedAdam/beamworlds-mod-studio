@@ -9,12 +9,14 @@ import type {
   AppSettings,
   ArchiveMemberPreview,
   EntityDetail,
+  GameStatus,
   LibraryItem,
   LibraryItemDetailsUpdate,
   LibraryVariantUpdate,
   ModFamily,
   ModTag,
   NewModRequest,
+  NewModsReview,
   OrganizationState,
   ScanProgress,
   SettingsUpdate,
@@ -36,6 +38,7 @@ import { SetupWizard } from "./SetupWizard";
 import { BeamWorldsMark, Icon } from "./icons";
 import { formatBytes, formatDate } from "./ui";
 import { TooltipLayer } from "./Tooltip";
+import { NewModsDialog } from "./NewModsDialog";
 import { DialogHost, confirmAction } from "./AppDialogs";
 import {
   catalogFilter,
@@ -182,6 +185,7 @@ function App() {
   });
   const [scan, setScan] = useState<ScanProgress | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [startupScanSettled, setStartupScanSettled] = useState(false);
   // Folders the last scan couldn't read; their mods were left as they were.
   const [unreachableFolders, setUnreachableFolders] = useState<
     UnreachableFolder[]
@@ -191,6 +195,8 @@ function App() {
     entityIDs: string[];
     nonce: number;
   } | null>(null);
+  const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
+  const [newModsReview, setNewModsReview] = useState<NewModsReview | null>(null);
   // Setup state, settings and usage; the library itself loads through queries.
   const [bootstrapping, setBootstrapping] = useState(true);
   const [toast, setToast] = useState<ToastState>({
@@ -382,6 +388,7 @@ function App() {
     organization,
     handleOrganizationChange,
     handleError,
+    startupScanSettled && !scanning && !organizationResult.isFetching,
   );
   // Held in a ref so callbacks can reach the session without taking on its
   // identity, which changes on every selection or preview update.
@@ -560,12 +567,35 @@ function App() {
     };
   }, []);
 
-  // An empty library at startup has never been scanned; index it once.
+  // Discover mods installed since the last launch; unchanged archives use the scan cache.
   useEffect(() => {
     if (!dashboard || startupDashboardChecked.current) return;
     startupDashboardChecked.current = true;
-    if (dashboard.entities === 0) void startScan();
+    void startScan().finally(() => setStartupScanSettled(true));
   }, [dashboard, startScan]);
+
+  // Game-status monitoring and new-mod detection events.
+  useEffect(() => {
+    if (!shellEnabled) return;
+    void API.GetGameStatus().then(setGameStatus).catch(handleError);
+    const stopGameStatus = Events.On("game:status", (event) => {
+      setGameStatus(event.data as GameStatus);
+    });
+    const stopModsDetected = Events.On("mods:detected", (event) => {
+      setNewModsReview(event.data as NewModsReview);
+    });
+    return () => { stopGameStatus(); stopModsDetected(); };
+  }, [shellEnabled, handleError]);
+
+  // After the startup scan settles, check for pending new-mod arrivals.
+  useEffect(() => {
+    if (!startupScanSettled) return;
+    API.PendingNewMods()
+      .then((review) => {
+        if ((review.arrivals?.length ?? 0) > 0) setNewModsReview(review);
+      })
+      .catch(handleError);
+  }, [startupScanSettled, handleError]);
 
   useEffect(() => {
     if (!shellEnabled) return;
@@ -609,6 +639,14 @@ function App() {
       setScan(event.data);
       if (!event.data.done) setScanning(true);
       else if (event.data.error) setScanning(false);
+      else if (event.data.done && !scanInFlightRef.current) {
+        // Backend-initiated scan completed (game monitor, etc.) while no
+        // frontend scan is in flight: clear scanning and refresh data.
+        setScanning(false);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.library });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.organization });
+      }
     });
     const stopItem = Events.On("library:item", (event) => {
       const next = event.data;
@@ -624,9 +662,14 @@ function App() {
         },
       );
     });
+    // A ModMaker save updated a library mod (Edited badge, versions).
+    const stopLibraryUpdate = Events.On("mod:library", (event) => {
+      if (event.data.state === "synced") void queryClient.invalidateQueries({ queryKey: queryKeys.library });
+    });
     return () => {
       stopScan();
       stopItem();
+      stopLibraryUpdate();
       clearTimeout(toastTimer.current);
     };
   }, []);
@@ -796,6 +839,13 @@ function App() {
     inspectorStaleRef.current = false;
     setInspectorStale(false);
     setSelectedItem(item);
+    // Mark this mod as seen, clearing its "New" badge.
+    if (item.new) {
+      void API.MarkModsSeen([item.entityId]).catch(handleError);
+      updateCachedLibraryItems((cached) =>
+        cached.entityId === item.entityId ? { ...cached, new: false } : cached,
+      );
+    }
     setEntityDetail(null);
     setEntityLoading(true);
     try {
@@ -1573,6 +1623,7 @@ function App() {
               <PlayView
                 organization={organization}
                 session={playSession}
+                gameStatus={gameStatus}
                 onOrganization={handleOrganizationChange}
                 onNotify={notify}
                 onError={handleError}
@@ -1637,6 +1688,13 @@ function App() {
           onCreateWorkspace={() => void createWorkspace()}
           onVirusScan={openVirusScanner}
           onError={handleError}
+          onNotify={notify}
+          onItemChanged={(next) => {
+            if (selectedItemRef.current?.entityId !== next.entityId) return;
+            advanceInspectorBaseline(next);
+            selectedItemRef.current = next;
+            setSelectedItem(next);
+          }}
         />
       )}
 
@@ -1677,6 +1735,21 @@ function App() {
           </span>
         </div>
         <div>
+          {gameStatus?.running && (
+            <span className="app-statusbar__game">
+              <span className="status-led status-led--ready" />
+              <span>
+                {gameStatus.studioSession
+                  ? `BeamNG running · ${gameStatus.collectionNames?.join(", ") ?? "Play selection"} · ${gameStatus.modCount} ${gameStatus.modCount === 1 ? "mod" : "mods"}`
+                  : "BeamNG running · your normal mods folder"}
+              </span>
+            </span>
+          )}
+          {(gameStatus?.arrivingMods ?? 0) > 0 && (
+            <span className="app-statusbar__arriving">
+              Adding {gameStatus?.arrivingMods} new {gameStatus?.arrivingMods === 1 ? "mod" : "mods"}…
+            </span>
+          )}
           {view === "workspaces" && activeWorkspace ? (
             <>
               <strong>{activeWorkspace.displayName}</strong>
@@ -1751,6 +1824,33 @@ function App() {
           <Icon name="close" size={14} />
         </button>
       </div>
+      {newModsReview && (newModsReview.arrivals?.length ?? 0) > 0 && (
+        <NewModsDialog
+          review={newModsReview}
+          collections={organization?.collections ?? []}
+          onResolve={async (reviewedIDs, addIDs, collectionIDs) => {
+            try {
+              const result = await API.ResolveNewMods(reviewedIDs, addIDs, collectionIDs);
+              setNewModsReview(null);
+              if (addIDs.length > 0) {
+                notify(
+                  `Added ${addIDs.length} ${addIDs.length === 1 ? "mod" : "mods"} to ${(result.collections ?? []).join(", ")}`,
+                  "success",
+                );
+                void queryClient.invalidateQueries({ queryKey: queryKeys.organization });
+                void queryClient.invalidateQueries({ queryKey: queryKeys.library });
+              }
+            } catch (error) {
+              // Keep the dialog open so the choice can be retried.
+              handleError(error);
+            }
+          }}
+          onOrganizationChanged={() => {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.organization });
+          }}
+          onError={handleError}
+        />
+      )}
       <TooltipLayer />
       <DialogHost />
     </div>

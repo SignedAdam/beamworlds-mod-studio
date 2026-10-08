@@ -194,7 +194,6 @@ export interface ArchiveDeploymentPlan {
     "additionalBytes": number;
     "reusedCount": number;
     "linkedCount": number;
-    "inPlaceCount": number;
     "requiresCopyConfirmation": boolean;
     "merge": boolean;
     "blockers": string[] | null;
@@ -424,11 +423,34 @@ export interface ExportRecord {
     "sha256": string;
     "kind": string;
     "createdAt": string;
+    "test"?: ExportTestSummary | null;
 }
 
 export interface ExportResponse {
     "record": ExportRecord;
     "result": modkit$0.ExportResult;
+}
+
+/**
+ * ExportTestSummary records the outcome of the game test that produced an export.
+ */
+export interface ExportTestSummary {
+    "testedAt": string;
+    "level": string;
+    "vehicle": string;
+    "simSeconds": number;
+    "scenarioComplete": boolean;
+    "logErrors": number;
+    "passed": boolean;
+}
+
+export interface GameStatus {
+    "running": boolean;
+    "studioSession": boolean;
+    "collectionNames": string[] | null;
+    "modCount": number;
+    "since": string;
+    "arrivingMods": number;
 }
 
 export interface GitBranch {
@@ -805,12 +827,31 @@ export interface LibraryItem {
     "securityScanChanged": boolean;
     "manifest": modkit$0.Manifest;
     "tags": ModTag[] | null;
+
+    /**
+     * Edited is true when the library archive holds ModMaker changes;
+     * HistoryCount counts the saved versions that can be restored.
+     */
+    "edited": boolean;
+    "historyCount": number;
+    "addedAt": string;
+    "new": boolean;
 }
 
 export interface LibraryItemDetailsUpdate {
     "description": string;
     "author": string;
     "version": string;
+}
+
+/**
+ * LibraryUpdateEvent reports a ModMaker workspace's library update state.
+ */
+export interface LibraryUpdateEvent {
+    "workspaceId": string;
+    "entityId": string;
+    "state": string;
+    "message": string;
 }
 
 export interface LibraryVariantUpdate {
@@ -942,6 +983,7 @@ export interface ModRemovalImpact {
     "workspaces": string[] | null;
     "archiveCount": number;
     "archiveBytes": number;
+    "storedVersions": number;
 }
 
 export interface ModRemovalResult {
@@ -994,6 +1036,28 @@ export interface ModTag {
     "modCount": number;
 }
 
+/**
+ * ModVersion is one restorable state of an edited mod.
+ */
+export interface ModVersion {
+    "id": string;
+
+    /**
+     * "original" | "saved"
+     */
+    "kind": string;
+    "author": string;
+    "changedFiles": number;
+    "savedAt": string;
+    "current": boolean;
+}
+
+export interface NewModArrival {
+    "item": LibraryItem;
+    "origin": string;
+    "detectedAt": string;
+}
+
 export interface NewModRequest {
     "name": string;
     "modId": string;
@@ -1001,6 +1065,16 @@ export interface NewModRequest {
     "author": string;
     "version": string;
     "description": string;
+}
+
+export interface NewModsResolution {
+    "added": number;
+    "collections": string[] | null;
+}
+
+export interface NewModsReview {
+    "arrivals": NewModArrival[] | null;
+    "suggestedCollectionIds": string[] | null;
 }
 
 export interface OrganizationState {
@@ -1432,6 +1506,7 @@ export interface WorkspaceDetail {
     "activeTest"?: TestInstallRecord | null;
     "diskBytes": number;
     "gitInitialization": GitInitializationResult;
+    "library": WorkspaceLibraryStatus;
 }
 
 export interface WorkspaceDraft {
@@ -1455,6 +1530,16 @@ export interface WorkspaceImageFile {
     "sizeBytes": number;
     "sha256": string;
     "downscaled": boolean;
+}
+
+/**
+ * WorkspaceLibraryStatus tells ModMaker whether the library mod matches the workspace.
+ */
+export interface WorkspaceLibraryStatus {
+    "state": string;
+    "changedFiles": number;
+    "syncedAt"?: string;
+    "message"?: string;
 }
 
 export interface WorkspaceRecord {

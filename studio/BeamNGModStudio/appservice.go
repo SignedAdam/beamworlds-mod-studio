@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,31 +22,36 @@ type appGitRemoteOperation struct {
 }
 
 type AppService struct {
-	config             AppConfig
-	store              *Store
-	library            *LibraryEngine
-	agents             *AgentManager
-	aiRuntime          *managedAIRuntime
-	git                *GitService
-	githubPublish      *GitHubPublishService
-	emit               func(string, any)
-	profileMu          sync.Mutex
-	auditMu            sync.Mutex
-	virusMu            sync.Mutex
-	auditAI            auditAIRunner
-	aiLoginMu          sync.Mutex
-	aiLogins           map[string]*aiLoginProcess
-	aiConnecting       map[string]bool
-	aiAuthCtx          context.Context
-	aiAuthCancel       context.CancelFunc
-	startProcess       func(string, []string, string) (ProcessLaunch, error)
-	gameRunning        func() (bool, error)
-	gitRemoteMu        sync.Mutex
-	gitRemoteOps       map[string][]*appGitRemoteOperation
-	modImportMu        sync.Mutex
-	archivePolicyMu    sync.RWMutex
-	archiveHashMu      sync.Mutex
-	archiveHashes      map[archiveHashKey]string
+	config              AppConfig
+	store               *Store
+	library             *LibraryEngine
+	agents              *AgentManager
+	aiRuntime           *managedAIRuntime
+	git                 *GitService
+	githubPublish       *GitHubPublishService
+	emit                func(string, any)
+	profileMu           sync.Mutex
+	auditMu             sync.Mutex
+	virusMu             sync.Mutex
+	auditAI             auditAIRunner
+	aiLoginMu           sync.Mutex
+	aiLogins            map[string]*aiLoginProcess
+	aiConnecting        map[string]bool
+	aiAuthCtx           context.Context
+	aiAuthCancel        context.CancelFunc
+	startProcess        func(string, []string, string) (ProcessLaunch, error)
+	gameRunning         func() (bool, error)
+	gitRemoteMu         sync.Mutex
+	gitRemoteOps        map[string][]*appGitRemoteOperation
+	modImportMu         sync.Mutex
+	archivePolicyMu     sync.RWMutex
+	archiveHashMu       sync.Mutex
+	archiveHashes       map[archiveHashKey]string
+	playProfileWarning  string
+	librarySync         librarySyncer
+	monitorMu           sync.Mutex
+	cachedGameStatus    *GameStatus
+	monitorInstance     *gameMonitor
 }
 
 type WorkspaceDetail struct {
@@ -61,6 +67,7 @@ type WorkspaceDetail struct {
 	ActiveTest        *TestInstallRecord      `json:"activeTest,omitempty"`
 	DiskBytes         int64                   `json:"diskBytes"`
 	GitInitialization GitInitializationResult `json:"gitInitialization"`
+	Library           WorkspaceLibraryStatus  `json:"library"`
 }
 
 type WorkspaceTextFile struct {
@@ -108,11 +115,15 @@ func NewAppService(config AppConfig, store *Store, emit func(string, any)) *AppS
 		git:          git,
 		gitRemoteOps: make(map[string][]*appGitRemoteOperation),
 	}
+	agents.service = service
 	service.githubPublish = NewGitHubPublishServiceWithDependencies(GitHubPublishDependencies{Git: git, WorkspaceLock: agents.workspaceToolMutex})
 	service.auditAI = service.runManagedAIAudit
 	// An already-indexed library never triggers a scan, so seeding has to be
 	// attempted here too; it is a no-op once the marker is written.
+	// Reconcile notices on every startup so stale diagnostics from previous
+	// code versions or resolved conditions are cleaned up.
 	service.seedDefaultPlayProfile(context.Background())
+	service.reconcilePlayNotices(context.Background())
 	// Libraries indexed before derivatives existed have none. Generating them
 	// in the background keeps the first scroll from paying for a full decode.
 	go backfillAssetThumbnails(context.Background(), store)
@@ -138,14 +149,27 @@ func (service *AppService) GetEntity(entityID string) (EntityDetail, error) {
 }
 
 func (service *AppService) ScanLibrary() (ScanSummary, error) {
+	ctx := context.Background()
 	service.modImportMu.Lock()
 	defer service.modImportMu.Unlock()
-	summary, err := service.library.Scan(context.Background())
+	// Snapshot entity IDs under the same lock as the scan, so an import cannot
+	// slip in between and be mistaken for a mod that appeared on disk.
+	beforeIDs, snapshotErr := service.store.allEntityIDs(ctx)
+	summary, err := service.library.Scan(ctx)
 	if err == nil {
 		// The first indexed library is what makes seeding possible: only then
 		// can BeamNG's enabled entries be matched to real mods.
-		service.seedDefaultPlayProfile(context.Background())
-		service.reportCollectionMirrorRetirement(context.Background())
+		service.seedDefaultPlayProfile(ctx)
+		service.reconcilePlayNotices(ctx)
+		service.reportCollectionMirrorRetirement(ctx)
+		if snapshotErr != nil {
+			log.Printf("detect new mods: list entities before scan: %v", snapshotErr)
+		} else {
+			service.detectNewArrivals(ctx, beforeIDs, len(beforeIDs) == 0)
+		}
+		if service.monitorInstance != nil {
+			service.monitorInstance.refreshArchiveLinks()
+		}
 	}
 	return summary, err
 }
@@ -186,6 +210,13 @@ func (service *AppService) CreateWorkspace(entityID string) (WorkspaceDetail, er
 		_ = os.RemoveAll(root)
 		workspaceLock.Unlock()
 		return WorkspaceDetail{}, err
+	}
+	if info, statErr := os.Stat(item.ArchivePath); statErr == nil {
+		// The library holds this workspace's source until the first edit.
+		if err := service.store.markWorkspaceLibraryCurrent(ctx, workspaceID, manifest.SourceFingerprint, fileIdentity(info)); err != nil {
+			workspaceLock.Unlock()
+			return WorkspaceDetail{}, err
+		}
 	}
 	workspaceLock.Unlock()
 	return service.GetWorkspace(workspaceID)
@@ -349,7 +380,11 @@ func (service *AppService) DiscardWorkspaceGitPaths(workspaceID string, paths []
 		return GitDiscardResult{}, err
 	}
 	defer unlock()
-	return service.workspaceGitService().Discard(context.Background(), root, paths, expectedFingerprint)
+	result, err := service.workspaceGitService().Discard(context.Background(), root, paths, expectedFingerprint)
+	if len(result.Completed) > 0 {
+		service.scheduleLibrarySync(workspaceID, "you", librarySyncDelay)
+	}
+	return result, err
 }
 
 func (service *AppService) CommitWorkspaceGit(workspaceID, message string, amend bool, expectedFingerprint string) (GitCommitResult, error) {
@@ -385,7 +420,11 @@ func (service *AppService) SwitchWorkspaceGitBranch(workspaceID, name, expectedF
 		return GitStatus{}, err
 	}
 	defer unlock()
-	return service.workspaceGitService().SwitchBranch(context.Background(), root, name, expectedFingerprint)
+	status, err := service.workspaceGitService().SwitchBranch(context.Background(), root, name, expectedFingerprint)
+	if err == nil {
+		service.scheduleLibrarySync(workspaceID, "you", librarySyncDelay)
+	}
+	return status, err
 }
 
 func (service *AppService) FetchWorkspaceGit(workspaceID string) (GitOperationResult, error) {
@@ -395,9 +434,13 @@ func (service *AppService) FetchWorkspaceGit(workspaceID string) (GitOperationRe
 }
 
 func (service *AppService) PullWorkspaceGit(workspaceID, expectedFingerprint string) (GitOperationResult, error) {
-	return service.withWorkspaceGitRemote(workspaceID, func(ctx context.Context, root string) (GitOperationResult, error) {
+	result, err := service.withWorkspaceGitRemote(workspaceID, func(ctx context.Context, root string) (GitOperationResult, error) {
 		return service.workspaceGitService().Pull(ctx, root, expectedFingerprint)
 	})
+	if err == nil {
+		service.scheduleLibrarySync(workspaceID, "you", librarySyncDelay)
+	}
+	return result, err
 }
 
 func (service *AppService) PushWorkspaceGit(workspaceID string) (GitOperationResult, error) {
@@ -528,6 +571,17 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	if err != nil {
 		return WorkspaceDetail{}, err
 	}
+	// Hydrate the game-test summary recorded for each export.
+	for i := range exports {
+		var testJSON string
+		_ = service.store.db.QueryRowContext(ctx, `SELECT COALESCE(test_json,'') FROM exports WHERE id=?`, exports[i].ID).Scan(&testJSON)
+		if testJSON != "" {
+			var ts ExportTestSummary
+			if json.Unmarshal([]byte(testJSON), &ts) == nil && ts.TestedAt != "" {
+				exports[i].Test = &ts
+			}
+		}
+	}
 	sessions, err := service.store.ListVirgilSessions(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceDetail{}, err
@@ -544,7 +598,8 @@ func (service *AppService) GetWorkspace(workspaceID string) (WorkspaceDetail, er
 	if record, testErr := service.store.GetActiveTestInstall(ctx, workspaceID); testErr == nil {
 		activeTest = &record
 	}
-	return WorkspaceDetail{Workspace: workspace, Entity: entity, Files: files, Directories: directories, Drafts: drafts, Validation: validation, Exports: exports, VirgilSessions: sessions, Knowledge: knowledge, ActiveTest: activeTest, DiskBytes: diskBytes}, nil
+	return WorkspaceDetail{Workspace: workspace, Entity: entity, Files: files, Directories: directories, Drafts: drafts, Validation: validation, Exports: exports, VirgilSessions: sessions, Knowledge: knowledge, ActiveTest: activeTest, DiskBytes: diskBytes,
+		Library: service.workspaceLibraryStatus(ctx, workspace, entity)}, nil
 }
 
 func (service *AppService) ReadWorkspaceFile(workspaceID, relativePath string) (WorkspaceTextFile, error) {
@@ -586,7 +641,7 @@ func (service *AppService) WriteWorkspaceFile(workspaceID, relativePath, content
 	if err := service.store.DeleteWorkspaceDrafts(ctx, workspaceID, relativePath); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(ctx, workspaceID)
+	return service.workspaceChanged(ctx, workspaceID, "you")
 }
 
 func (service *AppService) SearchWorkspace(workspaceID string, options WorkspaceSearchOptions, maxResults int) ([]WorkspaceSearchMatch, error) {
@@ -661,7 +716,7 @@ func (service *AppService) SetWorkspaceJSONValue(workspaceID, relativePath, dott
 	if err := modkit.SetJSONValue(workspace.FilesRoot, relativePath, dottedPath, value); err != nil {
 		return err
 	}
-	return service.store.TouchWorkspace(ctx, workspaceID)
+	return service.workspaceChanged(ctx, workspaceID, "you")
 }
 
 func (service *AppService) CloneVehicleVariant(workspaceID, sourceConfigPath, newBaseName, displayName string) ([]string, error) {
@@ -675,7 +730,7 @@ func (service *AppService) CloneVehicleVariant(workspaceID, sourceConfigPath, ne
 	defer workspaceLock.Unlock()
 	created, err := modkit.CloneVehicleVariant(workspace.FilesRoot, sourceConfigPath, newBaseName, displayName)
 	if err == nil {
-		err = service.store.TouchWorkspace(ctx, workspaceID)
+		err = service.workspaceChanged(ctx, workspaceID, "you")
 	}
 	return created, err
 }
@@ -823,6 +878,8 @@ func (service *AppService) shutdown() {
 	}
 	service.cancelAllAIConnections()
 	service.agents.StopAll()
+	// Saved edits still waiting for their library update go in before exit.
+	service.flushLibrarySyncs(context.Background())
 }
 
 // ServiceShutdown is invoked by Wails on every Run exit path, including a

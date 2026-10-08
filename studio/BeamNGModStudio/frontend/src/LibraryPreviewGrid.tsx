@@ -5,6 +5,7 @@ import { Icon } from "./icons";
 import type { ModFamilyBadge } from "./ModTable";
 import { EmptyState, kindIcon, Spinner, thumbUrl } from "./ui";
 import "./LibraryPreviewGrid.css";
+import { NewBadge } from "./NewBadge";
 
 export type LibraryPreviewSize = "small" | "medium" | "large";
 
@@ -236,6 +237,15 @@ function LibraryPreviewCard({
             <span className="library-preview-card__name" title={name}>
               {name}
             </span>
+            {item.new && <NewBadge />}
+            {item.edited && (
+              <span
+                className="mod-edited-badge"
+                title="Changed in ModMaker. Earlier versions, including the original, are in Versions."
+              >
+                Edited
+              </span>
+            )}
           </span>
           <span className="library-preview-card__source">{source}</span>
         </span>

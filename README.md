@@ -1,132 +1,120 @@
 # BeamWorlds Mod Studio
 
-Native Wails desktop application for indexing local BeamNG ZIP mods, organizing them into collections, editing isolated ModMaker workspaces, collaborating with Virgil, and launching an exact set of mods while preserving normal BeamNG settings, controls, and saves.
+**Your BeamNG mods. Organized, editable, ready to play.**
 
-## Run
+![Windows x64 preview](https://img.shields.io/badge/Windows-x64_preview-blue?logo=windows) ![Linux unavailable](https://img.shields.io/badge/Linux-unavailable-lightgrey?logo=linux) ![macOS unavailable](https://img.shields.io/badge/macOS-unavailable-lightgrey?logo=apple) [![License](https://img.shields.io/badge/License-GPL--3.0-blue)](LICENSE)
 
-For this built checkout:
+**[Downloads](#download-for-windows)** · [Website](https://beamworlds.b0rz.com) · [Report a problem](https://github.com/SignedAdam/beamworlds-mod-studio/issues)
 
-1. Double-click `Run BeamWorlds Mod Studio.cmd`.
-2. On first launch, review the automatically detected BeamNG installation and user folder.
-3. Choose the mod library and BeamWorlds staging location, then save the setup.
+BeamWorlds Mod Studio brings your BeamNG mod library, play profiles, and mod editing into one app.
 
-The CMD file is the only supported launcher. It starts `studio/BeamNGModStudio/bin/beamngmodstudio.exe`; the first-run wizard persists machine-local paths outside version control. The chosen Studio storage directory contains SQLite metadata, content-addressed images, editable workspaces, Play state, and immutable exports.
+![The BeamWorlds mod library](.github/assets/mod-library.png)
 
-`config.example.json` remains available for portable or managed deployments. The executable is generated build output and is not committed. A fresh clone must be built once before the launcher can run it.
+## What you can do
 
-## Add existing mods
+- **Mod Library** — browse previews, search and tag mods, and review duplicates.
+- **Collections & profiles** — group mods and save different setups for the way you play.
+- **Virus Scanner** — check mods for suspicious code locally, or use Virgil for a deeper AI-assisted review.
+- **ModMaker** — edit a mod right where it lives: saving updates the mod in your library, and every earlier version, including the original, stays one click away. Textures open in a built-in viewer, including BeamNG's DDS formats (BC1–BC5, BC7).
+- **Virgil AI** — get help inspecting and editing mod files, right inside the editor.
 
-Choose **Add mod…** in the Mod Library to open the custom file explorer. Each opening starts in your Downloads folder; if Downloads is unavailable, the picker explains why and opens Home instead.
+## Download for Windows
 
-- Use Places, breadcrumbs, Back/Forward/Up, or paste a folder path to navigate. The eight most recently visited folders are remembered across restarts.
-- Only folders and `.zip` files are shown. Filter the current folder or sort by name, size, or date modified.
-- Select ZIPs using click, Ctrl/Command-click, Shift-click, or checkboxes. Keyboard arrows and Home/End navigate, Shift extends a range, Space toggles a file, and Ctrl/Command+A selects matching ZIPs. Double-click or Enter opens a folder.
-- Choose **Add** to copy the selected ZIPs into your configured mod-library folder and index them immediately. Originals remain untouched. Different files with the same name receive numbered filenames; identical existing copies are reused.
+Both packages contain the same app. Choose how you'd like to run it:
 
-Adding mods does not enable them in BeamNG or add them to a collection. If some files fail, successful imports stay in the library and the picker keeps the failed files selected with an explanation.
+| Download | How to use it |
+| --- | --- |
+| [Installer (.exe)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/download/v0.1.0-preview.1/BeamWorldsModStudio-windows-amd64-installer.exe) | Run setup, then open **BeamWorlds Mod Studio** from the Start menu. |
+| [Portable (.zip)](https://github.com/SignedAdam/beamworlds-mod-studio/releases/download/v0.1.0-preview.1/BeamWorldsModStudio-windows-amd64.zip) | Extract the ZIP wherever you want to keep the app, then open **`beamngmodstudio.exe`**. No installation needed. |
 
-### Clean up duplicates
+## Getting started
 
-**Review duplicates** shows each set of duplicates as a card. Every version row lists the collections and tags it belongs to. Pick the version to keep (the suggested one is preselected), then choose what happens to the others:
+1. **Connect your folders.** Close BeamNG and open Studio. Follow setup to select your game, user folder, and mod folders. Existing mods can stay where they are.
+2. **Explore your library.** Let the first scan finish, then browse **Mod Library**. Use **Add mod…** to import more ZIPs.
+3. **Choose what to play.** Open **Play**, choose **All mods** or your **Collections**, and press **Play**. Save a profile to reuse that selection later.
 
-- **Replace** deletes the other versions and gives their collections and tags to the kept version. The chips it gains are marked with **+**.
-- **Remove** deletes the other versions and takes them out of their collections and tags. The kept version stays exactly as it is.
-- **Keep both** / **Keep all** deletes nothing and stops flagging the set until its membership changes.
-- For identical files of one mod, **Remove copies** deletes the extra files; collections and tags are not affected.
+Want to use Virgil? Connect your preferred AI account or API key under **Settings → Virgil**. Library management and manual editing work without AI.
 
-Each section can set every open card at once. Nothing changes until **Apply**; applying runs the chosen sets one after another in the background, so you can keep deciding (and apply again) while it works. Deleted files go to the Recycle Bin.
+## Help
 
-With **Replace**, shared collection entries merge: enabled wins, disabled-only entries stay disabled, and the keeper's existing position is preserved. Profiles follow their collections automatically. Old security scan results are not copied onto a different archive.
+[Report a problem or suggest a feature](https://github.com/SignedAdam/beamworlds-mod-studio/issues). Include what happened and any error message.
 
-If a file is locked, the usage change still applies and the version stays in the library; **Check again** reloads the remaining duplicates so cleanup can be retried. A library that changed since the card was checked, or a kept version whose file is missing, blocks deletion for that set. Versions with ModMaker projects remain protected until their editable work is preserved and the project is explicitly removed.
+<details>
+<summary>Setup and library tips</summary>
 
-## Table controls
+- **Can't find BeamNG?** Select the game folder containing `Bin64`. Use the BeamNG launcher to locate your existing user folder.
+- **Missing WebView2?** Install the [Microsoft WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+- **AI connections:** Virgil sends requests and relevant mod content to your selected provider. That provider's pricing and usage limits apply.
 
-The Mod Library, collection members, Virus Scanner, and ModMaker tables share row-selection controls:
+### Add existing mods
 
-- In the Mod Library, click a row or preview to open details without changing the checked mods. In the other tables, clicking a row selects it.
-- Ctrl-click (Command-click on macOS) toggles an individual table row without clearing the others.
-- Shift-click selects the inclusive range from the last selection anchor. Ctrl/Command+Shift-click adds a range to an existing selection. Ranges follow the current sort and filter, including across pages.
-- Checkboxes toggle rows without modifier keys; Shift-clicking a checkbox adds a range.
-- Up/Down, Home/End, and Page Up/Page Down move selection. Hold Shift to extend or shrink a range, or Ctrl/Command to move focus without changing selection. Space toggles the focused row.
-- Ctrl/Command+A selects all matching, selectable rows across pages. Escape clears selection. The header checkbox selects or clears matching rows without changing selections outside the filter.
-- Single-click a row or press Enter to open a library mod, collection member, or ModMaker workspace. Ctrl/Command-click, Shift-click, and checkboxes change selection without opening a mod. In the Virus Scanner, Enter toggles selection instead.
-- Right-click a selected row to act on the selection, or an unselected row to target that row. Shift+F10 opens the focused row's menu where available.
-- **Columns** opens a floating, viewport-constrained panel above the table. Toggle visibility or drag columns to reorder them; Escape, the close button, or an outside click dismisses the panel.
-- Click a column heading to sort; click it again to reverse direction. Sorting applies to the visible filtered mods, and changing sort returns to the first page.
+Configured folders are scanned automatically. **Add mod…** copies ZIPs into your library without changing the originals. Use **Rescan mods** for files added outside Studio. Importing a mod doesn't enable it in the game; choose your mod set in **Play**.
 
-Unavailable scanner rows and busy tables cannot be selected. Embedded actions, such as a collection member's enable checkbox, do not change row selection.
+### Edited mods and versions
 
-## Tags
+Opening a mod in **ModMaker** edits that mod. When you or Virgil save a change, Studio updates the mod in your library a few seconds later. It keeps its name, collections, and file name, and **Play** picks it up automatically. The library shows edited mods with an **Edited** badge. **Versions** (in ModMaker, or the mod's **Versions** tab in **Mod Library**) lists each saved state and the original, and **Restore** returns to any of them. Your current state is kept, so a restore can be undone. Changes wait while BeamNG is running. Mods in BeamNG's own repository folder are never rewritten; their changes stay in ModMaker, and **Export** saves a copy.
 
-Use **+ New tag** in a mod's inspector to enter a name, choose a color and icon, and create the tag. A newly created tag is assigned to that mod.
+### Table controls
 
-**Gameplay**, **Graphics**, and **Trailer** are included among the default tags. Existing libraries receive them on their next launch without replacing same-named custom tags, their appearance, or their assignments. Deleting a default tag after this update keeps it deleted on later launches.
+Use checkboxes to select mods, Ctrl-click to toggle a selection, and Shift-click to select a range. Right-click for available actions. **Columns** lets you choose and reorder the columns you see.
 
-## Play a set of mods
+</details>
 
-Collections are the named sets; **Play** combines them into what launches.
+## Technical details
 
-- Tick collections to play just those, or tick **All mods** to play everything.
-- With **All mods** ticked, click a collection to leave it out, and click it again to bring it back. "Everything except the Pixar Cars mods" is **All mods** plus one click.
-- The launch bar shows the result, for example `540 included − 76 left out = 464 mods`. It is worked out when you press **Play**, so mods you add later are included unless they are in a collection you left out.
-- **Save as new** keeps the combination as a profile you can switch back to.
+<details>
+<summary>Build from source, run tests, and package</summary>
 
-## Archive deployment and storage
+Go + Wails v3, React + TypeScript, and SQLite. The desktop app lives in `studio/BeamNGModStudio`; archive tools live in `modkit`.
 
-Your library archives are the only canonical copies. Play and collection folders deploy them directly; there is no intermediate ZIP cache.
+### Build
 
-- **Settings → Storage and paths** (also offered in the setup wizard) chooses how external mods reach the game:
-  - **Automatic — recommended**: hardlink when the library and game share a volume, otherwise copy.
-  - **Hardlinks only**: never copy; mods on another volume block launch with the reason shown.
-  - **Copies — separate game files**: independent copies, reused on later launches instead of recopied.
-- Repository mods already inside BeamNG's mod folder are used in place.
-- Before anything is copied, Play shows the extra space needed and asks you to confirm. Insufficient space, changed archives, or unrecognized files in the managed folder block the launch with a specific reason.
-- Deployment is journaled. If Studio or Windows stops mid-change, the next start restores the previous selection or completes the new one; your library archives are never touched.
-- BeamNG must be closed while Studio changes the game's mods. Studio never closes it for you.
-- Removing or replacing a mod also retires its generated game and collection-folder copies. A copy that might be the last surviving data is kept for review instead.
+On Windows, install **Go 1.25+**, **Node.js 20+**, **Git**, and **WebView2**. Keep Go's automatic toolchain selection enabled. In PowerShell:
 
-**Review storage** (in the same settings section) inventories library, game, collection-folder, and legacy-cache archives without changing anything. Hardlinked names are counted once. Only verified redundant copies are offered for removal, and each is checksum-verified against its library archive first. Archives with no surviving library copy can be recovered into the library. Exports, workspaces, backups, and unrecognized files are listed for context but never cleaned. Removing one name of a hardlinked file frees no space; results report what was actually removed.
-
-## Library storage and caching
-
-Mod identities, archive locations, collection/tag memberships, ModMaker projects, and security analyses are separate related records. Full archive inspection documents remain in `artifacts`; they are not the library table's read model.
-
-`artifact_summaries` is a small one-to-one projection used for library listing, filtering, counts, and sorting. SQLite triggers update it in the same transaction as archive metadata changes, and startup backfills existing archives without rescanning ZIPs. Listing responses omit archive inventories, variant/document contents, and detailed issue messages; `GetEntity` supplies complete inspection data when a mod is opened.
-
-Full parsed manifests are cached on demand using artifact ID plus a unique metadata revision. Warm reads avoid fetching the large JSON column. Cached values are mutation-isolated; rollback cannot reuse an uncommitted revision. Retention is bounded by entry count and a 64 MiB source-JSON budget (not a fixed Go heap-size guarantee), and the cache is released when the store closes. Collection/tag changes remain ordinary relational updates rather than rebuilding archive metadata.
-
-## Safety model
-
-- Library archives are read in place and never unpacked during scanning.
-- ModMaker extracts a separate workspace and records the source SHA-256.
-- Editor and Virgil host tools can access only workspace-relative paths.
-- Unsaved editor drafts persist in SQLite and are recovered after restart.
-- Export validates the workspace, checks the source checksum before and after packing, writes atomically, and registers a new immutable ZIP.
-- Test installs use the `modstudio-test-*.zip` namespace and verify their checksum before launch.
-- Collections contain mods and other collections. Membership is many-to-many and cycles are rejected, so a mod or collection can be reused anywhere without being moved or copied.
-- Every membership carries an enabled flag. A disabled mod keeps its place in the collection and stops shipping; a disabled child collection is not traversed from that parent. Enabled wins: a mod enabled in any reachable collection is included.
-- Successful scans disable collection entries whose last indexed archive was removed. Startup also repairs stale entries left by older scans. Membership and ordering remain intact; restore the archive and re-enable the mod to include it again. Another active source keeps the mod enabled, and failed or cancelled scans do not disable it.
-- If a scan can’t read a library folder (an unplugged drive, an offline share, denied access), the mods in it keep their place in the library and in collections, and the status bar names the folder until a scan reaches it again.
-- On the first indexed library, the mods BeamNG already has enabled become one collection held by one profile, and that profile is selected. A fresh install therefore launches the mod set the user already had.
-- Play resolves the selected profile's collections into one deduplicated mod set, deploys it into `current/mods/beamworlds-managed` under the chosen deployment mode, and updates BeamNG's native `db.json` active state atomically. Normal settings, controls, and saves remain shared.
-- Profiles are named collection selections. Selecting, renaming, or deleting one never changes mod files or what BeamNG currently loads; only Play does.
-
-## Build a fresh clone
-
-Install Go, Node.js, and Wails v3, then run from the repository root:
-
-```text
-cd studio/BeamNGModStudio/frontend
-npm ci
-cd ..
+```powershell
+git clone https://github.com/SignedAdam/beamworlds-mod-studio.git
+cd beamworlds-mod-studio
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.16
+$env:PATH = "$(go env GOPATH)\bin;$env:PATH"
+cd studio/BeamNGModStudio
 wails3 build
 ```
 
-The production executable is written to `studio/BeamNGModStudio/bin/beamngmodstudio.exe`.
+The build downloads frontend dependencies and the checksum-pinned AI runtime. Output: `studio/BeamNGModStudio/bin/beamngmodstudio.exe`.
 
-For isolated manual testing, set `BEAMWORLDS_HOME` to a hidden folder in the repository, such as `.sandbox/<name>`. The app reads `config.json` and stores all data there, and hidden folders are ignored by Git.
+### Tests
 
-## Planning
+After building, from the repository root:
 
-See the [2026-09-27 implementation roadmap](docs/roadmap-2026-09-27.md) for the consolidated requests, canonical specifications, dependency order, and verification gates. Planned features are not claims of shipped behavior; `specs/new`, `specs/done`, and `docs/ideas` retain their separate roles.
+```powershell
+go -C modkit test ./...
+go -C studio/BeamNGModStudio test ./...
+```
+
+Set `BEAMWORLDS_HOME` to a separate folder for isolated app configuration. Folders selected in setup are still real filesystem locations.
+
+### Packaging
+
+Install [NSIS](https://nsis.sourceforge.io/) on `PATH`. From `studio/BeamNGModStudio`, after building:
+
+```powershell
+node build/collect-notices.mjs
+powershell -File build/windows/package-release.ps1
+wails3 task windows:package
+```
+
+The [release workflow](.github/workflows/release.yml) builds an existing tag and creates a draft release with downloads and checksums.
+
+### Safety model
+
+Scanning reads library archives in place. Saving in ModMaker rebuilds that mod's library ZIP; Studio first moves the original into its data folder and keeps every saved version there until you delete the ModMaker project. Play applies the selected mod set; profiles themselves don't change mod files.
+
+If a scan can't read a library folder (an unplugged drive, an offline share, denied access), the mods in it keep their place in the library and in collections, and the status bar names the folder until a scan reaches it again.
+
+</details>
+
+## License
+
+[GNU GPL version 3 only](LICENSE). Third-party components retain their own licenses. The BeamWorlds name and logo aren't covered by the code license.
+
+An independent project, not an official BeamNG product.

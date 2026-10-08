@@ -291,6 +291,10 @@ func (service *AppService) reconcileProfileSessionDownloads(ctx context.Context,
 		if walkErr != nil {
 			return nil
 		}
+		// Skip junctions—they are owned deployment links, never harvested.
+		if d.IsDir() && isDirectoryJunction(path) {
+			return filepath.SkipDir
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -385,6 +389,30 @@ func (service *AppService) reconcileProfileSessionDownloads(ctx context.Context,
 		return nil
 	})
 
+	// Harvest real (non-junction) folders from <play mods>/unpacked/ into
+	// <ActiveModsDir>/unpacked/. These are folders that BeamNG created when
+	// the player unpacked a mod during the session.
+	unpackedDir := filepath.Join(profileMods, "unpacked")
+	if children, readErr := os.ReadDir(unpackedDir); readErr == nil {
+		for _, child := range children {
+			childPath := filepath.Join(unpackedDir, child.Name())
+			if !child.IsDir() || isDirectoryJunction(childPath) {
+				continue
+			}
+			destDir := filepath.Join(service.config.ActiveModsDir, "unpacked")
+			if err := os.MkdirAll(destDir, 0o755); err != nil {
+				failures = append(failures, fmt.Sprintf("unpacked %s: mkdir: %v", child.Name(), err))
+				continue
+			}
+			dest := uniqueFolderPath(destDir, child.Name())
+			if err := moveFolderVerified(childPath, dest); err != nil {
+				failures = append(failures, fmt.Sprintf("unpacked %s: harvest: %v", child.Name(), err))
+				continue
+			}
+			harvested++
+		}
+	}
+
 	removeEmptySubdirs(profileMods)
 
 	if walkErr != nil {
@@ -462,10 +490,79 @@ func uniqueFilePath(dir, name string) string {
 	}
 }
 
+// uniqueFolderPath returns a non-existing path in dir named name, appending a
+// numeric suffix on collision. Unlike uniqueFilePath, folders have no
+// extension to split on.
+func uniqueFolderPath(dir, name string) string {
+	candidate := filepath.Join(dir, name)
+	for i := 1; ; i++ {
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+		candidate = filepath.Join(dir, fmt.Sprintf("%s-%d", name, i))
+	}
+}
+
+// moveFolderVerified moves a folder from src to dst. Uses os.Rename first
+// (same-volume atomic). On cross-volume failure, copies the full tree, verifies
+// names+sizes, then removes the source.
+func moveFolderVerified(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	// Cross-volume fallback: copy tree then verify.
+	if err := copyEntry(src, dst); err != nil {
+		_ = os.RemoveAll(dst) // clean partial copy
+		return fmt.Errorf("cross-volume folder copy: %w", err)
+	}
+	// Verify by comparing file listing (names + sizes).
+	if err := verifyFolderListing(src, dst); err != nil {
+		return fmt.Errorf("cross-volume folder verification: %w", err)
+	}
+	return os.RemoveAll(src)
+}
+
+// verifyFolderListing compares directory trees by relative paths and file sizes.
+func verifyFolderListing(src, dst string) error {
+	type entry struct{ size int64; isDir bool }
+	collect := func(root string) (map[string]entry, error) {
+		m := make(map[string]entry)
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil { return err }
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil { return relErr }
+			if rel == "." { return nil }
+			info, infoErr := d.Info()
+			if infoErr != nil { return infoErr }
+			m[rel] = entry{size: info.Size(), isDir: d.IsDir()}
+			return nil
+		})
+		return m, err
+	}
+	srcEntries, err := collect(src)
+	if err != nil { return err }
+	dstEntries, err := collect(dst)
+	if err != nil { return err }
+	if len(srcEntries) != len(dstEntries) {
+		return fmt.Errorf("entry count mismatch: source %d, destination %d", len(srcEntries), len(dstEntries))
+	}
+	for rel, se := range srcEntries {
+		de, ok := dstEntries[rel]
+		if !ok { return fmt.Errorf("missing in destination: %s", rel) }
+		if se.isDir != de.isDir { return fmt.Errorf("type mismatch: %s", rel) }
+		if !se.isDir && se.size != de.size { return fmt.Errorf("size mismatch: %s (%d vs %d)", rel, se.size, de.size) }
+	}
+	return nil
+}
+
 func removeEmptySubdirs(root string) {
 	var dirs []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, _ error) error {
 		if d != nil && d.IsDir() && path != root {
+			// Never descend into or remove junctions.
+			if isDirectoryJunction(path) {
+				return filepath.SkipDir
+			}
 			dirs = append(dirs, path)
 		}
 		return nil

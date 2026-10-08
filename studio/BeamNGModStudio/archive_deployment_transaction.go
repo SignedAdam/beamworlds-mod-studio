@@ -44,6 +44,16 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   if blockers:=checkManagedRootOwnership(ctx,service.store,plan.DestinationRoot);len(blockers)>0{return result,errors.New(strings.Join(blockers,"; "))}
  }
  for _,entry:=range plan.Entries {
+  if entry.Method==deployMethodJunction {
+   // Junction destinations are validated differently: the parent must be a
+   // real directory; an existing junction at the leaf is fine if it is owned.
+   if err:=validateArchiveChild(entry.DestinationPath,plan.DestinationRoot);err!=nil{return result,err}
+   if isDirectoryJunction(entry.DestinationPath) {
+    prior,owned:=priorByPath[archivePathKey(entry.DestinationPath)]
+    if !owned || prior.Method!=deployMethodJunction {return result,fmt.Errorf("preserved unowned junction: %s",entry.DestinationPath)}
+   }
+   continue
+  }
   if err:=validateArchiveChild(entry.DestinationPath,plan.DestinationRoot);err!=nil{return result,err}
   current,exists,err:=archiveIdentityIfPresent(entry.DestinationPath);if err!=nil{return result,err}
   if exists {
@@ -70,6 +80,27 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
  for _,original:=range plan.Entries {
   if err:=ctx.Err();err!=nil{return result,err}
   entry:=original
+
+  // Junction entries bypass the staging/hashing pipeline entirely.
+  if entry.Method==deployMethodJunction {
+   srcInfo,statErr:=os.Lstat(entry.SourcePath)
+   if statErr!=nil{return result,fmt.Errorf("junction source folder missing: %w",statErr)}
+   if !srcInfo.IsDir(){return result,fmt.Errorf("junction source is not a folder: %s",entry.SourcePath)}
+   id,idErr:=modkit.NewID();if idErr!=nil{return result,idErr}
+   if entry.Reuse {
+    if !isDirectoryJunction(entry.DestinationPath) || !samePath(junctionTarget(entry.DestinationPath),filepath.Clean(entry.SourcePath)){
+     return result,fmt.Errorf("reused junction changed: %s",entry.DestinationPath)
+    }
+    unchanged[archivePathKey(entry.DestinationPath)]=true
+    result.Reused++
+   } else {
+    result.Linked++
+   }
+   newOwned=append(newOwned,makeOwnedEntry(id,plan,entry,plan.DestinationRoot,ArchiveFileIdentity{}))
+   result.Entries=append(result.Entries,entry)
+   continue
+  }
+
   source,err:=inspectArchiveFile(entry.SourcePath);if err!=nil{return result,err}
   if !sameArchiveObject(source,entry.SourceIdentity){return result,fmt.Errorf("source changed after review: %s",entry.SourcePath)}
   if plan.Purpose==archivePurposePlay { service.emitPlayProgress(PlayProgress{OperationID:operationID,Phase:"materializing",Current:filepath.Base(entry.SourcePath),Completed:len(result.Entries),Total:len(plan.Entries),BytesCopied:result.CopiedBytes,BytesHashed:result.HashedBytes,TotalBytes:plan.CopyBytes}) }
@@ -128,10 +159,19 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   result.Entries=append(result.Entries,entry)
  }
  // Park every changed/removed owned entry before installing any replacement.
+ // Junction entries are removed directly—they are lightweight reparse points.
  parked:=map[string]string{}
  for _,entry:=range j.PriorOwned {
   path:=filepath.Join(entry.TargetRoot,entry.RelativePath)
   if unchanged[archivePathKey(path)]{continue}
+  if entry.Method==deployMethodJunction {
+   if isDirectoryJunction(path) {
+    actual:=junctionTarget(path)
+    if !samePath(actual,entry.SourcePath){return result,fmt.Errorf("junction target changed during preparation: %s",path)}
+    if err:=removeDirectoryJunction(path);err!=nil{return result,fmt.Errorf("remove retired junction %s: %w",path,err)}
+   }
+   continue
+  }
   identity,exists,err:=archiveIdentityIfPresent(path);if err!=nil{return result,err}
   if !exists{continue}
   if !sameArchiveObject(identity,entry.TargetIdentity){return result,fmt.Errorf("owned archive changed during preparation: %s",path)}
@@ -140,6 +180,7 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   j.MovedFiles=append(j.MovedFiles,movedFileRecord{From:path,To:backup,SourceIdentity:identity})
  }
  for _,entry:=range result.Entries {
+  if entry.Method==deployMethodJunction{continue} // junctions are created directly, not moved
   if unchanged[archivePathKey(entry.DestinationPath)]{continue}
   source:=stagePaths[archivePathKey(entry.DestinationPath)]
   if entry.Reuse {
@@ -153,6 +194,7 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
  if err:=service.store.writeDeploymentJournal(ctx,j);err!=nil{return result,err}
  if beforeActivate!=nil{if err:=beforeActivate();err!=nil{return result,err}}
  for _,entry:=range plan.Entries {
+  if entry.Method==deployMethodJunction{continue} // folder sources have no file identity
   current,err:=inspectArchiveFile(entry.SourcePath);if err!=nil{return result,err}
   if !sameArchiveObject(current,entry.SourceIdentity){return result,fmt.Errorf("source changed during preparation: %s",entry.SourcePath)}
  }
@@ -171,6 +213,12 @@ func (service *AppService) runArchiveDeployment(ctx context.Context, plan Archiv
   if err:=ctx.Err();err!=nil{return result,err}
   if err:=service.requireGameStopped();err!=nil{return result,err}
   if err:=executeArchiveMove(move);err!=nil{return result,err}
+ }
+ // Create new directory junctions after regular moves are complete.
+ for _,entry:=range result.Entries {
+  if entry.Method!=deployMethodJunction || entry.Reuse{continue}
+  if err:=os.MkdirAll(filepath.Dir(entry.DestinationPath),0755);err!=nil{return result,err}
+  if err:=ensureJunction(entry.DestinationPath,entry.SourcePath);err!=nil{return result,fmt.Errorf("create junction %s -> %s: %w",entry.DestinationPath,entry.SourcePath,err)}
  }
  if commit!=nil{if err:=commit();err!=nil{return result,err}}
  if err:=service.store.commitDeploymentApplied(ctx,j.ID,newOwned);err!=nil{return result,err}
@@ -244,7 +292,12 @@ func(service *AppService)playManagedRoot()string{
 }
 func(service *AppService)validateOwnedArchivePath(entry OwnedArchiveEntry)error{
  if entry.ID=="" || filepath.Base(entry.ID)!=entry.ID || entry.OwnerID=="" || filepath.Base(entry.OwnerID)!=entry.OwnerID{return errors.New("invalid deployment ownership identity")}
- if entry.RelativePath=="" || filepath.Base(entry.RelativePath)!=entry.RelativePath{return errors.New("invalid owned archive relative path")}
+ if entry.Method==deployMethodJunction {
+  // Junction relative paths include the "unpacked" parent, e.g. "unpacked/mymod-id".
+  if entry.RelativePath=="" || !pathWithin(filepath.Join(entry.TargetRoot,entry.RelativePath),entry.TargetRoot){return errors.New("invalid owned junction relative path")}
+ } else {
+  if entry.RelativePath=="" || filepath.Base(entry.RelativePath)!=entry.RelativePath{return errors.New("invalid owned archive relative path")}
+ }
  if entry.Purpose==archivePurposeCollection {return validateArchiveChild(filepath.Join(entry.TargetRoot,entry.RelativePath),filepath.Join(service.config.ExportDir,collectionFolderDirectory,entry.OwnerID))}
  if entry.Purpose!=archivePurposePlay{return fmt.Errorf("unsupported deployment purpose %q",entry.Purpose)}
  // Accept both the profile mods path and the legacy managed dir.
@@ -288,6 +341,22 @@ func(service *AppService)rollbackArchiveJournal(ctx context.Context,j deployment
  if err:=service.validateArchiveJournalPaths(j);err!=nil{return err}
  if j.State==journalStateActivating {
   if err:=service.requireGameStopped();err!=nil{return err}
+  // Undo any junctions created during partial activation.
+  for _,entry:=range j.Plan.Entries {
+   if entry.Method!=deployMethodJunction || entry.Reuse{continue}
+   if isDirectoryJunction(entry.DestinationPath) && samePath(junctionTarget(entry.DestinationPath),filepath.Clean(entry.SourcePath)) {
+    _ = removeDirectoryJunction(entry.DestinationPath)
+   }
+  }
+  // Restore any junctions removed during parking.
+  for _,entry:=range j.PriorOwned {
+   if entry.Method!=deployMethodJunction{continue}
+   path:=filepath.Join(entry.TargetRoot,entry.RelativePath)
+   if !isDirectoryJunction(path) {
+    _ = os.MkdirAll(filepath.Dir(path),0755)
+    _ = ensureJunction(path,entry.SourcePath)
+   }
+  }
   for i:=len(j.MovedFiles)-1;i>=0;i-- {
    move:=j.MovedFiles[i]
    if err:=service.validateJournalMove(j,move);err!=nil{return err}
@@ -313,6 +382,7 @@ func(service *AppService)rollbackArchiveJournal(ctx context.Context,j deployment
   }
  }
  for _,entry:=range j.PreparedEntries {
+  if entry.Method==deployMethodJunction{continue} // no staged files for junctions
   path:=filepath.Join(j.StagingDir,entry.ID+stagingExtension)
   current,exists,err:=archiveIdentityIfPresent(path);if err!=nil{return err};if !exists{continue}
   if !sameArchiveFileID(current,entry.TargetIdentity){return fmt.Errorf("preserved changed staging file: %s",path)}
@@ -341,6 +411,7 @@ func(service *AppService)finishArchiveJournal(ctx context.Context,j deploymentJo
  if err:=service.store.updateDeploymentJournalState(ctx,j.ID,journalStateCleanup);err!=nil{return 0,err}
  removed:=0
  for _,entry:=range j.PriorOwned {
+  if entry.Method==deployMethodJunction{continue} // junctions removed during activation, no backup
   backup:=filepath.Join(j.PreviousDir,entry.ID+stagingExtension)
   current,exists,err:=archiveIdentityIfPresent(backup);if err!=nil{return removed,err};if !exists{continue}
   if !sameArchiveObject(current,entry.TargetIdentity){return removed,fmt.Errorf("preserved changed previous archive: %s",backup)}

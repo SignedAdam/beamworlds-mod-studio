@@ -144,6 +144,7 @@ const (
 const (
 	deployMethodHardlink = "hardlink"
 	deployMethodCopy     = "copy"
+	deployMethodJunction = "junction"
 )
 
 // Owned archive entry purposes.

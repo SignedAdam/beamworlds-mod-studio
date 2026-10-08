@@ -133,6 +133,7 @@ type Manifest struct {
 	CentralFingerprint string              `json:"centralFingerprint"`
 	FullSHA256         string              `json:"fullSha256,omitempty"`
 	ValidArchive       bool                `json:"validArchive"`
+	SourceKind         SourceKind          `json:"sourceKind,omitempty"`
 	Wrapper            string              `json:"wrapper,omitempty"`
 	Kind               Kind                `json:"kind"`
 	ContentTags        []string            `json:"contentTags,omitempty"`

@@ -2269,6 +2269,7 @@ func ensureStoreColumnsTx(ctx context.Context, tx *sql.Tx) error {
 		{"workspaces", "library_state_key", `TEXT NOT NULL DEFAULT ''`},
 		{"workspaces", "changed_files", `INTEGER NOT NULL DEFAULT 0`},
 		{"workspaces", "files_changed_at", `TEXT NOT NULL DEFAULT ''`},
+		{"archive_links", "source_kind", `TEXT NOT NULL DEFAULT 'zip'`},
 	}
 	for _, column := range columns {
 		if err := ensureColumnTx(ctx, tx, column.table, column.column, column.definition); err != nil {

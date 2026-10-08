@@ -64,9 +64,9 @@ func (service *AppService) CacheModArtwork(entityID, memberPath string) (Collect
 		}
 	}
 	if info, statErr := os.Stat(item.ArchivePath); statErr != nil {
-		return CollectionCoverImage{}, fmt.Errorf("artwork source archive is unavailable: %w", statErr)
-	} else if info.IsDir() {
-		return CollectionCoverImage{}, errors.New("artwork source archive is a directory")
+		return CollectionCoverImage{}, fmt.Errorf("artwork source is unavailable: %w", statErr)
+	} else if !info.IsDir() && !info.Mode().IsRegular() {
+		return CollectionCoverImage{}, errors.New("artwork source is not a file or folder")
 	}
 	member, err := findArchiveMember(item.Manifest, normalized)
 	if err != nil {

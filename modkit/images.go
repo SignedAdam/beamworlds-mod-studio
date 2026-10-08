@@ -28,33 +28,48 @@ type CachedAsset struct {
 }
 
 func ExtractImage(archivePath, memberPath, cacheRoot string) (CachedAsset, error) {
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return CachedAsset{}, fmt.Errorf("open ZIP: %w", err)
-	}
-	defer reader.Close()
-
 	normalizedTarget, err := normalizeArchivePath(memberPath)
 	if err != nil {
 		return CachedAsset{}, err
 	}
-	var selected *zip.File
-	for _, file := range reader.File {
-		name, pathErr := normalizeArchivePath(file.Name)
-		if pathErr == nil && strings.EqualFold(name, normalizedTarget) {
-			selected = file
-			break
+
+	var data []byte
+	kind, kindErr := SourceKindOf(archivePath)
+	if kindErr != nil {
+		return CachedAsset{}, kindErr
+	}
+	if kind == SourceFolder {
+		raw, _, readErr := readFolderMember(archivePath, normalizedTarget, maxCachedImageBytes)
+		if readErr != nil {
+			return CachedAsset{}, fmt.Errorf("read image: %w", readErr)
 		}
-	}
-	if selected == nil {
-		return CachedAsset{}, fmt.Errorf("image entry not found: %s", memberPath)
-	}
-	if selected.UncompressedSize64 > maxCachedImageBytes {
-		return CachedAsset{}, fmt.Errorf("image is %d bytes; limit is %d", selected.UncompressedSize64, maxCachedImageBytes)
-	}
-	data, err := readZipEntry(selected, maxCachedImageBytes)
-	if err != nil {
-		return CachedAsset{}, fmt.Errorf("read image: %w", err)
+		data = raw
+	} else {
+		reader, zipErr := zip.OpenReader(archivePath)
+		if zipErr != nil {
+			return CachedAsset{}, fmt.Errorf("open ZIP: %w", zipErr)
+		}
+		defer reader.Close()
+
+		var selected *zip.File
+		for _, file := range reader.File {
+			name, pathErr := normalizeArchivePath(file.Name)
+			if pathErr == nil && strings.EqualFold(name, normalizedTarget) {
+				selected = file
+				break
+			}
+		}
+		if selected == nil {
+			return CachedAsset{}, fmt.Errorf("image entry not found: %s", memberPath)
+		}
+		if selected.UncompressedSize64 > maxCachedImageBytes {
+			return CachedAsset{}, fmt.Errorf("image is %d bytes; limit is %d", selected.UncompressedSize64, maxCachedImageBytes)
+		}
+		raw, readErr := readZipEntry(selected, maxCachedImageBytes)
+		if readErr != nil {
+			return CachedAsset{}, fmt.Errorf("read image: %w", readErr)
+		}
+		data = raw
 	}
 
 	extension := strings.ToLower(filepath.Ext(normalizedTarget))

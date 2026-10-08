@@ -80,6 +80,7 @@ export interface Manifest {
     "centralFingerprint": string;
     "fullSha256"?: string;
     "validArchive": boolean;
+    "sourceKind"?: SourceKind;
     "wrapper"?: string;
     "kind": Kind;
     "contentTags"?: string[] | null;
@@ -180,3 +181,5 @@ export interface WorkspaceChange {
     "sizeBytes"?: number;
     "textDiff"?: string;
 }
+
+export type SourceKind = "zip" | "folder";

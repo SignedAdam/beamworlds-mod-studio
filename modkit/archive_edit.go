@@ -51,6 +51,13 @@ func ReadArchiveMember(archivePath, memberPath string, limit int64) ([]byte, err
 // result is useful. The archive and requested member path are both validated.
 func ReadArchiveMemberLimited(archivePath, memberPath string, limit int64) ([]byte, bool, error) {
 	limit = boundedArchiveLimit(limit)
+	kind, err := SourceKindOf(archivePath)
+	if err != nil {
+		return nil, false, err
+	}
+	if kind == SourceFolder {
+		return readFolderMember(archivePath, memberPath, limit)
+	}
 	reader, files, err := openValidatedArchive(archivePath)
 	if err != nil {
 		return nil, false, err
@@ -74,6 +81,13 @@ func CopyArchiveMember(archivePath, memberPath string, destination io.Writer, li
 		return 0, fmt.Errorf("archive member destination is nil")
 	}
 	limit = boundedArchiveLimit(limit)
+	kind, err := SourceKindOf(archivePath)
+	if err != nil {
+		return 0, err
+	}
+	if kind == SourceFolder {
+		return copyFolderMember(archivePath, memberPath, destination, limit)
+	}
 	reader, files, err := openValidatedArchive(archivePath)
 	if err != nil {
 		return 0, err
@@ -129,7 +143,7 @@ func RewriteArchiveJSONMember(archivePath, memberPath string, updates map[string
 		return fmt.Errorf("stat archive: %w", err)
 	}
 	if sourceInfo.IsDir() {
-		return fmt.Errorf("archive path is a directory: %s", archivePath)
+		return rewriteFolderJSONMember(archivePath, target, updates, createIfMissing, beforeReplace)
 	}
 
 	reader, files, err := openValidatedArchive(archivePath)
@@ -445,4 +459,87 @@ func jsonSafeValue(value any) (any, error) {
 	default:
 		return typed, nil
 	}
+}
+
+// rewriteFolderJSONMember atomically updates one JSON file inside a folder
+// source. It mirrors the semantics of the ZIP rewrite: merge updates into
+// existing JSON, temp file + rename for atomicity, and beforeReplace callback.
+func rewriteFolderJSONMember(root, target string, updates map[string]any, createIfMissing bool, beforeReplace func() error) error {
+	filename, err := safeFolderJoin(root, target)
+	if err != nil {
+		return err
+	}
+	metadata := map[string]any{}
+	info, statErr := os.Stat(filename)
+	if statErr == nil {
+		if info.IsDir() {
+			return fmt.Errorf("folder member %q is a directory", target)
+		}
+		if info.Size() > MaxArchiveJSONBytes {
+			return fmt.Errorf("folder member %q is %d bytes; limit is %d", target, info.Size(), MaxArchiveJSONBytes)
+		}
+		data, readErr := os.ReadFile(filename)
+		if readErr != nil {
+			return fmt.Errorf("read folder member %q: %w", target, readErr)
+		}
+		metadata, err = decodeJSONDocument(data)
+		if err != nil {
+			return fmt.Errorf("decode folder member %q: %w", target, err)
+		}
+	} else if os.IsNotExist(statErr) {
+		if !createIfMissing {
+			return fmt.Errorf("folder member %q does not exist", target)
+		}
+	} else {
+		return statErr
+	}
+	for key, value := range updates {
+		if value == nil {
+			delete(metadata, key)
+		} else {
+			metadata[key] = value
+		}
+	}
+	encoded, err := encodeJSONDocument(metadata)
+	if err != nil {
+		return fmt.Errorf("encode folder member %q: %w", target, err)
+	}
+	directory := filepath.Dir(filename)
+	if createIfMissing {
+		if mkErr := os.MkdirAll(directory, 0o755); mkErr != nil {
+			return mkErr
+		}
+	}
+	temporary, err := os.CreateTemp(directory, "."+filepath.Base(filename)+"*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryName)
+		}
+	}()
+	if _, err := temporary.Write(encoded); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if beforeReplace != nil {
+		if err := beforeReplace(); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return err
+	}
+	removeTemporary = false
+	return nil
 }

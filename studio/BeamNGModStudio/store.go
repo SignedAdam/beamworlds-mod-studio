@@ -32,43 +32,44 @@ type libraryQueryer interface {
 }
 
 type LibraryItem struct {
-	EntityID                string          `json:"entityId"`
-	Revision                string          `json:"revision"`
-	ArchivedAt              string          `json:"archivedAt"`
-	ArtifactID              string          `json:"artifactId"`
-	LinkID                  string          `json:"linkId"`
-	CollectionIDs           []string        `json:"collectionIds"`
-	DisplayName             string          `json:"displayName"`
-	Kind                    modkit.Kind     `json:"kind"`
-	SourceID                string          `json:"sourceId"`
-	Source                  string          `json:"source"`
-	ArchivePath             string          `json:"archivePath"`
-	RootPath                string          `json:"rootPath"`
-	Linked                  bool            `json:"linked"`
-	SizeBytes               int64           `json:"sizeBytes"`
-	ModifiedAt              string          `json:"modifiedAt"`
-	LastSeenAt              string          `json:"lastSeenAt"`
-	Fingerprint             string          `json:"fingerprint"`
-	SHA256                  string          `json:"sha256"`
-	ThumbnailURL            string          `json:"thumbnailUrl"`
-	MemberCount             int             `json:"memberCount"`
-	NamespaceCount          int             `json:"namespaceCount"`
-	VariantCount            int             `json:"variantCount"`
-	IssueCount              int             `json:"issueCount"`
-	HealthStatus            string          `json:"healthStatus"`
-	HealthLabel             string          `json:"healthLabel"`
-	LastSecurityScanAt      string          `json:"lastSecurityScanAt"`
-	LastSecurityScanVerdict string          `json:"lastSecurityScanVerdict"`
-	LastSecurityScanSHA256  string          `json:"lastSecurityScanSha256"`
-	SecurityScanChanged     bool            `json:"securityScanChanged"`
-	Manifest                modkit.Manifest `json:"manifest"`
-	Tags                    []ModTag        `json:"tags"`
+	EntityID                string            `json:"entityId"`
+	Revision                string            `json:"revision"`
+	ArchivedAt              string            `json:"archivedAt"`
+	ArtifactID              string            `json:"artifactId"`
+	LinkID                  string            `json:"linkId"`
+	CollectionIDs           []string          `json:"collectionIds"`
+	DisplayName             string            `json:"displayName"`
+	Kind                    modkit.Kind       `json:"kind"`
+	SourceID                string            `json:"sourceId"`
+	Source                  string            `json:"source"`
+	ArchivePath             string            `json:"archivePath"`
+	RootPath                string            `json:"rootPath"`
+	Linked                  bool              `json:"linked"`
+	SizeBytes               int64             `json:"sizeBytes"`
+	ModifiedAt              string            `json:"modifiedAt"`
+	LastSeenAt              string            `json:"lastSeenAt"`
+	Fingerprint             string            `json:"fingerprint"`
+	SHA256                  string            `json:"sha256"`
+	SourceKind              string            `json:"sourceKind"`
+	ThumbnailURL            string            `json:"thumbnailUrl"`
+	MemberCount             int               `json:"memberCount"`
+	NamespaceCount          int               `json:"namespaceCount"`
+	VariantCount            int               `json:"variantCount"`
+	IssueCount              int               `json:"issueCount"`
+	HealthStatus            string            `json:"healthStatus"`
+	HealthLabel             string            `json:"healthLabel"`
+	LastSecurityScanAt      string            `json:"lastSecurityScanAt"`
+	LastSecurityScanVerdict string            `json:"lastSecurityScanVerdict"`
+	LastSecurityScanSHA256  string            `json:"lastSecurityScanSha256"`
+	SecurityScanChanged     bool              `json:"securityScanChanged"`
+	Manifest                modkit.Manifest   `json:"manifest"`
+	Tags                    []ModTag          `json:"tags"`
 	// Edited is true when the library archive holds ModMaker changes;
 	// HistoryCount counts the saved versions that can be restored.
-	Edited                  bool            `json:"edited"`
-	HistoryCount            int             `json:"historyCount"`
-	AddedAt                 string          `json:"addedAt"`
-	New                     bool            `json:"new"`
+	Edited                  bool              `json:"edited"`
+	HistoryCount            int               `json:"historyCount"`
+	AddedAt                 string            `json:"addedAt"`
+	New                     bool              `json:"new"`
 }
 
 type EventRecord struct {
@@ -1334,11 +1335,15 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 		if err != nil {
 			return "", err
 		}
+		sourceKind := string(archive.Manifest.SourceKind)
+		if sourceKind == "" {
+			sourceKind = "zip"
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO archive_links(
 			id, entity_id, artifact_id, path, root_path, active, size_bytes,
-			modified_at, discovered_at, last_seen_at, last_scan_id, basename_key, source_id
-		) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`, linkID, entityID, artifactID,
-			archivePath, archive.Root, archive.SizeBytes, modifiedAt, now, now, scanID, basenameKey, sourceClass); err != nil {
+			modified_at, discovered_at, last_seen_at, last_scan_id, basename_key, source_id, source_kind
+		) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`, linkID, entityID, artifactID,
+			archivePath, archive.Root, archive.SizeBytes, modifiedAt, now, now, scanID, basenameKey, sourceClass, sourceKind); err != nil {
 			return "", err
 		}
 		newLink = true
@@ -1349,10 +1354,14 @@ func (s *Store) applyScanArchiveTx(ctx context.Context, tx *sql.Tx, scanID strin
 				sourceClass = "user-added"
 			}
 		}
+		sourceKind := string(archive.Manifest.SourceKind)
+		if sourceKind == "" {
+			sourceKind = "zip"
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE archive_links SET
 			artifact_id = ?, root_path = ?, active = 1, source_id = ?, size_bytes = ?, modified_at = ?,
-				last_seen_at = ?, last_scan_id = ?, basename_key = ?
-			WHERE id = ?`, artifactID, archive.Root, sourceClass, archive.SizeBytes, modifiedAt, now, scanID, basenameKey, linkID); err != nil {
+				last_seen_at = ?, last_scan_id = ?, basename_key = ?, source_kind = ?
+			WHERE id = ?`, artifactID, archive.Root, sourceClass, archive.SizeBytes, modifiedAt, now, scanID, basenameKey, sourceKind, linkID); err != nil {
 			return "", err
 		}
 	}
@@ -1688,6 +1697,11 @@ func (s *Store) queryLibraryItemsQuery(ctx context.Context, queryer libraryQuery
 		item.NamespaceCount = len(item.Manifest.Namespaces)
 		item.VariantCount = len(item.Manifest.Variants)
 		item.IssueCount = len(item.Manifest.Issues)
+		if item.Manifest.SourceKind != "" {
+			item.SourceKind = string(item.Manifest.SourceKind)
+		} else {
+			item.SourceKind = "zip"
+		}
 	}
 	if err := attachLibraryItemCollectionsQuery(ctx, queryer, items); err != nil {
 		return nil, err

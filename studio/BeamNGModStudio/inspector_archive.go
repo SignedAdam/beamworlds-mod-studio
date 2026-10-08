@@ -359,7 +359,11 @@ func (service *AppService) RevealLibraryArchive(entityID string) error {
 		return err
 	}
 	if info.IsDir() {
-		return fmt.Errorf("archive path is a directory: %s", archivePath)
+		// For folder sources, reveal the folder itself.
+		if app := application.Get(); app != nil && app.Env != nil {
+			return app.Env.OpenFileManager(archivePath, false)
+		}
+		return revealArchivePath(archivePath)
 	}
 	if app := application.Get(); app != nil && app.Env != nil {
 		return app.Env.OpenFileManager(archivePath, true)

@@ -35,8 +35,8 @@ const scopes: Array<{ scope: string; label: string; description: string; icon: I
   { scope: 'author', label: 'Authors', description: 'Search declared mod authors', icon: 'user' },
   { scope: 'collection', label: 'Collections', description: 'Search direct and nested collection membership', icon: 'folder' },
   { scope: 'name', label: 'Names', description: 'Search only mod names', icon: 'archive' },
-  { scope: 'path', label: 'Paths', description: 'Search source archive paths', icon: 'link' },
-  { scope: 'source', label: 'Source availability', description: 'Available or missing source archives', icon: 'link' },
+  { scope: 'path', label: 'Paths', description: 'Search source paths', icon: 'link' },
+  { scope: 'source', label: 'Source availability', description: 'Available or missing sources', icon: 'link' },
 ]
 
 const kinds = ['vehicle', 'map', 'ui', 'script', 'mixed', 'unknown']
@@ -271,11 +271,11 @@ function valueSuggestions(scope: string, fragment: string, value: string, items:
   } else if (scope === 'name') {
     values = uniqueValues(items.map(item => item.displayName)).map(name => ({ value: name, description: 'Mod name', icon: 'archive' }))
   } else if (scope === 'path') {
-    values = uniqueValues(items.map(item => item.archivePath)).map(path => ({ value: path, description: 'Source archive path', icon: 'link' }))
+    values = uniqueValues(items.map(item => item.archivePath)).map(path => ({ value: path, description: 'Source path', icon: 'link' }))
   } else if (scope === 'source') {
     values = [
-      { value: 'available', label: 'Available source', description: 'Archive exists in a configured mod location', icon: 'link' },
-      { value: 'missing', label: 'Missing source', description: 'Source archive is no longer present', icon: 'unlink' },
+      { value: 'available', label: 'Available source', description: 'Source exists in a configured mod location', icon: 'link' },
+      { value: 'missing', label: 'Missing source', description: 'Source is no longer present', icon: 'unlink' },
     ]
   }
   return values

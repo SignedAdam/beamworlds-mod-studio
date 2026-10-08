@@ -59,9 +59,9 @@ export function DeploymentModeSelector({
     <fieldset
       className="deployment-mode"
       disabled={disabled}
-      aria-label="Archive deployment"
+      aria-label="Mod deployment"
     >
-      <legend className="deployment-mode__legend">Archive deployment</legend>
+      <legend className="deployment-mode__legend">Mod deployment</legend>
       <div className="deployment-mode__options" role="radiogroup">
         {DEPLOYMENT_MODES.map((value) => {
           const isHardlinkOnly = value === "hardlink-only";
@@ -222,7 +222,7 @@ export function CopyConfirmation({
             <Icon name="archive" size={18} />
             <strong>
               {copyCount > 0
-                ? `${copyCount.toLocaleString()} archive${copyCount === 1 ? "" : "s"} will be copied`
+                ? `${copyCount.toLocaleString()} mod${copyCount === 1 ? "" : "s"} will be copied`
                 : `Ready to ${purpose.toLowerCase()}`}
             </strong>
           </div>
@@ -253,7 +253,7 @@ export function CopyConfirmation({
             )}
             {plan.linkedCount > 0 && (
               <div>
-                <dt>Hardlinked</dt>
+                <dt>Linked</dt>
                 <dd>{plan.linkedCount.toLocaleString()}</dd>
               </div>
             )}
@@ -261,8 +261,8 @@ export function CopyConfirmation({
           {plan.copyBytes > 0 && (
             <p className="copy-confirmation__note">
               {plan.mode === "copy"
-                ? "Copies mode keeps separate game files. Unchanged copies are reused on later launches."
-                : "These archives are copied because hardlinks are unavailable between their source folder and the isolated game profile."}
+                ? "Copy mode keeps separate game files. Unpacked folder mods are linked, not copied. Unchanged copies are reused on later launches."
+                : "Unpacked folder mods are linked, not copied. ZIP mods are copied when links are unavailable."}
             </p>
           )}
           <footer className="copy-confirmation__footer">

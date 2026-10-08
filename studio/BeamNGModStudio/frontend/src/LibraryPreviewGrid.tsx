@@ -246,6 +246,14 @@ function LibraryPreviewCard({
                 Edited
               </span>
             )}
+            {item.sourceKind === "folder" && (
+              <span
+                className="mod-unpacked-badge"
+                title="Unpacked folder mod. Studio uses the folder as it is."
+              >
+                Unpacked
+              </span>
+            )}
           </span>
           <span className="library-preview-card__source">{source}</span>
         </span>

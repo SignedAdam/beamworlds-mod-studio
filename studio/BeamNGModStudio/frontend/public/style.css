@@ -1251,6 +1251,8 @@ html:not([data-theme="light"]) .inspector .index-card-tabs{--index-card-tabs-acc
 
 /* Edited badge in library table and preview cards */
 .mod-edited-badge{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;border:1px solid color-mix(in srgb,var(--active-tab) 48%,var(--line));border-radius:3px;background:color-mix(in srgb,var(--active-tab) 12%,transparent);color:var(--active-tab);font-size:var(--font-caption);font-weight:650;line-height:1;white-space:nowrap;cursor:default}
+/* Unpacked folder badge in library table and preview cards */
+.mod-unpacked-badge{display:inline-flex;align-items:center;gap:3px;height:18px;padding:0 5px;border:1px solid color-mix(in srgb,var(--success) 48%,var(--line));border-radius:3px;background:color-mix(in srgb,var(--success) 11%,transparent);color:var(--success);font-size:var(--font-caption);font-weight:650;line-height:1;white-space:nowrap;cursor:default}
 
 /* Export history rows */
 .export-history__row{min-height:34px;display:grid;grid-template-columns:minmax(0,1fr) 130px;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--line);font-size:var(--font-caption)}

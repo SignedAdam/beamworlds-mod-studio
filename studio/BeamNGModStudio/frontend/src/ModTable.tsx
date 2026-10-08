@@ -1400,6 +1400,14 @@ function Cell({
                 Edited
               </span>
             )}
+            {item.sourceKind === "folder" && (
+              <span
+                className="mod-unpacked-badge"
+                title="Unpacked folder mod. Studio uses the folder as it is."
+              >
+                Unpacked
+              </span>
+            )}
             {familyBadge && (
               <button
                 type="button"
@@ -1422,7 +1430,7 @@ function Cell({
       return (
         <td
           className={`mod-table__path ${item.linked ? "" : "is-unavailable"}`}
-          title={item.archivePath || "Source archive unavailable"}
+          title={item.archivePath || "Source unavailable"}
         >
           <span>{item.archivePath || "Source unavailable"}</span>
         </td>
@@ -1648,7 +1656,7 @@ function cellText(
     case "name":
       return item.displayName;
     case "path":
-      return item.archivePath || "Source archive missing";
+      return item.archivePath || "Source missing";
     case "kind":
       return kindLabel(String(item.kind)).toUpperCase();
     case "source":

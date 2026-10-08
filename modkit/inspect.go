@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path"
@@ -834,6 +835,66 @@ func analyzeMapAndUI(manifest *Manifest, logical []string) {
 	}
 }
 
+// Some ZIP producers set the data-descriptor flag but put the next ZIP header
+// immediately after the compressed payload. Recover that container defect only;
+// the central directory's uncompressed size and CRC must still match the data.
+func openZipEntry(file *zip.File) (io.ReadCloser, error) {
+	if file.Flags&0x8 == 0 {
+		return file.Open()
+	}
+	raw, err := file.OpenRaw()
+	if err != nil {
+		return nil, err
+	}
+	section, ok := raw.(*io.SectionReader)
+	if !ok {
+		return file.Open()
+	}
+	source, offset, size := section.Outer()
+	var next [20]byte
+	n, _ := source.ReadAt(next[:], offset+size)
+	if n < 12 {
+		return file.Open()
+	}
+	signature := binary.LittleEndian.Uint32(next[:4])
+	if (signature != 0x04034b50 && signature != 0x02014b50) || signature == file.CRC32 {
+		return file.Open()
+	}
+	// A signatureless descriptor can itself contain a header-like CRC. Keep
+	// real descriptor checksum failures fatal when its size fields are present.
+	if file.CompressedSize64 >= 1<<32-1 || file.UncompressedSize64 >= 1<<32-1 {
+		if n < 20 || (binary.LittleEndian.Uint64(next[4:12]) == file.CompressedSize64 &&
+			binary.LittleEndian.Uint64(next[12:20]) == file.UncompressedSize64) {
+			return file.Open()
+		}
+	} else if uint64(binary.LittleEndian.Uint32(next[4:8])) == file.CompressedSize64 &&
+		uint64(binary.LittleEndian.Uint32(next[8:12])) == file.UncompressedSize64 {
+		return file.Open()
+	}
+	recovered := *file
+	recovered.Flags &^= 0x8
+	reader, err := recovered.Open()
+	if err != nil || recovered.CRC32 != 0 {
+		return reader, err
+	}
+	// archive/zip skips a zero CRC without a descriptor; recovery must not.
+	return &zeroCRCZipReader{ReadCloser: reader}, nil
+}
+
+type zeroCRCZipReader struct {
+	io.ReadCloser
+	crc uint32
+}
+
+func (reader *zeroCRCZipReader) Read(buffer []byte) (int, error) {
+	n, err := reader.ReadCloser.Read(buffer)
+	reader.crc = crc32.Update(reader.crc, crc32.IEEETable, buffer[:n])
+	if err == io.EOF && reader.crc != 0 {
+		err = zip.ErrChecksum
+	}
+	return n, err
+}
+
 func readZipEntry(file *zip.File, limit int64) ([]byte, error) {
 	return readZipEntryContext(context.Background(), file, limit)
 }
@@ -848,7 +909,7 @@ func readZipEntryContext(ctx context.Context, file *zip.File, limit int64) ([]by
 	if file.UncompressedSize64 > uint64(limit) {
 		return nil, fmt.Errorf("entry is %d bytes; limit is %d", file.UncompressedSize64, limit)
 	}
-	reader, err := file.Open()
+	reader, err := openZipEntry(file)
 	if err != nil {
 		return nil, err
 	}

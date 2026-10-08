@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	modkit "github.com/SignedAdam/beamworlds-modkit"
 )
 
 // scanFolderModAndCreateCollection creates a real folder mod in
@@ -153,7 +155,10 @@ func TestFolderModRetirePreservesRealFolder(t *testing.T) {
 	unpackedDir := filepath.Join(playProfileModsDir(playRoot), "unpacked")
 
 	// Record original file content hashes.
-	type fileRecord struct{ size int64; content string }
+	type fileRecord struct {
+		size    int64
+		content string
+	}
 	originalFiles := map[string]fileRecord{}
 	_ = filepath.WalkDir(item.ArchivePath, func(path string, d os.DirEntry, _ error) error {
 		if d != nil && !d.IsDir() {
@@ -272,38 +277,15 @@ func TestUnpackedFolderHarvestedToActiveModsDir(t *testing.T) {
 	}
 }
 
-// TestSourceIsFolderDetectsDirectoryVsFile tests the private sourceIsFolder
-// helper used to distinguish folder sources from ZIP files.
-func TestSourceIsFolderDetectsDirectoryVsFile(t *testing.T) {
-	dir := t.TempDir()
-	folder := filepath.Join(dir, "myfolder")
-	if err := os.Mkdir(folder, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if !sourceIsFolder(folder) {
-		t.Fatal("sourceIsFolder should return true for a real directory")
-	}
-	zipFile := filepath.Join(dir, "mod.zip")
-	if err := os.WriteFile(zipFile, []byte("PK"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if sourceIsFolder(zipFile) {
-		t.Fatal("sourceIsFolder should return false for a regular file")
-	}
-	if sourceIsFolder(filepath.Join(dir, "nonexistent")) {
-		t.Fatal("sourceIsFolder should return false for missing paths")
-	}
-}
-
-// TestSourceIsFolderRejectsJunction ensures junctions are not treated as
-// folder sources (they are deployment links, not source folders).
-func TestSourceIsFolderRejectsJunction(t *testing.T) {
+// TestJunctionIsNotAFolderModSource ensures a junction (a Play link) is never
+// mistaken for an unpacked mod and linked again.
+func TestJunctionIsNotAFolderModSource(t *testing.T) {
 	target := t.TempDir()
 	link := filepath.Join(t.TempDir(), "junction")
 	if err := createDirectoryJunction(link, target); err != nil {
 		t.Skipf("junctions not supported: %v", err)
 	}
-	if sourceIsFolder(link) {
-		t.Fatal("sourceIsFolder should return false for a junction")
+	if kind, err := modkit.SourceKindOf(link); err == nil && kind == modkit.SourceFolder {
+		t.Fatal("a junction must not be treated as a folder mod")
 	}
 }

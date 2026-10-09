@@ -611,7 +611,7 @@ function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone
 
   const handleChange = async (mode: DeploymentMode) => {
     const result = await cap.setMode(mode)
-    if (result) onNotify('Mod linking saved', 'success')
+    if (result) onNotify('Install method saved', 'success')
   }
 
   return <DeploymentModeSelector

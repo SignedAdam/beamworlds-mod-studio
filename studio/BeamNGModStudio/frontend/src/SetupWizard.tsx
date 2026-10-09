@@ -172,7 +172,7 @@ export function SetupWizard({ state, required, onCancel, onError }: SetupWizardP
             <SummaryRow label="Current mods" value={draft.activeModsDir}/>
             <SummaryRow label="Library" value={draft.libraryDir}/>
             <SummaryRow label="Studio storage" value={draft.dataDir}/>
-            <SummaryRow label="Archive deployment" value={DEPLOYMENT_MODE_LABELS[draftMode] ?? 'Automatic'}/>
+            <SummaryRow label="Install method" value={DEPLOYMENT_MODE_LABELS[draftMode] ?? 'Automatic'}/>
           </dl>
           <div className="setup-note setup-note--accent"><Icon name="play"/><p>A mod profile is the union of its reusable presets and its individually selected mods. It changes only the loaded mod set.</p></div>
         </>}

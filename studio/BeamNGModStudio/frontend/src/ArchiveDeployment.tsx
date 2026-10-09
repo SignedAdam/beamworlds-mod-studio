@@ -60,9 +60,10 @@ export function DeploymentModeSelector({
     <fieldset
       className="deployment-mode"
       disabled={disabled}
-      aria-label="Mod linking"
+      aria-label="Install method"
     >
-      <legend className="deployment-mode__legend">Mod linking</legend>
+      <legend className="deployment-mode__legend">Install method</legend>
+      <p className="deployment-mode__hint">How Play adds mods to BeamNG</p>
       <div className="deployment-mode__options" role="radiogroup">
         {DEPLOYMENT_MODES.map((value) => {
           const isHardlinkOnly = value === "hardlink-only";
@@ -83,7 +84,7 @@ export function DeploymentModeSelector({
               />
               <span className="deployment-mode__label">
                 {DEPLOYMENT_MODE_LABELS[value]}
-                {DEPLOYMENT_MODE_DETAILS[value] && <small className="deployment-mode__detail">{DEPLOYMENT_MODE_DETAILS[value]}</small>}
+                <small className="deployment-mode__detail">{DEPLOYMENT_MODE_DETAILS[value]}</small>
               </span>
               {definitivelyDisabled && (
                 <span className="deployment-mode__disabled-reason">
@@ -110,16 +111,17 @@ export function DeploymentModeSelector({
               </Button>
             )}
           </span>
-        ) : (
+        ) : summary.label ? (
           <>
             <span className="deployment-mode__summary">
+              <Icon name="warning" size={14} />
               {summary.label}
             </span>
             {mixed && (
               <CapabilityDetails capabilities={checked} />
             )}
           </>
-        )}
+        ) : null}
       </div>
 
       {warning && (

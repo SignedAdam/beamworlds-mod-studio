@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "BeamWorlds Mod Studio"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.2.0"
+    !define INFO_PRODUCTVERSION "0.2.1"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© 2026 BeamWorlds contributors. GPL-3.0-only"

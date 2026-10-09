@@ -1,10 +1,10 @@
 {
 	"fixed": {
-		"file_version": "0.2.0"
+		"file_version": "0.2.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.2.0",
+			"ProductVersion": "0.2.1",
 			"CompanyName": "BeamWorlds",
 			"FileDescription": "Local-first BeamNG mod library and ModMaker",
 			"LegalCopyright": "© 2026 BeamWorlds contributors. SPDX-License-Identifier: GPL-3.0-only",

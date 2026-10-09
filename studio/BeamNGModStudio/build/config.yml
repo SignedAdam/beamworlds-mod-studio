@@ -11,7 +11,7 @@ info:
   description: "Local-first BeamNG mod library and ModMaker"
   copyright: "© 2026 BeamWorlds contributors. SPDX-License-Identifier: GPL-3.0-only"
   comments: "Local-first BeamNG mod library and ModMaker"
-  version: "0.2.0"
+  version: "0.2.1"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"

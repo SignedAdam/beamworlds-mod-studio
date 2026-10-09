@@ -115,7 +115,7 @@ export function useArchiveCapability(
           setState((prev) => ({
             ...prev,
             loading: false,
-            error: errorMsg(error, "Couldn't check your drives."),
+            error: errorMsg(error, "Drive check failed"),
           }));
         });
     },
@@ -148,7 +148,7 @@ export function useArchiveCapability(
             setState((prev) => ({
               ...prev,
               loading: false,
-              error: errorMsg(error, "Couldn't save this setting."),
+              error: errorMsg(error, "Save failed"),
             }));
           } else {
             setState((prev) => ({ ...prev, loading: false }));

@@ -85,7 +85,7 @@ const emptyKeyDrafts = (): KeyDrafts => ({ openrouter: { value: '', clear: false
 type LoginStatus = 'starting' | 'pending' | 'input' | 'success' | 'error' | 'cancelled'
 const EVENT_STATUSES: Record<string, LoginStatus> = { pending: 'pending', waiting: 'pending', input: 'input', success: 'success', connected: 'success', error: 'error', cancelled: 'cancelled' }
 const isTerminal = (status: LoginStatus) => status === 'success' || status === 'error' || status === 'cancelled'
-const VERIFYING_AUTHORIZATION_MESSAGE = 'Checking the code…'
+const VERIFYING_AUTHORIZATION_MESSAGE = 'Checking code…'
 
 const rememberEarlyEvent = (events: Map<string, AIConnectionEvent>, event: AIConnectionEvent) => {
   const previous = events.get(event.loginId)
@@ -155,7 +155,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     .then(state => { setConnections(state); setConnectionsFailed(false) })
     .catch(() => {
       setConnectionsFailed(true)
-      onNotify("Couldn't check which providers are signed in.", 'error')
+      onNotify('Provider status unavailable', 'error')
     })
 
   useEffect(() => { void loadConnections() }, [])
@@ -213,7 +213,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
       start = await API.StartAIConnection(provider.id)
     } catch {
       const current = loginRef.current
-      if (current && attempt === loginAttempt.current) updateLogin({ ...current, status: 'error', message: "Couldn't start the sign-in." })
+      if (current && attempt === loginAttempt.current) updateLogin({ ...current, status: 'error', message: 'Sign-in failed' })
       return
     }
     if (attempt !== loginAttempt.current) {
@@ -227,7 +227,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     if (buffered) applyEvent(buffered)
     const current = loginRef.current
     if (start.url && current?.loginId === start.loginId && !isTerminal(current.status)) {
-      void Browser.OpenURL(start.url).catch(() => onNotify("Couldn't open the sign-in page.", 'error'))
+      void Browser.OpenURL(start.url).catch(() => onNotify('Sign-in page failed to open', 'error'))
     }
   }
 
@@ -238,7 +238,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     loginAttempt.current++
     updateLogin(null)
     if (current.loginId && !isTerminal(current.status)) {
-      API.CancelAIConnection(current.loginId).catch(() => onNotify("Couldn't cancel the sign-in.", 'error'))
+      API.CancelAIConnection(current.loginId).catch(() => onNotify('Sign-in cancel failed', 'error'))
     }
   }
 
@@ -270,7 +270,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     const label = field === 'interfaceSize'
       ? INTERFACE_SIZE_LABELS[value as InterfaceSize]
       : TEXT_SIZE_LABELS[value as TextSize]
-    setSizingAnnouncement(`${field === 'interfaceSize' ? 'Interface size' : 'Text size'}: ${label}.`)
+    setSizingAnnouncement(`${field === 'interfaceSize' ? 'Interface size' : 'Text size'}: ${label}`)
   }
 
   const resetSizing = () => {
@@ -278,7 +278,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     const next = { ...draft, interfaceSize: 'default', textSize: 'default' } as AppSettings
     setDraft(next)
     applySizingAttributes(next.interfaceSize, next.textSize)
-    setSizingAnnouncement('Sizes reset to default.')
+    setSizingAnnouncement('Sizes reset')
   }
 
   const reset = () => {
@@ -395,17 +395,17 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
             })}
           </div>
           {!selected
-            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>Choose a provider.</span></p>
-            : selectedReady === false && <p className="settings-hint settings-hint--warning" role="status"><Icon name="warning" size={15}/><span>{selected.kind === 'subscription' ? `Connect ${selected.label} to use Virgil.` : `Paste your ${selected.label} API key to use Virgil.`}</span></p>}
+            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>No provider selected</span></p>
+            : selectedReady === false && <p className="settings-hint settings-hint--warning" role="status"><Icon name="warning" size={15}/><span>{selected.kind === 'subscription' ? `${selected.label} not connected` : `No ${selected.label} API key`}</span></p>}
         </fieldset>
         <div className="settings-grid">
           <label className="settings-field"><span>Model</span><input value={draft.agentModel} onChange={event => setDraft({ ...draft, agentModel: event.target.value })} placeholder="Default" maxLength={120}/></label>
-          <label className="settings-field"><span>BeamNG guides</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">This mod type only</option><option value="balanced">General + this mod type</option><option value="deep">All mod types (uses more tokens)</option></select></label>
+          <label className="settings-field"><span>BeamNG guides</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">Mod type only</option><option value="balanced">General + mod type</option><option value="deep">All mod types (more tokens)</option></select></label>
         </div>
         <div className="settings-subsection" role="group" aria-labelledby="virgil-usage-title">
           <h3 id="virgil-usage-title" className="settings-subsection__title">Usage</h3>
-          <label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show AI usage in the status bar</span></label>
-          {usage?.hasRuns && <div className="usage-table"><div><span>Virgil requests</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Tokens used</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p title={usage.usageError}>Couldn't load usage.</p>}</div>}
+          <label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show AI usage in status bar</span></label>
+          {usage?.hasRuns && <div className="usage-table"><div><span>Virgil requests</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Tokens used</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p title={usage.usageError}>Usage unavailable</p>}</div>}
         </div>
       </fieldset>
 
@@ -417,9 +417,9 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
       </div></fieldset>
 
       <fieldset><legend>ModMaker</legend><div className="settings-stack">
-        <label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span>Show file sizes in the file tree</span></label>
+        <label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span>Show file sizes in file tree</span></label>
         <label className="settings-field"><span>Auto-format delay (ms)</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })}/></label>
-        <label className="settings-field"><span>Default author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Your name" maxLength={80}/></label>
+        <label className="settings-field"><span>Default author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} maxLength={80}/></label>
       </div></fieldset>
 
       <fieldset><legend>Folders</legend><div className="settings-stack">
@@ -429,7 +429,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
       </div></fieldset>
     </div></div>}
 
-    {login && loginProvider && <ConnectionDialog login={login} providerLabel={loginProvider.label} onSubmit={submitCode} onCancel={cancelLogin} onClose={closeLogin} onRetry={() => void connect(loginProvider)} onOpenURL={url => { void Browser.OpenURL(url).catch(() => onNotify("Couldn't open the sign-in page.", 'error')) }}/>}
+    {login && loginProvider && <ConnectionDialog login={login} providerLabel={loginProvider.label} onSubmit={submitCode} onCancel={cancelLogin} onClose={closeLogin} onRetry={() => void connect(loginProvider)} onOpenURL={url => { void Browser.OpenURL(url).catch(() => onNotify('Sign-in page failed to open', 'error')) }}/>}
 </Page>
 }
 
@@ -469,7 +469,7 @@ function KeyControls({ provider, stored, draft, disabled, onChange }: {
   return <>
     <div className="provider-row__state"><Badge tone={state.tone}>{state.label}</Badge></div>
     <div className="provider-row__control">
-      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Paste to replace' : 'Paste API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
+      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Replace key' : 'API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
       {stored && <button type="button" className={`text-button ${draft.clear ? 'is-active' : ''}`} disabled={disabled} onClick={() => onChange({ value: '', clear: !draft.clear })} aria-label={`${draft.clear ? 'Keep' : 'Remove'} saved ${provider.label} API key`}>{draft.clear ? 'Undo' : 'Remove'}</button>}
     </div>
   </>
@@ -524,7 +524,7 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
     try {
       await onSubmit(value)
     } catch {
-      setSubmitError("That code didn't work.")
+      setSubmitError('Code rejected')
     } finally {
       setSubmitting(false)
     }
@@ -532,11 +532,11 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
 
   const message = login.message || {
     starting: 'Opening sign-in…',
-    pending: 'Continue in your browser.',
-    input: 'Paste the code from your browser.',
-    success: 'Connected.',
-    error: "Sign-in didn't finish.",
-    cancelled: 'Sign-in cancelled.',
+    pending: 'Waiting for browser…',
+    input: 'Waiting for code',
+    success: 'Connected',
+    error: 'Sign-in failed',
+    cancelled: 'Sign-in cancelled',
   }[login.status]
 
   return <dialog ref={dialogRef} className="connection-dialog" tabIndex={-1} aria-labelledby="connection-dialog-title" aria-describedby="connection-dialog-status" onCancel={event => { event.preventDefault(); if (terminal) onClose(); else onCancel() }}>
@@ -551,7 +551,7 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
         {login.url && !terminal && <Button type="button" tone="quiet" icon="link" onClick={() => onOpenURL(login.url)}>Reopen sign-in page</Button>}
         {terminal
           ? <>{login.status !== 'success' && <Button type="button" icon="refresh" onClick={onRetry}>Try again</Button>}<Button type="button" tone="primary" onClick={onClose}>{login.status === 'success' ? 'Done' : 'Close'}</Button></>
-          : <><Button type="button" onClick={onCancel}>Cancel</Button>{login.status === 'input' && <Button type="submit" tone="primary" disabled={!code.trim() || submitting}>{submitting ? 'Submitting' : 'Submit code'}</Button>}</>}
+          : <><Button type="button" onClick={onCancel}>Cancel</Button>{login.status === 'input' && <Button type="submit" tone="primary" disabled={!code.trim() || submitting}>{submitting ? 'Submitting…' : 'Submit'}</Button>}</>}
       </footer>
     </form>
   </dialog>
@@ -611,7 +611,7 @@ function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone
 
   const handleChange = async (mode: DeploymentMode) => {
     const result = await cap.setMode(mode)
-    if (result) onNotify('Saved. Applies next time you press Play.', 'success')
+    if (result) onNotify('Mod linking saved', 'success')
   }
 
   return <DeploymentModeSelector

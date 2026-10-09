@@ -6,12 +6,12 @@ export type DeploymentMode = "auto" | "hardlink-only" | "copy";
 export const DEPLOYMENT_MODE_LABELS: Record<DeploymentMode, string> = {
   auto: "Automatic (recommended)",
   "hardlink-only": "Links only",
-  copy: "Always copy",
+  copy: "Copies only",
 };
 
 export const DEPLOYMENT_MODE_DETAILS: Partial<Record<DeploymentMode, string>> = {
-  "hardlink-only": "Play won't start if a mod can't be linked.",
-  copy: "Uses more disk space.",
+  "hardlink-only": "Blocks Play for mods that cannot be linked",
+  copy: "Uses more disk space",
 };
 
 export const DEPLOYMENT_MODES: readonly DeploymentMode[] = [
@@ -26,18 +26,18 @@ export function capabilityReasonLabel(reasonCode: string): string {
     case "different-volume":
       return "Different drive";
     case "filesystem-unsupported":
-      return "Drive doesn't support links";
+      return "Links unsupported";
     case "permission-denied":
       return "No access";
     case "drive-unavailable":
       return "Drive unavailable";
     case "read-only-source":
-      return "Folder is read-only";
+      return "Read-only folder";
     case "not-checked":
       return "Not checked";
     case "unknown":
     case "io-error":
-      return "Couldn't check";
+      return "Check failed";
     default:
       return "";
   }
@@ -57,7 +57,7 @@ export function capabilitySummary(
       hardlinks: checked.some((capability) => capability.hardlinks),
       mixed: checked.length > 0,
       label: checked.length > 0
-        ? "Some folders couldn't be checked."
+        ? "Some folders not checked"
         : capabilityReasonLabel(unavailable?.reasonCode ?? "not-checked") || "Not checked",
     };
   }
@@ -67,15 +67,15 @@ export function capabilitySummary(
     return {
       hardlinks: true,
       mixed: false,
-      label: "All folders support links.",
+      label: "Links available",
     };
   }
   if (noneLink) {
-    return { hardlinks: false, mixed: false, label: "Mods will be copied." };
+    return { hardlinks: false, mixed: false, label: "Copies required" };
   }
   return {
     hardlinks: true,
     mixed: true,
-    label: "Mods in some folders will be copied.",
+    label: "Copies required for some folders",
   };
 }

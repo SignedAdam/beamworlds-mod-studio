@@ -549,7 +549,7 @@ func (service *AppService) getArchiveDeploymentStateLocked(ctx context.Context) 
 	state.Mixed = hasHardlink && hasCopyOnly
 
 	if mode == DeploymentModeHardlinkOnly && hasCopyOnly {
-		state.Warning = "Some mods can't be linked, so Play won't start with them selected. Switch to Automatic to copy them."
+		state.Warning = "Some mods cannot be linked and will block Play"
 	}
 
 	return state, nil

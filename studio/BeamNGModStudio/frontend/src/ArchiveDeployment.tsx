@@ -26,7 +26,7 @@ interface DeploymentModeSelectorProps {
 }
 
 /**
- * Radio group for Automatic / Links only / Always copy.
+ * Radio group for Automatic / Links only / Copies only.
  * Shows capability status, disabled reasons, and warnings inline.
  */
 export function DeploymentModeSelector({
@@ -60,9 +60,9 @@ export function DeploymentModeSelector({
     <fieldset
       className="deployment-mode"
       disabled={disabled}
-      aria-label="Adding mods to the game"
+      aria-label="Mod linking"
     >
-      <legend className="deployment-mode__legend">Adding mods to the game</legend>
+      <legend className="deployment-mode__legend">Mod linking</legend>
       <div className="deployment-mode__options" role="radiogroup">
         {DEPLOYMENT_MODES.map((value) => {
           const isHardlinkOnly = value === "hardlink-only";
@@ -142,7 +142,7 @@ function CapabilityDetails({
   if (capabilities.length <= 1) return null;
   return (
     <details className="deployment-capability-details">
-      <summary>Show folders</summary>
+      <summary>Folders</summary>
       <ul>
         {capabilities.map((cap, i) => (
           <li key={`${cap.sourceRoot}-${cap.destinationRoot}-${i}`}>

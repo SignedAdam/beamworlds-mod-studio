@@ -69,11 +69,11 @@ function applySizingAttributes(interfaceSize: unknown, textSize: unknown) {
 }
 
 const PROVIDERS: readonly Provider[] = [
-  { id: 'chatgpt', kind: 'subscription', label: 'ChatGPT', detail: 'Sign in with your subscription' },
-  { id: 'claude', kind: 'subscription', label: 'Claude', detail: 'Sign in with your subscription' },
-  { id: 'openrouter', kind: 'apiKey', label: 'OpenRouter', detail: 'Paste an API key from openrouter.ai', stored: 'hasOpenRouterApiKey', field: 'openRouterApiKey', clear: 'clearOpenRouterApiKey' },
-  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'Paste an API key from platform.openai.com', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIAPIKey' },
-  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'Paste an API key from console.anthropic.com', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicAPIKey' },
+  { id: 'chatgpt', kind: 'subscription', label: 'ChatGPT', detail: 'Subscription' },
+  { id: 'claude', kind: 'subscription', label: 'Claude', detail: 'Subscription' },
+  { id: 'openrouter', kind: 'apiKey', label: 'OpenRouter', detail: 'API key', stored: 'hasOpenRouterApiKey', field: 'openRouterApiKey', clear: 'clearOpenRouterApiKey' },
+  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'API key', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIAPIKey' },
+  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'API key', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicAPIKey' },
 ]
 
 const providerByID = (id: string) => PROVIDERS.find(provider => provider.id === id)
@@ -336,7 +336,6 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
                 <small>{option.percentage}</small>
               </label>)}
             </div>
-            <small className="sizing-group__help">Scales buttons, icons, and spacing.</small>
           </fieldset>
           <fieldset className="sizing-group">
             <legend id="text-size-label">Text size</legend>
@@ -347,7 +346,6 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
                 <small>{option.percentage}</small>
               </label>)}
             </div>
-            <small className="sizing-group__help">Scales text only.</small>
           </fieldset>
         </div>
         <div className="sizing-actions">
@@ -380,7 +378,6 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
       </fieldset>
 
       <fieldset className="settings-section--wide"><legend>Virgil</legend>
-        <p className="settings-explainer">Choose the AI provider Virgil uses. Virgil sends the files it works on to that provider, and the provider's prices and limits apply. Sign-ins and keys stay on this PC; keys are encrypted to your Windows account.</p>
         <fieldset className="provider-group"><legend>AI provider</legend>
           <div className="provider-list">
             {PROVIDERS.map(provider => {
@@ -398,21 +395,21 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
             })}
           </div>
           {!selected
-            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>Choose a provider for Virgil, then save.</span></p>
+            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>Choose a provider.</span></p>
             : selectedReady === false && <p className="settings-hint settings-hint--warning" role="status"><Icon name="warning" size={15}/><span>{selected.kind === 'subscription' ? `Connect ${selected.label} to use Virgil.` : `Paste your ${selected.label} API key to use Virgil.`}</span></p>}
         </fieldset>
         <div className="settings-grid">
-          <label className="settings-field"><span>Model</span><input value={draft.agentModel} onChange={event => setDraft({ ...draft, agentModel: event.target.value })} placeholder="Default" maxLength={120}/><small>Leave blank for the provider's default.</small></label>
-          <label className="settings-field"><span>Reference guides</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">This mod type only</option><option value="balanced">General + this mod type</option><option value="deep">All mod types (uses more tokens)</option></select><small>Built-in BeamNG guides Virgil reads before it starts.</small></label>
+          <label className="settings-field"><span>Model</span><input value={draft.agentModel} onChange={event => setDraft({ ...draft, agentModel: event.target.value })} placeholder="Default" maxLength={120}/></label>
+          <label className="settings-field"><span>BeamNG guides</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">This mod type only</option><option value="balanced">General + this mod type</option><option value="deep">All mod types (uses more tokens)</option></select></label>
         </div>
         <div className="settings-subsection" role="group" aria-labelledby="virgil-usage-title">
           <h3 id="virgil-usage-title" className="settings-subsection__title">Usage</h3>
           <label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show AI usage in the status bar</span></label>
-          {usage?.hasRuns && <div className="usage-table"><div><span>Virgil requests</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Tokens used</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p title={usage.usageError}>Couldn't load usage from your provider.</p>}</div>}
+          {usage?.hasRuns && <div className="usage-table"><div><span>Virgil requests</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Tokens used</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p title={usage.usageError}>Couldn't load usage.</p>}</div>}
         </div>
       </fieldset>
 
-      <fieldset className="settings-section--wide"><legend>Virus Scanner</legend><p className="settings-explainer">Signature-based scans don't use AI. A Full Virgil scan reviews the files, then writes a final assessment. Choose a model for each step, or leave it blank for your provider's default.</p><div className="settings-grid">
+      <fieldset className="settings-section--wide"><legend>Virus Scanner</legend><div className="settings-grid">
         <label className="settings-field"><span>File review model</span><input value={draft.preScanModel} onChange={event => setDraft({ ...draft, preScanModel: event.target.value })} placeholder="Default"/></label>
         <label className="settings-field"><span>File review effort</span><select value={draft.preScanReasoning} onChange={event => setDraft({ ...draft, preScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium (recommended)</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
         <label className="settings-field"><span>Final assessment model</span><input value={draft.fullScanModel} onChange={event => setDraft({ ...draft, fullScanModel: event.target.value })} placeholder="Default"/></label>
@@ -421,12 +418,12 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
 
       <fieldset><legend>ModMaker</legend><div className="settings-stack">
         <label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span>Show file sizes in the file tree</span></label>
-        <label className="settings-field auto-format-delay-field"><span>Auto-format delay (ms)</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })} aria-describedby="auto-format-delay-help"/><small id="auto-format-delay-help">How long to wait after you stop typing before formatting the file. 50–2000 ms.</small></label>
-        <label className="settings-field"><span>Default author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Your name" maxLength={80}/><small>Pre-filled when you create a mod. If empty, the first author you enter is saved here.</small></label>
+        <label className="settings-field"><span>Auto-format delay (ms)</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })}/></label>
+        <label className="settings-field"><span>Default author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Your name" maxLength={80}/></label>
       </div></fieldset>
 
       <fieldset><legend>Folders</legend><div className="settings-stack">
-        <div className="settings-row"><label>Game and mod folders<span>Change where BeamNG, your mods, and Studio's data are stored.</span></label><Button onClick={onOpenSetup}>Change folders…</Button></div>
+        <div className="settings-row"><label>Game and mod folders</label><Button onClick={onOpenSetup}>Change folders…</Button></div>
         <SettingsDeploymentMode onNotify={onNotify}/>
         <SettingsStorageReview onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/>
       </div></fieldset>
@@ -472,7 +469,7 @@ function KeyControls({ provider, stored, draft, disabled, onChange }: {
   return <>
     <div className="provider-row__state"><Badge tone={state.tone}>{state.label}</Badge></div>
     <div className="provider-row__control">
-      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Saved. Paste a new key to replace it.' : 'Paste API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
+      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Paste to replace' : 'Paste API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
       {stored && <button type="button" className={`text-button ${draft.clear ? 'is-active' : ''}`} disabled={disabled} onClick={() => onChange({ value: '', clear: !draft.clear })} aria-label={`${draft.clear ? 'Keep' : 'Remove'} saved ${provider.label} API key`}>{draft.clear ? 'Undo' : 'Remove'}</button>}
     </div>
   </>
@@ -537,14 +534,14 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
     starting: 'Opening sign-in…',
     pending: 'Continue in your browser.',
     input: 'Paste the code from your browser.',
-    success: `${providerLabel} is connected.`,
+    success: 'Connected.',
     error: "Sign-in didn't finish.",
     cancelled: 'Sign-in cancelled.',
   }[login.status]
 
   return <dialog ref={dialogRef} className="connection-dialog" tabIndex={-1} aria-labelledby="connection-dialog-title" aria-describedby="connection-dialog-status" onCancel={event => { event.preventDefault(); if (terminal) onClose(); else onCancel() }}>
     <form onSubmit={event => void submit(event)}>
-      <header><h2 id="connection-dialog-title">{login.status === 'success' ? `${providerLabel} connected` : `Connect ${providerLabel}`}</h2></header>
+      <header><h2 id="connection-dialog-title">Connect {providerLabel}</h2></header>
       <div id="connection-dialog-status" className={`connection-dialog__status is-${login.status}`} role="status">
         {login.status === 'success' ? <Icon name="check" size={16}/> : login.status === 'error' ? <Icon name="error" size={16}/> : login.status === 'cancelled' ? <Icon name="warning" size={16}/> : login.status === 'input' ? <Icon name="edit" size={16}/> : <Spinner small/>}
         <span>{message}</span>
@@ -617,19 +614,16 @@ function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone
     if (result) onNotify('Saved. Applies next time you press Play.', 'success')
   }
 
-  return <div className="settings-deployment">
-    <DeploymentModeSelector
-      mode={cap.mode}
-      capabilities={cap.capabilities}
-      mixed={cap.mixed}
-      warning={cap.warning}
-      loading={cap.loading}
-      error={cap.error}
-      onChange={mode => void handleChange(mode)}
-      onRefresh={cap.refresh}
-    />
-    <p className="settings-note">Saves as soon as you choose.</p>
-  </div>
+  return <DeploymentModeSelector
+    mode={cap.mode}
+    capabilities={cap.capabilities}
+    mixed={cap.mixed}
+    warning={cap.warning}
+    loading={cap.loading}
+    error={cap.error}
+    onChange={mode => void handleChange(mode)}
+    onRefresh={cap.refresh}
+  />
 }
 
 function SettingsStorageReview({ onNotify, onRefreshLibrary }: { onNotify: (message: string, tone?: 'success' | 'error' | 'info') => void; onRefreshLibrary: () => void }) {
@@ -637,7 +631,7 @@ function SettingsStorageReview({ onNotify, onRefreshLibrary }: { onNotify: (mess
 
   return <>
     <div className="settings-row">
-      <label>Disk space<span>Find duplicate mod copies and free up space.</span></label>
+      <label>Disk space</label>
       <Button onClick={() => setOpen(true)}>Review storage</Button>
     </div>
     {open && <StorageReview onClose={() => setOpen(false)} onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/>}

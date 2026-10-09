@@ -83,7 +83,7 @@ export function DeploymentModeSelector({
               />
               <span className="deployment-mode__label">
                 {DEPLOYMENT_MODE_LABELS[value]}
-                <small className="deployment-mode__detail">{DEPLOYMENT_MODE_DETAILS[value]}</small>
+                {DEPLOYMENT_MODE_DETAILS[value] && <small className="deployment-mode__detail">{DEPLOYMENT_MODE_DETAILS[value]}</small>}
               </span>
               {definitivelyDisabled && (
                 <span className="deployment-mode__disabled-reason">

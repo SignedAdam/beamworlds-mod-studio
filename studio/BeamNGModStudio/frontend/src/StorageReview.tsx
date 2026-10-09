@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CancelError, Events } from "@wailsio/runtime";
 import { AppService as API } from "../bindings/github.com/SignedAdam/beamng-mod-studio/index.js";
 import { CollectionDialog } from "./CollectionUI";
+import { useFileManagerLabel } from "./fileManager";
 import { Icon } from "./icons";
 import { Button, Spinner, formatBytes } from "./ui";
 import type {
@@ -16,39 +17,52 @@ import "./StorageReview.css";
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "An unexpected error occurred.";
+  return typeof error === "string" ? error : "Unexpected error";
 }
 
-const classificationLabels: Record<string, string> = {
-  "canonical-source": "Canonical source",
-  "legacy-cache-redundant": "Redundant legacy cache",
-  "legacy-cache-only": "Retained recovery archive",
-  "collection-mirror": "Collection mirror",
-  "managed-deployment": "Game deployment",
-  "user-export": "User export",
-  unknown: "Unrecognized — preserved",
-};
-const protectedCategoryLabels: Record<string, string> = {
-  metadata: "App data and migration snapshots",
-  thumbnails: "Thumbnails",
-  workspaces: "Editable workspaces",
-  exports: "Explicit exports",
-  backups: "Backups",
-  "game-data": "BeamNG user data",
-};
-
-function classificationTone(classification: string): "danger" | "warning" | "neutral" | "success" | "cyan" {
-  if (classification === "legacy-cache-redundant") return "warning";
-  if (classification === "legacy-cache-only") return "cyan";
-  if (classification === "canonical-source") return "success";
-  return "neutral";
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
 }
 
-function shortenPath(path: string): string {
-  if (path.length <= 60) return path;
-  const parts = path.replace(/\\/g, "/").split("/");
-  if (parts.length <= 3) return path;
-  return `${parts[0]}/\u2026/${parts.slice(-2).join("/")}`;
+function itemName(item: StorageAuditItem): string {
+  return item.displayName || fileName(item.path);
+}
+
+// Earlier versions cached archives under their SHA-256; that name tells the
+// user nothing, so only meaningful file names are shown under the mod name.
+function itemFileLabel(item: StorageAuditItem): string {
+  const name = fileName(item.path);
+  return /^[0-9a-f]{64}\.zip$/i.test(name) || name === itemName(item) ? "" : name;
+}
+
+function count(value: number, one: string, many = `${one}s`): string {
+  return `${value.toLocaleString()} ${value === 1 ? one : many}`;
+}
+
+// Only these classifications are ever cleanable; anything else the backend
+// marks cleanable still gets a group rather than disappearing.
+const removableGroupTitles: Record<string, string> = {
+  "legacy-cache-redundant": "Copies from earlier versions",
+  "collection-mirror": "Collection folder leftovers",
+};
+
+function groupRemovable(items: StorageAuditItem[]): { title: string; items: StorageAuditItem[] }[] {
+  const groups = new Map<string, StorageAuditItem[]>();
+  for (const item of items) {
+    const title = removableGroupTitles[item.classification] ?? "Other leftovers";
+    groups.set(title, [...(groups.get(title) ?? []), item]);
+  }
+  return [...groups].map(([title, groupItems]) => ({ title, items: groupItems }));
+}
+
+function resultHeading(result: StorageCleanupResult, operation: Operation): string {
+  const removed = result.removedLinks + result.removedCopies;
+  if ((result.failures ?? []).length > 0) {
+    if (removed > 0 || result.recovered > 0) return "Partly done";
+    return operation === "recover" ? "Not added to library" : "Nothing removed";
+  }
+  if (result.recovered > 0 && removed === 0) return "Added to library";
+  return `${count(removed, "file")} removed`;
 }
 
 /* ── Types ── */
@@ -60,6 +74,7 @@ interface StorageReviewProps {
 }
 
 type Phase = "idle" | "auditing" | "ready" | "confirming" | "recover-confirm" | "applying" | "done";
+type Operation = "remove" | "recover";
 
 /* ── Component ── */
 
@@ -75,13 +90,16 @@ export function StorageReview({
   const [progress, setProgress] = useState<StorageProgress | null>(null);
   const [result, setResult] = useState<StorageCleanupResult | null>(null);
   const [recoveryReview, setRecoveryReview] = useState<StorageAuditItem | null>(null);
+  const [operation, setOperation] = useState<Operation>("remove");
   const mountedRef = useRef(true);
   const auditVersionRef = useRef(0);
   const requestRef = useRef<{ cancel(): void } | null>(null);
   const operationRef = useRef<"audit" | "mutation" | null>(null);
   const operationIDRef = useRef("");
+  const operationKindRef = useRef<Operation>("remove");
   const handledResultRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
+  const fileManagerLabel = useFileManagerLabel();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -100,15 +118,8 @@ export function StorageReview({
     setPhase("done");
     setCancelling(false);
     onRefreshLibrary();
-    const failures = completed.failures ?? [];
-    onNotify(
-      failures.length > 0
-        ? `Storage operation partially complete. ${failures.length} issue${failures.length === 1 ? "" : "s"} require review.`
-        : completed.recovered > 0
-          ? "Archive recovered to the canonical library."
-          : "Storage cleanup complete.",
-      failures.length > 0 ? "error" : "success",
-    );
+    const failed = (completed.failures ?? []).length > 0;
+    onNotify(resultHeading(completed, operationKindRef.current), failed ? "error" : "success");
   }, [onNotify, onRefreshLibrary]);
 
   useEffect(() => {
@@ -130,7 +141,7 @@ export function StorageReview({
       operationRef.current = null;
       requestRef.current?.cancel();
       setPhase("idle");
-      setError("Storage audit cancelled. No files were changed.");
+      setError("Scan cancelled");
     } else if (operationRef.current === "mutation") {
       setCancelling(true);
       requestRef.current?.cancel();
@@ -172,36 +183,23 @@ export function StorageReview({
     void runAudit();
   }, [runAudit]);
 
-  const toggleItem = (id: string) => {
+  const toggleItems = (ids: string[], on: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   };
 
-  const selectAllCleanable = () => {
-    if (!audit?.items) return;
-    const ids = audit.items
-      .filter((item) => item.cleanupAllowed)
-      .map((item) => item.id);
-    setSelected(new Set(ids));
-  };
-
-  const clearSelection = () => {
-    setSelected(new Set());
-  };
-
-  const confirmCleanup = () => {
-    if (selected.size === 0) return;
-    setPhase("confirming");
-  };
-
-  const beginMutation = () => {
+  const beginMutation = (kind: Operation) => {
     handledResultRef.current = false;
     operationRef.current = "mutation";
     operationIDRef.current = "";
+    operationKindRef.current = kind;
+    setOperation(kind);
     setPhase("applying");
     setError("");
     setProgress(null);
@@ -210,7 +208,7 @@ export function StorageReview({
 
   const applyCleanup = async () => {
     if (!audit || selected.size === 0 || operationRef.current) return;
-    beginMutation();
+    beginMutation("remove");
     const request = API.ApplyStorageCleanup(audit.fingerprint, Array.from(selected));
     requestRef.current = request;
     try {
@@ -229,7 +227,7 @@ export function StorageReview({
 
   const recoverItem = async (itemId: string) => {
     if (!audit || operationRef.current) return;
-    beginMutation();
+    beginMutation("recover");
     const request = API.RecoverStorageArchive(audit.fingerprint, itemId);
     requestRef.current = request;
     try {
@@ -246,472 +244,274 @@ export function StorageReview({
     }
   };
 
+  const reveal = (path: string) => {
+    API.RevealStoragePath(path).catch((err: unknown) => onNotify(errorMessage(err), "error"));
+  };
+
   const items = audit?.items ?? [];
-  const cleanableItems = items.filter((item) => item.cleanupAllowed);
-  const selectedBytes = items
-    .filter((item) => selected.has(item.id))
-    .reduce((sum, item) => sum + item.reclaimableBytes, 0);
+  const removable = items.filter((item) => item.cleanupAllowed);
+  const recoverable = items.filter((item) => item.recoveryAllowed && !item.cleanupAllowed);
+  const selectedItems = removable.filter((item) => selected.has(item.id));
+  const selectedBytes = selectedItems.reduce((sum, item) => sum + item.reclaimableBytes, 0);
+  const reclaimable = removable.reduce((sum, item) => sum + item.reclaimableBytes, 0);
+  const warnings = audit?.warnings ?? [];
 
   const close = () => {
     if (phase === "applying") return;
     onClose();
   };
 
+  const footer = phase === "done" ? (
+    <>
+      <Button icon="refresh" onClick={() => void runAudit()}>Scan again</Button>
+      <Button tone="primary" onClick={close}>Close</Button>
+    </>
+  ) : phase === "confirming" ? (
+    <>
+      <Button tone="quiet" onClick={() => setPhase("ready")}>Back</Button>
+      <Button tone="danger" icon="trash" onClick={() => void applyCleanup()}>
+        Remove {count(selected.size, "file")}
+      </Button>
+    </>
+  ) : phase === "recover-confirm" && recoveryReview ? (
+    <>
+      <Button tone="quiet" onClick={() => setPhase("ready")}>Back</Button>
+      <Button tone="primary" icon="plus" onClick={() => void recoverItem(recoveryReview.id)}>Add to library</Button>
+    </>
+  ) : (
+    <>
+      <span className="storage-footer-status" role="status" aria-live="polite">
+        {phase === "ready" && selected.size > 0
+          ? `${selected.size.toLocaleString()} selected (${formatBytes(selectedBytes)})`
+          : ""}
+      </span>
+      {(phase === "auditing" || phase === "applying") && (
+        <Button tone="quiet" disabled={cancelling} onClick={cancelOperation}>
+          {cancelling ? "Stopping…" : "Cancel"}
+        </Button>
+      )}
+      <Button onClick={close} disabled={phase === "applying"}>Close</Button>
+      {phase === "ready" && removable.length > 0 && (
+        <Button
+          tone="primary"
+          icon="trash"
+          disabled={selected.size === 0}
+          onClick={() => setPhase("confirming")}
+        >
+          Remove selected
+        </Button>
+      )}
+    </>
+  );
+
   return (
-    <CollectionDialog
-      title="Review storage"
-      wide
-      onClose={close}
-      footer={
-        phase === "done" ? (
-          <>
-            <Button onClick={() => void runAudit()}>Audit again</Button>
-            <Button onClick={close}>Close</Button>
-          </>
-        ) : phase === "confirming" ? (
-          <>
-            <Button
-              tone="quiet"
-              onClick={() => setPhase("ready")}
-            >
-              Back
-            </Button>
-            <Button
-              tone="danger"
-              icon="trash"
-              onClick={() => void applyCleanup()}
-            >
-              Remove {selected.size.toLocaleString()} item
-              {selected.size === 1 ? "" : "s"}
-            </Button>
-          </>
-        ) : (
-          <>
-            <span className="storage-footer-status" role="status" aria-live="polite">
-              {phase === "auditing"
-                ? "Scanning storage\u2026"
-                : phase === "applying"
-                  ? cancelling ? "Stopping safely\u2026" : "Updating storage\u2026"
-                  : selected.size > 0
-                    ? `${selected.size.toLocaleString()} selected \u00b7 ${formatBytes(selectedBytes)} potentially reclaimable`
-                    : items.length > 0
-                      ? `${items.length.toLocaleString()} items found`
-                      : ""}
-            </span>
-            {(phase === "auditing" || phase === "applying") && (
-              <Button tone="quiet" disabled={cancelling} onClick={cancelOperation}>
-                {cancelling ? "Stopping safely\u2026" : "Cancel"}
-              </Button>
-            )}
-            {phase === "recover-confirm" && recoveryReview && (
-              <>
-                <Button tone="quiet" onClick={() => setPhase("ready")}>Back</Button>
-                <Button tone="primary" onClick={() => void recoverItem(recoveryReview.id)}>Recover archive</Button>
-              </>
-            )}
-            <Button onClick={close} disabled={phase === "applying"}>
-              Close
-            </Button>
-            {phase === "ready" && (
-              <Button
-                tone="primary"
-                icon="trash"
-                disabled={selected.size === 0}
-                onClick={confirmCleanup}
-              >
-                Review selection
-              </Button>
-            )}
-          </>
-        )
-      }
-    >
+    <CollectionDialog title="Review storage" wide onClose={close} footer={footer}>
       <div className="storage-review">
-        {/* Error */}
         {error && (
           <div className="storage-error" role="alert">
             <Icon name="error" size={15} />
             <span>{error}</span>
-            <Button tone="quiet" icon="refresh" onClick={() => void runAudit()}>
-              Retry
-            </Button>
+            {phase !== "ready" && (
+              <Button tone="quiet" icon="refresh" onClick={() => void runAudit()}>
+                Scan again
+              </Button>
+            )}
           </div>
         )}
 
-        {/* Auditing spinner */}
         {phase === "auditing" && (
-          <div className="storage-loading">
+          <div className="storage-loading" role="status">
             <Spinner />
-            <span>Auditing archive storage\u2026</span>
-            <p className="storage-loading__note">
-              This may check file identities and hashes. It does not modify any
-              files.
-            </p>
+            <span>Scanning storage…</span>
           </div>
         )}
 
-        {/* Applying progress */}
-        {phase === "applying" && progress && (
-          <div className="storage-progress">
+        {phase === "applying" && (
+          <div className="storage-loading" role="status">
             <Spinner />
-            <span>{progress.current || progress.phase || "Working\u2026"}</span>
-            {progress.total > 0 && (
-              <progress
-                value={progress.completed}
-                max={progress.total}
-              />
+            <span>
+              {cancelling
+                ? "Stopping…"
+                : operation === "recover"
+                  ? "Adding to library…"
+                  : "Removing files…"}
+            </span>
+            {progress && progress.total > 0 && (
+              <>
+                <progress value={progress.completed} max={progress.total} />
+                <small>{progress.completed.toLocaleString()} of {progress.total.toLocaleString()}</small>
+              </>
             )}
-            {progress.error && (
-              <p className="storage-progress__error">{progress.error}</p>
-            )}
-          </div>
-        )}
-        {phase === "applying" && !progress && (
-          <div className="storage-loading">
-            <Spinner />
-            <span>Updating archive storage\u2026</span>
+            {progress?.error && <p className="storage-loading__error">{progress.error}</p>}
           </div>
         )}
 
-        {/* Audit summary */}
-        {audit && phase !== "auditing" && phase !== "applying" && (
+        {phase === "ready" && audit && (
           <>
-            {phase === "ready" && <StorageMetrics audit={audit} />}
-
-            {phase === "ready" && (audit.warnings ?? []).length > 0 && (
-              <div className="storage-warnings">
-                {(audit.warnings ?? []).map((w) => (
-                  <div className="storage-warning-row" key={w}>
-                    <Icon name="warning" size={14} />
-                    <span>{w}</span>
-                  </div>
-                ))}
+            <div className="storage-summary">
+              <div className="storage-summary__value">
+                <strong>
+                  {reclaimable > 0
+                    ? formatBytes(reclaimable)
+                    : removable.length + recoverable.length > 0
+                      ? "No space to free"
+                      : "Nothing to clean up"}
+                </strong>
+                {reclaimable > 0 && <span>Can be freed</span>}
               </div>
-            )}
+              <Button tone="quiet" icon="refresh" onClick={() => void runAudit()}>Scan again</Button>
+            </div>
 
-            {phase === "recover-confirm" && recoveryReview && (
-              <div className="storage-confirm">
-                <div className="storage-confirm__header">
-                  <Icon name="archive" size={18} />
-                  <div>
-                    <strong>Recover this archive to the library?</strong>
-                    <p>
-                      {recoveryReview.logicalBytes > 0
-                        ? `Needs up to ${formatBytes(recoveryReview.logicalBytes)} of free space if it cannot be hardlinked. `
-                        : ""}
-                      The original stays in place until the library copy is verified and indexed. Nothing is enabled or launched.
-                    </p>
-                  </div>
-                </div>
-                <ul className="storage-confirm__list">
-                  <li><span title={recoveryReview.path}>{shortenPath(recoveryReview.path)}</span></li>
-                </ul>
-              </div>
-            )}
-            {/* Confirmation screen */}
-            {phase === "confirming" && (
-              <div className="storage-confirm">
-                <div className="storage-confirm__header">
-                  <Icon name="warning" size={18} />
-                  <div>
-                    <strong>
-                      Remove {selected.size.toLocaleString()} item
-                      {selected.size === 1 ? "" : "s"}?
-                    </strong>
-                    <p>
-                      {selectedBytes > 0
-                        ? `Permanently removes the selected derived archives. Up to ${formatBytes(selectedBytes)} may be reclaimed; other hardlinks or open handles can retain the data.`
-                        : "Selected items will be permanently unlinked."}
-                    </p>
-                  </div>
-                </div>
-                <ul className="storage-confirm__list">
-                  {items
-                    .filter((item) => selected.has(item.id))
-                    .map((item) => (
-                      <li key={item.id}>
-                        <span title={item.path}>{shortenPath(item.path)}</span>
-                        <span className={`badge badge--${classificationTone(item.classification)}`}>
-                          {classificationLabels[item.classification] ?? "Retained archive"}
-                        </span>
-                        {item.reclaimableBytes > 0 && (
-                          <span className="storage-item-size">
-                            {formatBytes(item.reclaimableBytes)}
+            {groupRemovable(removable).map((group) => {
+              const ids = group.items.map((item) => item.id);
+              const allSelected = ids.every((id) => selected.has(id));
+              const groupBytes = group.items.reduce((sum, item) => sum + item.reclaimableBytes, 0);
+              return (
+                <section className="storage-group" key={group.title} aria-label={group.title}>
+                  <header className="storage-group__header">
+                    <label className="storage-group__title">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleItems(ids, !allSelected)}
+                        aria-label={`Select all: ${group.title}`}
+                      />
+                      <span>{group.title}</span>
+                    </label>
+                    <span className="storage-size">{formatBytes(groupBytes)}</span>
+                  </header>
+                  <ul className="storage-rows">
+                    {group.items.map((item) => (
+                      <li className={`storage-row${selected.has(item.id) ? " is-selected" : ""}`} key={item.id}>
+                        <label className="storage-row__main">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(item.id)}
+                            onChange={() => toggleItems([item.id], !selected.has(item.id))}
+                          />
+                          <span className="storage-row__text" title={item.path}>
+                            <strong>{itemName(item)}</strong>
+                            {itemFileLabel(item) && <small>{itemFileLabel(item)}</small>}
                           </span>
-                        )}
+                        </label>
+                        <span className="storage-size">{formatBytes(item.reclaimableBytes)}</span>
+                        <RevealButton label={fileManagerLabel} name={itemName(item)} onClick={() => reveal(item.path)} />
                       </li>
                     ))}
+                  </ul>
+                </section>
+              );
+            })}
+
+            {recoverable.length > 0 && (
+              <section className="storage-group" aria-label="Mods not in library">
+                <header className="storage-group__header">
+                  <span className="storage-group__title"><span>Mods not in library</span></span>
+                </header>
+                <ul className="storage-rows">
+                  {recoverable.map((item) => (
+                    <li className="storage-row" key={item.id}>
+                      <span className="storage-row__main">
+                        <span className="storage-row__text" title={item.path}>
+                          <strong>{itemName(item)}</strong>
+                          {itemFileLabel(item) && <small>{itemFileLabel(item)}</small>}
+                        </span>
+                      </span>
+                      <span className="storage-size">{formatBytes(item.logicalBytes)}</span>
+                      <RevealButton label={fileManagerLabel} name={itemName(item)} onClick={() => reveal(item.path)} />
+                      <Button
+                        tone="quiet"
+                        icon="plus"
+                        onClick={() => { setRecoveryReview(item); setPhase("recover-confirm"); }}
+                      >
+                        Add to library
+                      </Button>
+                    </li>
+                  ))}
                 </ul>
-              </div>
+              </section>
             )}
 
-            {/* Done result */}
-            {phase === "done" && result && (
-              <CleanupResult result={result} />
-            )}
-
-            {/* Item list */}
-            {(phase === "ready") && (
-              <>
-                <div className="storage-toolbar">
-                  <Button
-                    tone="quiet"
-                    disabled={cleanableItems.length === 0}
-                    onClick={selectAllCleanable}
-                  >
-                    Select all cleanable
-                  </Button>
-                  <Button
-                    tone="quiet"
-                    disabled={selected.size === 0}
-                    onClick={clearSelection}
-                  >
-                    Clear selection
-                  </Button>
-                </div>
-
-                {items.length === 0 ? (
-                  <p className="storage-empty">
-                    No archive files were found in the audited locations. Check any warnings above for unavailable or excluded paths.
-                  </p>
-                ) : (
-                  <div className="storage-item-list" role="list">
-                    {items.map((item) => (
-                      <StorageItemRow
-                        key={item.id}
-                        item={item}
-                        checked={selected.has(item.id)}
-                        onToggle={() => toggleItem(item.id)}
-                        onRecover={item.recoveryAllowed
-                          ? () => { setRecoveryReview(item); setPhase("recover-confirm"); }
-                          : undefined}
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
+            {warnings.length > 0 && (
+              <details className="storage-problems">
+                <summary>
+                  <Icon name="warning" size={14} />
+                  Scan problems ({warnings.length.toLocaleString()})
+                </summary>
+                <ul>
+                  {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              </details>
             )}
           </>
         )}
+
+        {phase === "confirming" && (
+          <div className="storage-confirm">
+            <strong>Remove {count(selected.size, "file")}</strong>
+            <p>
+              {selectedBytes > 0
+                ? `Deleted permanently, frees up to ${formatBytes(selectedBytes)}`
+                : "Deleted permanently"}
+            </p>
+            <p>Library mods unaffected</p>
+            <ul className="storage-confirm__list">
+              {selectedItems.map((item) => (
+                <li key={item.id}>
+                  <span title={item.path}>{itemName(item)}</span>
+                  <span className="storage-size">{formatBytes(item.reclaimableBytes)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {phase === "recover-confirm" && recoveryReview && (
+          <div className="storage-confirm">
+            <strong>Add {itemName(recoveryReview)} to library</strong>
+            {recoveryReview.logicalBytes > 0 && (
+              <p>Uses up to {formatBytes(recoveryReview.logicalBytes)} of disk space</p>
+            )}
+          </div>
+        )}
+
+        {phase === "done" && result && <CleanupResult result={result} operation={operation} />}
       </div>
     </CollectionDialog>
   );
 }
 
-/* ── Metrics ── */
-
-function StorageMetrics({ audit }: { audit: StorageAudit }) {
-  const estimated = audit.allocationEstimated;
+function RevealButton({ label, name, onClick }: { label: string; name: string; onClick: () => void }) {
   return (
-    <><dl className="storage-metrics">
-      <MetricCard
-        label="Apparent size"
-        value={formatBytes(audit.apparentBytes)}
-        detail="Total path-counted size"
-      />
-      <MetricCard
-        label="Unique allocated"
-        value={`${estimated ? "≈ " : ""}${formatBytes(audit.uniqueAllocatedBytes)}`}
-        detail={estimated ? "Estimate; some identities or allocations unavailable" : "Deduplicated by file identity"}
-      />
-      <MetricCard
-        label="Shared"
-        value={formatBytes(audit.sharedBytes)}
-        detail="Data shared via hardlinks"
-      />
-      <MetricCard
-        label="Required copies"
-        value={formatBytes(audit.requiredCopyBytes)}
-        detail="Independent deployment copies"
-      />
-      <MetricCard
-        label="Redundant"
-        value={formatBytes(audit.redundantBytes)}
-        detail="Potentially reclaimable"
-        tone="danger"
-      />
-      <MetricCard
-        label="Retained"
-        value={formatBytes(audit.retainedBytes)}
-        detail="Preserved for review"
-        tone="warning"
-      />
-    </dl>
-    <details className="storage-protected">
-      <summary>Protected locations included in this inventory</summary>
-      <p>These locations are not offered for cleanup. Sizes below count file names; shared data is counted only once in the overall allocation total. Links outside the audited locations may retain data.</p>
-      {(audit.protectedCategories ?? []).map((category) => (
-        <div className="storage-protected__row" key={`${category.category}:${category.root}`}>
-          <span><strong>{protectedCategoryLabels[category.category] ?? category.category}</strong><small>{category.root}</small></span>
-          <span>{formatBytes(category.apparentBytes)}<small>{category.fileCount.toLocaleString()} files{category.unknownFiles > 0 ? ` · ${category.unknownFiles} unmeasured` : ""}</small></span>
-        </div>
-      ))}
-    </details></>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  detail,
-  tone,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "danger" | "warning";
-}) {
-  return (
-    <div className={`storage-metric${tone ? ` storage-metric--${tone}` : ""}`}>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-      <small>{detail}</small>
-    </div>
-  );
-}
-
-/* ── Item row ── */
-
-function StorageItemRow({
-  item,
-  checked,
-  onToggle,
-  onRecover,
-}: {
-  item: StorageAuditItem;
-  checked: boolean;
-  onToggle: () => void;
-  onRecover?: () => void;
-}) {
-  const tone = classificationTone(item.classification);
-  return (
-    <div
-      className={`storage-item${checked ? " is-selected" : ""}${!item.cleanupAllowed && !item.recoveryAllowed ? " is-protected" : ""}`}
-      role="listitem"
-    >
-      <label className="storage-item__check">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={!item.cleanupAllowed}
-          onChange={onToggle}
-          aria-label={`Select ${item.path}`}
-        />
-      </label>
-      <div className="storage-item__info">
-        <span className="storage-item__path" title={item.path}>
-          {shortenPath(item.path)}
-        </span>
-        <span className="storage-item__meta">
-          <span className={`badge badge--${tone}`}>
-            {classificationLabels[item.classification] ?? "Retained archive"}
-          </span>
-          {item.logicalBytes > 0 && (
-            <span>{formatBytes(item.logicalBytes)}</span>
-          )}
-          {item.linkCount > 1 && (
-            <span>{item.linkCount} links</span>
-          )}
-        </span>
-        {item.reason && (
-          <span className="storage-item__reason">{item.reason}</span>
-        )}
-        {item.sourcePath && item.sourcePath !== item.path && (
-          <span className="storage-item__source" title={item.sourcePath}>
-            Source: {shortenPath(item.sourcePath)}
-          </span>
-        )}
-      </div>
-      <div className="storage-item__actions">
-        {item.reclaimableBytes > 0 && (
-          <span className="storage-item__reclaim">
-            {formatBytes(item.reclaimableBytes)}
-          </span>
-        )}
-        {onRecover && (
-          <Button tone="quiet" onClick={onRecover}>
-            Recover
-          </Button>
-        )}
-      </div>
-    </div>
+    <button type="button" className="icon-button storage-row__reveal" title={label} aria-label={`${label}: ${name}`} onClick={onClick}>
+      <Icon name="folder" size={15} />
+    </button>
   );
 }
 
 /* ── Cleanup result ── */
 
-function CleanupResult({ result }: { result: StorageCleanupResult }) {
+function CleanupResult({ result, operation }: { result: StorageCleanupResult; operation: Operation }) {
   const failures = result.failures ?? [];
-  const retained = result.retainedPaths ?? [];
   return (
     <div className="storage-result">
       <div className="storage-result__header">
-        <Icon
-          name={failures.length > 0 ? "warning" : "check"}
-          size={18}
-        />
-        <strong>
-          {failures.length > 0
-            ? "Partially complete"
-            : result.recovered > 0 && result.removedLinks + result.removedCopies === 0
-              ? "Recovery complete"
-              : "Cleanup complete"}
-        </strong>
+        <Icon name={failures.length > 0 ? "warning" : "check"} size={18} />
+        <strong>{resultHeading(result, operation)}</strong>
       </div>
-      <dl className="storage-result__stats">
-        {result.removedLinks > 0 && (
-          <div>
-            <dt>Links removed</dt>
-            <dd>{result.removedLinks.toLocaleString()}</dd>
-          </div>
-        )}
-        {result.removedCopies > 0 && (
-          <div>
-            <dt>Copies removed</dt>
-            <dd>{result.removedCopies.toLocaleString()}</dd>
-          </div>
-        )}
-        {result.recovered > 0 && (
-          <div>
-            <dt>Recovered</dt>
-            <dd>{result.recovered.toLocaleString()}</dd>
-          </div>
-        )}
-        {result.reclaimedBytes > 0 && (
-          <div>
-            <dt>{result.reclaimedEstimate ? "Estimated reclaim" : "Reclaimed"}</dt>
-            <dd>{formatBytes(result.reclaimedBytes)}</dd>
-          </div>
-        )}
-      </dl>
-      {result.reclaimedEstimate && result.reclaimedBytes > 0 && (
-        <p className="storage-result__note">
-          Actual disk space freed depends on remaining hardlink references and
-          Recycle Bin contents.
+      {result.reclaimedBytes > 0 && (
+        <p className="storage-result__freed">
+          {result.reclaimedEstimate ? "About " : ""}{formatBytes(result.reclaimedBytes)} freed
         </p>
       )}
       {failures.length > 0 && (
-        <details className="storage-result__failures">
+        <details className="storage-problems" open>
           <summary>
-            {failures.length} item{failures.length === 1 ? "" : "s"} need
-            review
+            <Icon name="warning" size={14} />
+            Problems ({failures.length.toLocaleString()})
           </summary>
           <ul>
-            {failures.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {retained.length > 0 && (
-        <details className="storage-result__retained">
-          <summary>
-            {retained.length} path{retained.length === 1 ? "" : "s"} retained
-          </summary>
-          <ul>
-            {retained.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
+            {failures.map((failure) => <li key={failure}>{failure}</li>)}
           </ul>
         </details>
       )}

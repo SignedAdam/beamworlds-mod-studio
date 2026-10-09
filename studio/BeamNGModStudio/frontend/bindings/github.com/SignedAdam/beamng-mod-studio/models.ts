@@ -1315,6 +1315,7 @@ export interface StorageAuditItem {
     "path": string;
     "sourcePath": string;
     "entityId": string;
+    "displayName": string;
     "artifactId": string;
     "sha256": string;
     "purpose": string;

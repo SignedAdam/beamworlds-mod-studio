@@ -31,6 +31,7 @@ type StorageAuditItem struct {
 	Path             string              `json:"path"`
 	SourcePath       string              `json:"sourcePath"`
 	EntityID         string              `json:"entityId"`
+	DisplayName      string              `json:"displayName"`
 	ArtifactID       string              `json:"artifactId"`
 	SHA256           string              `json:"sha256"`
 	Purpose          string              `json:"purpose"`
@@ -336,6 +337,22 @@ func (service *AppService) AuditArchiveStorage(ctx context.Context) (audit Stora
 	if err!=nil{return StorageAudit{},err}
 	items=append(items,exportItems...);warnings=append(warnings,exportWarnings...)
 	if err:=service.verifyStorageCleanupCandidates(ctx,items,&progress);err!=nil{return StorageAudit{},err}
+	nameByEntity := make(map[string]string, len(sources))
+	for _, source := range sources {
+		if _, known := nameByEntity[source.entityID]; !known && source.displayName != "" {
+			nameByEntity[source.entityID] = source.displayName
+		}
+	}
+	for i := range items {
+		items[i].DisplayName = nameByEntity[items[i].EntityID]
+		// Unindexed archives Review storage offers to add have no library name;
+		// read their own metadata so the list does not show a hash file name.
+		if items[i].DisplayName == "" && items[i].RecoveryAllowed {
+			if manifest, inspectErr := modkit.Inspect(ctx, items[i].Path); inspectErr == nil {
+				items[i].DisplayName = displayName(manifest, items[i].Path)
+			}
+		}
+	}
 
 	// 8. Build final audit with physical deduplication.
 	audit = buildStorageAudit(items, warnings)

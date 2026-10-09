@@ -56,6 +56,36 @@ func (service *AppService) RevealWorkspacePath(workspaceID, relativePath string)
 	return revealWorkspacePathNative(runtime.GOOS, target, info.IsDir(), launchNativeFileManager)
 }
 
+// RevealStoragePath opens the file manager at a file listed by Review storage.
+// Only paths inside the folders the storage audit reads are accepted.
+func (service *AppService) RevealStoragePath(path string) error {
+	target := filepath.Clean(strings.TrimSpace(path))
+	if !filepath.IsAbs(target) {
+		return fmt.Errorf("open %s in the file manager: path is not absolute", path)
+	}
+	if !service.storagePathAllowed(target) {
+		return fmt.Errorf("open %s in the file manager: outside Studio's storage folders", target)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return fmt.Errorf("open %s in the file manager: %w", target, err)
+	}
+	return revealWorkspacePathNative(runtime.GOOS, target, info.IsDir(), launchNativeFileManager)
+}
+
+func (service *AppService) storagePathAllowed(target string) bool {
+	roots := append([]string{service.config.DataDir, service.config.ActiveModsDir}, effectiveScanRoots(service.config)...)
+	if playRoot, err := playUserPath(service.config); err == nil {
+		roots = append(roots, playRoot)
+	}
+	for _, root := range roots {
+		if strings.TrimSpace(root) != "" && pathWithin(target, root) {
+			return true
+		}
+	}
+	return false
+}
+
 // revealWorkspacePathNative chooses native selection for files where supported,
 // and falls back to opening the containing folder when selection cannot launch.
 // Directory targets are always opened directly.

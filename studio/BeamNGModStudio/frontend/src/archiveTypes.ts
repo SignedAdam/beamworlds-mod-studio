@@ -4,9 +4,15 @@ import type { ArchiveCapability } from "../bindings/github.com/SignedAdam/beamng
 export type DeploymentMode = "auto" | "hardlink-only" | "copy";
 
 export const DEPLOYMENT_MODE_LABELS: Record<DeploymentMode, string> = {
-  auto: "Automatic \u2014 recommended",
-  "hardlink-only": "Hardlinks only",
-  copy: "Copies \u2014 separate game files",
+  auto: "Automatic (recommended)",
+  "hardlink-only": "Links only",
+  copy: "Always copy",
+};
+
+export const DEPLOYMENT_MODE_DETAILS: Record<DeploymentMode, string> = {
+  auto: "Links mods when possible and copies the rest.",
+  "hardlink-only": "Never copies. Play won't start if a mod can't be linked.",
+  copy: "Copies every mod. Uses more disk space.",
 };
 
 export const DEPLOYMENT_MODES: readonly DeploymentMode[] = [
@@ -15,23 +21,26 @@ export const DEPLOYMENT_MODES: readonly DeploymentMode[] = [
   "copy",
 ] as const;
 
-/** User-facing reason labels for capability reasonCodes. */
+/** User-facing reason labels for capability reasonCodes. Unknown codes map to "". */
 export function capabilityReasonLabel(reasonCode: string): string {
   switch (reasonCode) {
-    case "different-volumes":
-      return "Different volumes";
+    case "different-volume":
+      return "Different drive";
     case "filesystem-unsupported":
-      return "Filesystem unsupported";
+      return "Drive doesn't support links";
     case "permission-denied":
-      return "Permission denied";
+      return "No access";
     case "drive-unavailable":
       return "Drive unavailable";
+    case "read-only-source":
+      return "Folder is read-only";
     case "not-checked":
       return "Not checked";
-    case "":
-      return "";
+    case "unknown":
+    case "io-error":
+      return "Couldn't check";
     default:
-      return reasonCode;
+      return "";
   }
 }
 
@@ -49,7 +58,7 @@ export function capabilitySummary(
       hardlinks: checked.some((capability) => capability.hardlinks),
       mixed: checked.length > 0,
       label: checked.length > 0
-        ? "Some folders could not be checked"
+        ? "Some folders couldn't be checked."
         : capabilityReasonLabel(unavailable?.reasonCode ?? "not-checked") || "Not checked",
     };
   }
@@ -59,18 +68,15 @@ export function capabilitySummary(
     return {
       hardlinks: true,
       mixed: false,
-      label: "Hardlinks available \u00b7 no additional archive data",
+      label: "All folders support links. No extra disk space used.",
     };
   }
   if (noneLink) {
-    const reason = checked[0]?.reasonCode
-      ? capabilityReasonLabel(checked[0].reasonCode)
-      : "Copies required";
-    return { hardlinks: false, mixed: false, label: reason };
+    return { hardlinks: false, mixed: false, label: "Links aren't available, so mods will be copied." };
   }
   return {
     hardlinks: true,
     mixed: true,
-    label: "Mixed: some copies required",
+    label: "Some folders can't use links. Mods from those folders will be copied.",
   };
 }

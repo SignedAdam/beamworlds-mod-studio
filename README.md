@@ -1,22 +1,46 @@
 # BeamWorlds Mod Studio
 
-**Your BeamNG mods. Organized, editable, ready to play.**
+**Run hundreds of BeamNG mods without the mess. Build new ones just by describing them.**
 
 ![Windows x64 preview](https://img.shields.io/badge/Windows-x64_preview-blue?logo=windows) ![Linux unavailable](https://img.shields.io/badge/Linux-unavailable-lightgrey?logo=linux) ![macOS unavailable](https://img.shields.io/badge/macOS-unavailable-lightgrey?logo=apple) [![License](https://img.shields.io/badge/License-GPL--3.0-blue)](LICENSE)
 
 **[Downloads](#download-for-windows)** · [Website](https://beamworlds.b0rz.com) · [Report a problem](https://github.com/SignedAdam/beamworlds-mod-studio/issues)
 
-BeamWorlds Mod Studio brings your BeamNG mod library, play profiles, and mod editing into one app.
+BeamWorlds Mod Studio is a mod manager and mod workshop for BeamNG.drive. It keeps your library tidy, gets the right mods into the game fast, and comes with Virgil, an AI that builds, edits, and repairs mods for you.
 
 ![The BeamWorlds mod library](.github/assets/mod-library.png)
 
-## What you can do
+## What it does
 
-- **Mod Library** — browse previews, search and tag mods, and review duplicates.
-- **Collections & profiles** — group mods and save different setups for the way you play.
-- **Virus Scanner** — check mods for suspicious code locally, or use Virgil for a deeper AI-assisted review.
-- **ModMaker** — edit a mod right where it lives: saving updates the mod in your library, and every earlier version, including the original, stays one click away. Textures open in a built-in viewer, including BeamNG's DDS formats (BC1–BC5, BC7).
-- **Virgil AI** — get help inspecting and editing mod files, right inside the editor.
+- **Your whole library in one place.** Browse, search, tag, and edit hundreds of mods, with previews. Duplicates get flagged so you can clean them up.
+- **Finds every mod.** Studio picks up mods from the official BeamNG repository and the ones you downloaded elsewhere, like ModLand, whether they're ZIPs or unpacked folders. It also shows which ones came from the repository.
+- **Fast.** Studio reads each mod once and remembers it. After the first scan, the library opens instantly and rescans skip anything that hasn't changed. **Play** links mods into the game instead of copying gigabytes around, whenever your drive supports it.
+- **Collections and profiles.** Group mods into collections, save setups like *Friday drift night* or *clean career*, and switch between them in **Play**.
+- **Make your own mods.** Describe the mod you want, like *"a police light bar for the D-Series,"* and Virgil builds it from scratch. Prefer to do it yourself? Start from a ready-to-load vehicle, map, UI app, or script and take it from there. New mods show up in your library like any other.
+- **Change any mod by asking.** Tell Virgil what you want, and it makes the change.
+- **Fix broken mods.** Console full of errors, or a mod that won't load? Virgil finds the cause in BeamNG's log, fixes it, and tests the fix in the game.
+- **Edit by hand, safely.** ModMaker opens any mod for editing, including textures in BeamNG's DDS formats (BC1–BC5, BC7). Every saved version, including the original, stays one click away.
+- **Virus Scanner.** Check mods for suspicious code locally, or let Virgil take a closer look.
+
+## Meet Virgil
+
+Virgil is the AI built into Studio. Describe what you want in plain words, and Virgil builds it: a brand-new mod (*"a drivable shopping cart that tops out at 40 km/h"*), a change to one you already have (*"add a turbo option to this car"*), or a fix (*"this mod floods my console with errors"*). No scripting, no digging through folders, no modding experience required.
+
+**Anyone can make mods now. If you can describe it, you can build it.**
+
+What makes Virgil different from pasting files into a chatbot:
+
+- **It mods the BeamNG way.** Virgil is instructed to build mods the way [BeamNG's modding documentation](https://documentation.beamng.com/modding/) lays out: the right folders, names, and file formats, so its work loads cleanly next to your other mods. When it isn't sure how the game behaves, it reads the game's own code instead of guessing.
+- **It tests before it says "done."** Virgil validates every change and reads BeamNG's error log. With BeamNG closed, it can start a private test session, spawn the mod, and let it run to make sure it holds up.
+- **It can't wreck your library.** Virgil only touches the mod it's working on. Every change is saved as a version, and the original is one click away.
+
+**Bring your own AI.** Sign in with the ChatGPT or Claude subscription you already have, or add an API key from OpenAI, Anthropic, or OpenRouter, which opens up hundreds of models from other AI labs.
+
+## Coming soon
+
+- **JBeam editor.** A dedicated editor for JBeam, the files that define how BeamNG vehicles are built and how they crumple.
+- **Local AI models.** Run Virgil on your own computer. It will work, but we don't recommend it: mod work needs a strong model, and most local models aren't there yet.
+- **No strings attached.** Some mods scramble their code so nobody can read it. Virgil will untangle it, so you can see what a mod really does, then fix or change it like any other.
 
 ## Download for Windows
 
@@ -32,8 +56,9 @@ Both packages contain the same app. Choose how you'd like to run it:
 1. **Connect your folders.** Close BeamNG and open Studio. Follow setup to select your game, user folder, and mod folders. Existing mods can stay where they are.
 2. **Explore your library.** Let the first scan finish, then browse **Mod Library**. Use **Add mod…** to import more ZIPs or unpacked mod folders.
 3. **Choose what to play.** Open **Play**, choose **All mods** or your **Collections**, and press **Play**. Save a profile to reuse that selection later.
+4. **Make your own.** Open **ModMaker**, click **New mod**, and describe what you want to build, or choose **Set up manually** to start from a template.
 
-Want to use Virgil? Connect your preferred AI account or API key under **Settings → Virgil**. Library management and manual editing work without AI.
+Want Virgil? Connect your ChatGPT or Claude subscription, or an API key, under **Settings → Virgil**. Everything else works without AI.
 
 ## Help
 

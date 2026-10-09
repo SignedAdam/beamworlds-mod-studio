@@ -580,6 +580,14 @@ export function RevealLibraryArchive(entityID: string): $CancellablePromise<void
     return $Call.ByID(3289149128, entityID);
 }
 
+/**
+ * RevealStoragePath opens the file manager at a file listed by Review storage.
+ * Only paths inside the folders the storage audit reads are accepted.
+ */
+export function RevealStoragePath(path: string): $CancellablePromise<void> {
+    return $Call.ByID(881521395, path);
+}
+
 export function RevealWorkspacePath(workspaceID: string, relativePath: string): $CancellablePromise<void> {
     return $Call.ByID(878556355, workspaceID, relativePath);
 }

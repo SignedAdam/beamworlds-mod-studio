@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -131,5 +132,38 @@ func TestNativeFileManagerFolderErrorIsActionable(t *testing.T) {
 	message := err.Error()
 	if !strings.Contains(message, target) || !strings.Contains(message, "xdg-open missing") {
 		t.Fatalf("error %q lacks path or launch failure", message)
+	}
+}
+
+func TestRevealStoragePathOnlyOpensStorageFolders(t *testing.T) {
+	service := newTestAppService(t)
+	inside := filepath.Join(service.config.ProfileDir, legacyArchiveCacheDirectory, "leftover.zip")
+	outside := filepath.Join(t.TempDir(), "elsewhere.zip")
+	for _, path := range []string{inside, outside} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("zip"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var opened []string
+	previous := launchNativeFileManager
+	launchNativeFileManager = func(_ context.Context, _ string, args ...string) error {
+		opened = append(opened, strings.Join(args, " "))
+		return nil
+	}
+	t.Cleanup(func() { launchNativeFileManager = previous })
+
+	if err := service.RevealStoragePath(inside); err != nil {
+		t.Fatalf("RevealStoragePath(inside): %v", err)
+	}
+	for _, path := range []string{outside, "leftover.zip"} {
+		if err := service.RevealStoragePath(path); err == nil {
+			t.Fatalf("RevealStoragePath(%q) succeeded; want refusal", path)
+		}
+	}
+	if len(opened) != 1 || !strings.Contains(opened[0], filepath.Base(inside)) {
+		t.Fatalf("file manager calls = %q, want one call for %s", opened, inside)
 	}
 }

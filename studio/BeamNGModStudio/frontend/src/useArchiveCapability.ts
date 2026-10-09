@@ -115,7 +115,7 @@ export function useArchiveCapability(
           setState((prev) => ({
             ...prev,
             loading: false,
-            error: errorMsg(error, "Could not check deployment capabilities."),
+            error: errorMsg(error, "Couldn't check your drives."),
           }));
         });
     },
@@ -148,7 +148,7 @@ export function useArchiveCapability(
             setState((prev) => ({
               ...prev,
               loading: false,
-              error: errorMsg(error, "Could not change deployment mode."),
+              error: errorMsg(error, "Couldn't save this setting."),
             }));
           } else {
             setState((prev) => ({ ...prev, loading: false }));

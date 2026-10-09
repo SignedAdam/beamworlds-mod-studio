@@ -62,6 +62,12 @@
   min-width: 0;
 }
 
+.deployment-mode__detail {
+  display: block;
+  font-size: var(--font-caption);
+  color: var(--text-3);
+}
+
 .deployment-mode__disabled-reason {
   flex: none;
   font-size: var(--font-caption);

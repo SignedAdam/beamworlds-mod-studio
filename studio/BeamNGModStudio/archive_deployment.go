@@ -549,10 +549,7 @@ func (service *AppService) getArchiveDeploymentStateLocked(ctx context.Context) 
 	state.Mixed = hasHardlink && hasCopyOnly
 
 	if mode == DeploymentModeHardlinkOnly && hasCopyOnly {
-		state.Warning = "Hardlinks only is selected but some source roots cannot use hardlinks; incompatible external mods will block launch"
-	}
-	if state.Mixed && mode == DeploymentModeAuto {
-		state.Warning = "Mixed: some copies required"
+		state.Warning = "Some mod folders can't use links, so Play won't start while mods from them are selected. Choose Automatic to copy those mods instead."
 	}
 
 	return state, nil

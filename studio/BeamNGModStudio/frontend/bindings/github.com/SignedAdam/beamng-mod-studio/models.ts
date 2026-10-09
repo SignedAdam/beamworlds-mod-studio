@@ -118,7 +118,6 @@ export interface AppSettings {
     "autoFormatDelayMs": number;
     "emphasisColor": string;
     "activeTabColor": string;
-    "subsectionTitleColor": string;
     "darkSurfaceColor": string;
     "darkBorderColor": string;
     "darkTextColor": string;
@@ -1246,7 +1245,6 @@ export interface SettingsUpdate {
     "autoFormatDelayMs": number;
     "emphasisColor": string;
     "activeTabColor": string;
-    "subsectionTitleColor": string;
     "darkSurfaceColor": string;
     "darkBorderColor": string;
     "darkTextColor": string;

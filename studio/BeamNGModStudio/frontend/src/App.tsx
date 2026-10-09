@@ -621,7 +621,6 @@ function App() {
     const colors: Record<string, string> = {
       "--user-emphasis": settings.emphasisColor,
       "--user-active-tab": settings.activeTabColor,
-      "--user-subsection-title": settings.subsectionTitleColor,
       "--user-dark-surface": settings.darkSurfaceColor,
       "--user-dark-border": settings.darkBorderColor,
       "--user-dark-text": settings.darkTextColor,
@@ -1760,9 +1759,7 @@ function App() {
                 </span>
               )}
             </>
-          ) : view === "settings" ? (
-            <span>Application settings</span>
-          ) : view === "library" ? (
+          ) : view === "settings" ? null : view === "library" ? (
             <span>
               {allItems.length.toLocaleString()} mods
               {(() => {

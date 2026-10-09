@@ -3,6 +3,7 @@ import { Button, Spinner, formatBytes } from "./ui";
 import type { ArchiveCapability, ArchiveDeploymentPlan } from "../bindings/github.com/SignedAdam/beamng-mod-studio/models.js";
 import {
   DEPLOYMENT_MODES,
+  DEPLOYMENT_MODE_DETAILS,
   DEPLOYMENT_MODE_LABELS,
   capabilityReasonLabel,
   capabilitySummary,
@@ -25,7 +26,7 @@ interface DeploymentModeSelectorProps {
 }
 
 /**
- * Radio group for Automatic / Hardlinks only / Copies.
+ * Radio group for Automatic / Links only / Always copy.
  * Shows capability status, disabled reasons, and warnings inline.
  */
 export function DeploymentModeSelector({
@@ -59,9 +60,9 @@ export function DeploymentModeSelector({
     <fieldset
       className="deployment-mode"
       disabled={disabled}
-      aria-label="Mod deployment"
+      aria-label="Adding mods to the game"
     >
-      <legend className="deployment-mode__legend">Mod deployment</legend>
+      <legend className="deployment-mode__legend">Adding mods to the game</legend>
       <div className="deployment-mode__options" role="radiogroup">
         {DEPLOYMENT_MODES.map((value) => {
           const isHardlinkOnly = value === "hardlink-only";
@@ -82,6 +83,7 @@ export function DeploymentModeSelector({
               />
               <span className="deployment-mode__label">
                 {DEPLOYMENT_MODE_LABELS[value]}
+                <small className="deployment-mode__detail">{DEPLOYMENT_MODE_DETAILS[value]}</small>
               </span>
               {definitivelyDisabled && (
                 <span className="deployment-mode__disabled-reason">
@@ -96,7 +98,7 @@ export function DeploymentModeSelector({
       <div className="deployment-mode__status" role="status" aria-live="polite">
         {loading ? (
           <span className="deployment-mode__checking">
-            <Spinner small /> Checking volumes…
+            <Spinner small /> Checking drives…
           </span>
         ) : error ? (
           <span className="deployment-mode__error">
@@ -140,7 +142,7 @@ function CapabilityDetails({
   if (capabilities.length <= 1) return null;
   return (
     <details className="deployment-capability-details">
-      <summary>Per-root details</summary>
+      <summary>Show folders</summary>
       <ul>
         {capabilities.map((cap, i) => (
           <li key={`${cap.sourceRoot}-${cap.destinationRoot}-${i}`}>
@@ -153,7 +155,7 @@ function CapabilityDetails({
             </span>
             <span className="deployment-capability-badge">
               {cap.hardlinks ? (
-                <span className="badge badge--success">Hardlinks</span>
+                <span className="badge badge--success">Link</span>
               ) : (
                 <span className="badge badge--neutral">
                   {capabilityReasonLabel(cap.reasonCode) || "Copy"}

@@ -30,8 +30,8 @@ type TextSize = 'small' | 'default' | 'large' | 'extra-large'
 const INTERFACE_SIZE_OPTIONS: readonly { value: InterfaceSize; label: string; percentage: string }[] = [
   { value: 'compact', label: 'Compact', percentage: '90%' },
   { value: 'default', label: 'Default', percentage: '100%' },
-  { value: 'comfortable', label: 'Comfortable', percentage: '110%' },
-  { value: 'large', label: 'Large', percentage: '125%' },
+  { value: 'comfortable', label: 'Large', percentage: '110%' },
+  { value: 'large', label: 'Extra large', percentage: '125%' },
 ]
 
 const TEXT_SIZE_OPTIONS: readonly { value: TextSize; label: string; percentage: string }[] = [
@@ -44,8 +44,8 @@ const TEXT_SIZE_OPTIONS: readonly { value: TextSize; label: string; percentage: 
 const INTERFACE_SIZE_LABELS: Record<InterfaceSize, string> = {
   compact: 'Compact',
   default: 'Default',
-  comfortable: 'Comfortable',
-  large: 'Large',
+  comfortable: 'Large',
+  large: 'Extra large',
 }
 const TEXT_SIZE_LABELS: Record<TextSize, string> = {
   small: 'Small',
@@ -69,11 +69,11 @@ function applySizingAttributes(interfaceSize: unknown, textSize: unknown) {
 }
 
 const PROVIDERS: readonly Provider[] = [
-  { id: 'chatgpt', kind: 'subscription', label: 'ChatGPT', detail: 'Sign in with your ChatGPT subscription' },
-  { id: 'claude', kind: 'subscription', label: 'Claude Code', detail: 'Sign in with your Claude subscription' },
-  { id: 'openrouter', kind: 'apiKey', label: 'OpenRouter', detail: 'API key from openrouter.ai', stored: 'hasOpenRouterApiKey', field: 'openRouterApiKey', clear: 'clearOpenRouterApiKey' },
-  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'API key from platform.openai.com', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIAPIKey' },
-  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'API key from console.anthropic.com', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicAPIKey' },
+  { id: 'chatgpt', kind: 'subscription', label: 'ChatGPT', detail: 'Sign in with your subscription' },
+  { id: 'claude', kind: 'subscription', label: 'Claude', detail: 'Sign in with your subscription' },
+  { id: 'openrouter', kind: 'apiKey', label: 'OpenRouter', detail: 'Paste an API key from openrouter.ai', stored: 'hasOpenRouterApiKey', field: 'openRouterApiKey', clear: 'clearOpenRouterApiKey' },
+  { id: 'openai', kind: 'apiKey', label: 'OpenAI', detail: 'Paste an API key from platform.openai.com', stored: 'hasOpenAIApiKey', field: 'openAIApiKey', clear: 'clearOpenAIAPIKey' },
+  { id: 'anthropic', kind: 'apiKey', label: 'Anthropic', detail: 'Paste an API key from console.anthropic.com', stored: 'hasAnthropicApiKey', field: 'anthropicApiKey', clear: 'clearAnthropicAPIKey' },
 ]
 
 const providerByID = (id: string) => PROVIDERS.find(provider => provider.id === id)
@@ -155,7 +155,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     .then(state => { setConnections(state); setConnectionsFailed(false) })
     .catch(() => {
       setConnectionsFailed(true)
-      onNotify('Provider connection status is unavailable.', 'error')
+      onNotify("Couldn't check which providers are signed in.", 'error')
     })
 
   useEffect(() => { void loadConnections() }, [])
@@ -165,12 +165,8 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     if (!current || !current.loginId || current.loginId !== data.loginId) return
     if (isTerminal(current.status)) return
     const status = EVENT_STATUSES[data.status] ?? 'pending'
-    const message = status === 'success' ? 'Connection complete'
-      : status === 'error' ? 'The sign-in did not complete.'
-      : status === 'cancelled' ? 'Connection cancelled'
-      : status === 'pending' && (current.status === 'input' || current.message === VERIFYING_AUTHORIZATION_MESSAGE) ? VERIFYING_AUTHORIZATION_MESSAGE
-      : ''
-    updateLogin({ ...current, status, message, requestId: data.requestId || '', inputLabel: status === 'input' ? 'Authorization code' : '' })
+    const verifying = status === 'pending' && (current.status === 'input' || current.message === VERIFYING_AUTHORIZATION_MESSAGE)
+    updateLogin({ ...current, status, message: verifying ? VERIFYING_AUTHORIZATION_MESSAGE : '', requestId: data.requestId || '', inputLabel: status === 'input' ? 'Code' : '' })
     if (isTerminal(status)) lastEvents.current.delete(data.loginId)
     if (status === 'success') {
       setConnections(previous => previous ? {
@@ -217,7 +213,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
       start = await API.StartAIConnection(provider.id)
     } catch {
       const current = loginRef.current
-      if (current && attempt === loginAttempt.current) updateLogin({ ...current, status: 'error', message: 'The sign-in could not be started.' })
+      if (current && attempt === loginAttempt.current) updateLogin({ ...current, status: 'error', message: "Couldn't start the sign-in." })
       return
     }
     if (attempt !== loginAttempt.current) {
@@ -231,7 +227,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     if (buffered) applyEvent(buffered)
     const current = loginRef.current
     if (start.url && current?.loginId === start.loginId && !isTerminal(current.status)) {
-      void Browser.OpenURL(start.url).catch(() => onNotify('The sign-in page could not be opened.', 'error'))
+      void Browser.OpenURL(start.url).catch(() => onNotify("Couldn't open the sign-in page.", 'error'))
     }
   }
 
@@ -242,7 +238,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     loginAttempt.current++
     updateLogin(null)
     if (current.loginId && !isTerminal(current.status)) {
-      API.CancelAIConnection(current.loginId).catch(() => onNotify('The provider sign-in could not be cancelled.', 'error'))
+      API.CancelAIConnection(current.loginId).catch(() => onNotify("Couldn't cancel the sign-in.", 'error'))
     }
   }
 
@@ -282,7 +278,7 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
     const next = { ...draft, interfaceSize: 'default', textSize: 'default' } as AppSettings
     setDraft(next)
     applySizingAttributes(next.interfaceSize, next.textSize)
-    setSizingAnnouncement('Sizing reset to Default.')
+    setSizingAnnouncement('Sizes reset to default.')
   }
 
   const reset = () => {
@@ -323,20 +319,16 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
   const connectionBusy = !!login && !isTerminal(login.status)
 
   return <Page title="Settings" className="settings-view" ariaLabel="Settings" actions={[
-    { key: 'reset', label: 'Reset changes', role: 'secondary', disabled: !draft || saving, onClick: reset },
-    { key: 'apply', label: saving ? 'Saving' : 'Apply settings', role: 'primary', disabled: !draft || saving, onClick: () => void submit() },
+    { key: 'reset', label: 'Discard changes', role: 'secondary', disabled: !draft || saving, onClick: reset },
+    { key: 'apply', label: saving ? 'Saving…' : 'Save', role: 'primary', disabled: !draft || saving, onClick: () => void submit() },
   ]}>
 
     {!draft ? <div className="settings-page-loading">Loading settings…</div> : <div className="settings-body"><div className="settings-form">
       <fieldset className="settings-section--wide"><legend>Appearance</legend>
-        <div className="settings-row"><label>Theme<span>The quick switch remains available in the sidebar.</span></label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => previewTheme('dark')}>Black glass</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => previewTheme('light')}>Light</button></div></div>
+        <div className="settings-row"><label>Theme</label><div className="segmented"><button className={draft.theme === 'dark' ? 'is-active' : ''} onClick={() => previewTheme('dark')}>Dark</button><button className={draft.theme === 'light' ? 'is-active' : ''} onClick={() => previewTheme('light')}>Light</button></div></div>
         <div className="sizing-controls">
           <fieldset className="sizing-group">
-            <legend>Interface size</legend>
-            <div className="sizing-group__header">
-              <span id="interface-size-label">Interface size</span>
-              <output>Current: {INTERFACE_SIZE_LABELS[draft.interfaceSize as InterfaceSize] ?? 'Default'}</output>
-            </div>
+            <legend id="interface-size-label">Interface size</legend>
             <div className="sizing-group__options" role="radiogroup" aria-labelledby="interface-size-label">
               {INTERFACE_SIZE_OPTIONS.map(option => <label className="sizing-option" key={option.value}>
                 <input type="radio" name="interface-size" value={option.value} checked={draft.interfaceSize === option.value} onChange={() => updateSizing('interfaceSize', option.value)} aria-label={`${option.label} (${option.percentage})`}/>
@@ -344,14 +336,10 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
                 <small>{option.percentage}</small>
               </label>)}
             </div>
-            <small className="sizing-group__help">Spacing, control height, icon size, and layout density.</small>
+            <small className="sizing-group__help">Scales buttons, icons, and spacing.</small>
           </fieldset>
           <fieldset className="sizing-group">
-            <legend>Text size</legend>
-            <div className="sizing-group__header">
-              <span id="text-size-label">Text size</span>
-              <output>Current: {TEXT_SIZE_LABELS[draft.textSize as TextSize] ?? 'Default'}</output>
-            </div>
+            <legend id="text-size-label">Text size</legend>
             <div className="sizing-group__options" role="radiogroup" aria-labelledby="text-size-label">
               {TEXT_SIZE_OPTIONS.map(option => <label className="sizing-option" key={option.value}>
                 <input type="radio" name="text-size" value={option.value} checked={draft.textSize === option.value} onChange={() => updateSizing('textSize', option.value)} aria-label={`${option.label} (${option.percentage})`}/>
@@ -359,44 +347,41 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
                 <small>{option.percentage}</small>
               </label>)}
             </div>
-            <small className="sizing-group__help">Typography scales independently from interface density.</small>
+            <small className="sizing-group__help">Scales text only.</small>
           </fieldset>
         </div>
         <div className="sizing-actions">
-          <button type="button" className="text-button" onClick={resetSizing} disabled={saving}>Reset sizing</button>
-          {sizingAnnouncement && <p className="sizing-announcement" role="status" aria-live="polite">{sizingAnnouncement}</p>}
+          <button type="button" className="text-button" onClick={resetSizing} disabled={saving}>Reset to default</button>
+          <p className="sr-only" role="status" aria-live="polite">{sizingAnnouncement}</p>
         </div>
-        <div className="appearance-grid">
-          <ColorSetting label="Emphasis" value={draft.emphasisColor} onChange={emphasisColor => setDraft({ ...draft, emphasisColor })}/>
-          <ColorSetting label="Active tabs" value={draft.activeTabColor} onChange={activeTabColor => setDraft({ ...draft, activeTabColor })}/>
-          <ColorSetting label="Subsection titles" value={draft.subsectionTitleColor} onChange={subsectionTitleColor => setDraft({ ...draft, subsectionTitleColor })}/>
-          <ColorSetting label="Dark surface" value={draft.darkSurfaceColor} onChange={darkSurfaceColor => setDraft({ ...draft, darkSurfaceColor })}/>
-          <ColorSetting label="Dark borders" value={draft.darkBorderColor} onChange={darkBorderColor => setDraft({ ...draft, darkBorderColor })}/>
-          <ColorSetting label="Dark text" value={draft.darkTextColor} onChange={darkTextColor => setDraft({ ...draft, darkTextColor })}/>
-          <ColorSetting label="Light surface" value={draft.lightSurfaceColor} onChange={lightSurfaceColor => setDraft({ ...draft, lightSurfaceColor })}/>
-          <ColorSetting label="Light borders" value={draft.lightBorderColor} onChange={lightBorderColor => setDraft({ ...draft, lightBorderColor })}/>
-          <ColorSetting label="Light text" value={draft.lightTextColor} onChange={lightTextColor => setDraft({ ...draft, lightTextColor })}/>
-          <ColorSetting label="Scrollbars" value={draft.scrollbarColor} onChange={scrollbarColor => setDraft({ ...draft, scrollbarColor })}/>
+        <div className="appearance-colors" role="group" aria-labelledby="appearance-colors-title">
+          <h3 id="appearance-colors-title" className="appearance-colors__title">Colors</h3>
+          <div className="color-groups">
+            <div className="color-group" role="group" aria-labelledby="colors-both-title">
+              <span id="colors-both-title" className="color-group__title">Both themes</span>
+              <ColorSetting label="Accent" value={draft.emphasisColor} onChange={emphasisColor => setDraft({ ...draft, emphasisColor })}/>
+              <ColorSetting label="Selected tab" value={draft.activeTabColor} onChange={activeTabColor => setDraft({ ...draft, activeTabColor })}/>
+              <ColorSetting label="Scrollbar" value={draft.scrollbarColor} onChange={scrollbarColor => setDraft({ ...draft, scrollbarColor })}/>
+            </div>
+            <div className="color-group" role="group" aria-labelledby="colors-dark-title">
+              <span id="colors-dark-title" className="color-group__title">Dark theme</span>
+              <ColorSetting label="Panels" value={draft.darkSurfaceColor} onChange={darkSurfaceColor => setDraft({ ...draft, darkSurfaceColor })}/>
+              <ColorSetting label="Borders" value={draft.darkBorderColor} onChange={darkBorderColor => setDraft({ ...draft, darkBorderColor })}/>
+              <ColorSetting label="Text" value={draft.darkTextColor} onChange={darkTextColor => setDraft({ ...draft, darkTextColor })}/>
+            </div>
+            <div className="color-group" role="group" aria-labelledby="colors-light-title">
+              <span id="colors-light-title" className="color-group__title">Light theme</span>
+              <ColorSetting label="Panels" value={draft.lightSurfaceColor} onChange={lightSurfaceColor => setDraft({ ...draft, lightSurfaceColor })}/>
+              <ColorSetting label="Borders" value={draft.lightBorderColor} onChange={lightBorderColor => setDraft({ ...draft, lightBorderColor })}/>
+              <ColorSetting label="Text" value={draft.lightTextColor} onChange={lightTextColor => setDraft({ ...draft, lightTextColor })}/>
+            </div>
+          </div>
         </div>
       </fieldset>
-
-      <fieldset><legend>ModMaker</legend><label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span><strong>Files navigator</strong> · Show file sizes in the file navigator</span></label><label className="settings-field auto-format-delay-field"><span>Auto-format delay</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })} aria-describedby="auto-format-delay-help"/><small id="auto-format-delay-help">Format after typing stops for this many milliseconds (50–2,000).</small></label></fieldset>
-      <fieldset><legend>New mod defaults</legend><label className="settings-field"><span>Author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Used by new mods" maxLength={80}/><small>The first author entered in the manual wizard becomes this default.</small></label></fieldset>
-      <fieldset><legend>Storage and paths</legend><div className="settings-row"><label>BeamNG and staging locations<span>Change the game, mod library, or BeamWorlds storage folders.</span></label><Button onClick={onOpenSetup}>Open setup</Button></div><SettingsDeploymentMode onNotify={onNotify}/><SettingsStorageReview onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/></fieldset>
-      <fieldset><legend>Status bar</legend><label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show authenticated provider usage after Virgil has been used</span></label>
-        {usage?.hasRuns && <div className="usage-table"><div><span>ModMaker runs</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Recorded tokens</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p>{usage.usageError}</p>}</div>}
-      </fieldset>
-
-      <fieldset className="settings-section--wide"><legend>Virus Scanner · Virgil</legend><p className="settings-explainer">Signature-based scans run locally without AI. Full scans use these models for the automatic file review and final evidence-based assessment.</p><div className="settings-grid">
-        <label className="settings-field"><span>File-review model</span><input value={draft.preScanModel} onChange={event => setDraft({ ...draft, preScanModel: event.target.value })} placeholder="Provider default"/><small>Leave blank to use the active provider's default model.</small></label>
-        <label className="settings-field"><span>File-review reasoning</span><select value={draft.preScanReasoning} onChange={event => setDraft({ ...draft, preScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium · recommended</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
-        <label className="settings-field"><span>Final assessment model</span><input value={draft.fullScanModel} onChange={event => setDraft({ ...draft, fullScanModel: event.target.value })} placeholder="Provider default"/><small>Leave blank to use the active provider's default model.</small></label>
-        <label className="settings-field"><span>Final assessment reasoning</span><select value={draft.fullScanReasoning} onChange={event => setDraft({ ...draft, fullScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high · recommended</option></select></label>
-      </div></fieldset>
 
       <fieldset className="settings-section--wide"><legend>Virgil</legend>
-        <p className="settings-explainer">Virgil runs on the AI runtime built into BeamWorlds. Choose the account or API it uses. Subscription sign-ins stay in BeamWorlds app data. API keys are protected for this Windows user and are never shown again.</p>
-        <fieldset className="provider-group"><legend>Active provider</legend>
+        <p className="settings-explainer">Choose the AI provider Virgil uses. Virgil sends the files it works on to that provider, and the provider's prices and limits apply. Sign-ins and keys stay on this PC; keys are encrypted to your Windows account.</p>
+        <fieldset className="provider-group"><legend>AI provider</legend>
           <div className="provider-list">
             {PROVIDERS.map(provider => {
               const active = provider.id === activeProvider
@@ -413,17 +398,41 @@ export function SettingsView({ settings, usage, onSave, onOpenSetup, onNotify, o
             })}
           </div>
           {!selected
-            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>Choose which account or API Virgil should use, then apply the settings.</span></p>
-            : selectedReady === false && <p className="settings-hint settings-hint--warning" role="status"><Icon name="warning" size={15}/><span>{selected.kind === 'subscription' ? `${selected.label} is selected but not connected. Connect it before running Virgil.` : `${selected.label} is selected but has no API key. Paste a key before running Virgil.`}</span></p>}
+            ? <p className="settings-hint" role="status"><Icon name="unknown" size={15}/><span>Choose a provider for Virgil, then save.</span></p>
+            : selectedReady === false && <p className="settings-hint settings-hint--warning" role="status"><Icon name="warning" size={15}/><span>{selected.kind === 'subscription' ? `Connect ${selected.label} to use Virgil.` : `Paste your ${selected.label} API key to use Virgil.`}</span></p>}
         </fieldset>
         <div className="settings-grid">
-          <label className="settings-field"><span>Model</span><input value={draft.agentModel} onChange={event => setDraft({ ...draft, agentModel: event.target.value })} placeholder="Provider default" maxLength={120}/><small>Leave blank to use the provider's default model.</small></label>
-          <label className="settings-field"><span>Context</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">Focused · category only</option><option value="balanced">Balanced · workspace and category</option><option value="deep">Deep · cross-system references</option></select></label>
+          <label className="settings-field"><span>Model</span><input value={draft.agentModel} onChange={event => setDraft({ ...draft, agentModel: event.target.value })} placeholder="Default" maxLength={120}/><small>Leave blank for the provider's default.</small></label>
+          <label className="settings-field"><span>Reference guides</span><select value={draft.contextMode} onChange={event => setDraft({ ...draft, contextMode: event.target.value })}><option value="focused">This mod type only</option><option value="balanced">General + this mod type</option><option value="deep">All mod types (uses more tokens)</option></select><small>Built-in BeamNG guides Virgil reads before it starts.</small></label>
+        </div>
+        <div className="settings-subsection" role="group" aria-labelledby="virgil-usage-title">
+          <h3 id="virgil-usage-title" className="settings-subsection__title">Usage</h3>
+          <label className="toggle-row"><input type="checkbox" checked={draft.showAIUsage} onChange={event => setDraft({ ...draft, showAIUsage: event.target.checked })}/><span>Show AI usage in the status bar</span></label>
+          {usage?.hasRuns && <div className="usage-table"><div><span>Virgil requests</span><strong>{usage.runCount.toLocaleString()}</strong></div>{usage.totalTokens > 0 && <div><span>Tokens used</span><strong>{usage.totalTokens.toLocaleString()}</strong></div>}{(usage.limits ?? []).map(limit => <div key={`${limit.provider}-${limit.label}`}><span>{limit.provider} · {limit.label}</span><strong>{limit.unit === 'percent' ? `${Math.round(limit.used)}% used` : `${Math.round(limit.remaining)} ${limit.unit} left`}</strong></div>)}{usage.usageError && <p title={usage.usageError}>Couldn't load usage from your provider.</p>}</div>}
         </div>
       </fieldset>
+
+      <fieldset className="settings-section--wide"><legend>Virus Scanner</legend><p className="settings-explainer">Signature-based scans don't use AI. A Full Virgil scan reviews the files, then writes a final assessment. Choose a model for each step, or leave it blank for your provider's default.</p><div className="settings-grid">
+        <label className="settings-field"><span>File review model</span><input value={draft.preScanModel} onChange={event => setDraft({ ...draft, preScanModel: event.target.value })} placeholder="Default"/></label>
+        <label className="settings-field"><span>File review effort</span><select value={draft.preScanReasoning} onChange={event => setDraft({ ...draft, preScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium (recommended)</option><option value="high">High</option><option value="xhigh">Extra high</option></select></label>
+        <label className="settings-field"><span>Final assessment model</span><input value={draft.fullScanModel} onChange={event => setDraft({ ...draft, fullScanModel: event.target.value })} placeholder="Default"/></label>
+        <label className="settings-field"><span>Final assessment effort</span><select value={draft.fullScanReasoning} onChange={event => setDraft({ ...draft, fullScanReasoning: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high (recommended)</option></select></label>
+      </div></fieldset>
+
+      <fieldset><legend>ModMaker</legend><div className="settings-stack">
+        <label className="toggle-row"><input type="checkbox" checked={draft.showFileSizes} onChange={event => setDraft({ ...draft, showFileSizes: event.target.checked })}/><span>Show file sizes in the file tree</span></label>
+        <label className="settings-field auto-format-delay-field"><span>Auto-format delay (ms)</span><input type="number" min={AUTO_FORMAT_DELAY_MIN_MS} max={AUTO_FORMAT_DELAY_MAX_MS} step={10} value={draft.autoFormatDelayMs} onChange={event => setDraft({ ...draft, autoFormatDelayMs: clampAutoFormatDelay(event.target.valueAsNumber) })} aria-describedby="auto-format-delay-help"/><small id="auto-format-delay-help">How long to wait after you stop typing before formatting the file. 50–2000 ms.</small></label>
+        <label className="settings-field"><span>Default author</span><input value={draft.defaultAuthor} onChange={event => setDraft({ ...draft, defaultAuthor: event.target.value })} placeholder="Your name" maxLength={80}/><small>Pre-filled when you create a mod. If empty, the first author you enter is saved here.</small></label>
+      </div></fieldset>
+
+      <fieldset><legend>Folders</legend><div className="settings-stack">
+        <div className="settings-row"><label>Game and mod folders<span>Change where BeamNG, your mods, and Studio's data are stored.</span></label><Button onClick={onOpenSetup}>Change folders…</Button></div>
+        <SettingsDeploymentMode onNotify={onNotify}/>
+        <SettingsStorageReview onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/>
+      </div></fieldset>
     </div></div>}
 
-    {login && loginProvider && <ConnectionDialog login={login} providerLabel={loginProvider.label} onSubmit={submitCode} onCancel={cancelLogin} onClose={closeLogin} onRetry={() => void connect(loginProvider)} onOpenURL={url => { void Browser.OpenURL(url).catch(() => onNotify('The sign-in page could not be opened.', 'error')) }}/>}
+    {login && loginProvider && <ConnectionDialog login={login} providerLabel={loginProvider.label} onSubmit={submitCode} onCancel={cancelLogin} onClose={closeLogin} onRetry={() => void connect(loginProvider)} onOpenURL={url => { void Browser.OpenURL(url).catch(() => onNotify("Couldn't open the sign-in page.", 'error')) }}/>}
 </Page>
 }
 
@@ -439,7 +448,7 @@ function SubscriptionControls({ provider, connection, loading, failed, connectin
   const connected = !!connection?.connected
   const state = connecting ? { tone: 'cyan' as const, label: 'Connecting' }
     : loading ? { tone: 'neutral' as const, label: 'Checking' }
-    : failed ? { tone: 'warning' as const, label: 'Status unavailable' }
+    : failed ? { tone: 'warning' as const, label: 'Unknown' }
     : connected ? { tone: 'success' as const, label: 'Connected' }
     : { tone: 'neutral' as const, label: 'Not connected' }
   return <>
@@ -456,15 +465,15 @@ function KeyControls({ provider, stored, draft, disabled, onChange }: {
   onChange: (next: KeyDraft) => void
 }) {
   const pending = draft.value.trim().length > 0
-  const state = pending ? { tone: 'cyan' as const, label: 'New key on apply' }
-    : draft.clear ? { tone: 'warning' as const, label: 'Removed on apply' }
-    : stored ? { tone: 'success' as const, label: 'Key stored' }
+  const state = pending ? { tone: 'cyan' as const, label: 'Unsaved key' }
+    : draft.clear ? { tone: 'warning' as const, label: 'Removed on save' }
+    : stored ? { tone: 'success' as const, label: 'Key saved' }
     : { tone: 'neutral' as const, label: 'No key' }
   return <>
     <div className="provider-row__state"><Badge tone={state.tone}>{state.label}</Badge></div>
     <div className="provider-row__control">
-      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Stored for this Windows user' : 'Paste API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
-      {stored && <button type="button" className={`text-button ${draft.clear ? 'is-active' : ''}`} disabled={disabled} onClick={() => onChange({ value: '', clear: !draft.clear })} aria-label={`${draft.clear ? 'Keep' : 'Remove'} stored ${provider.label} API key`}>{draft.clear ? 'Keep key' : 'Remove key'}</button>}
+      <input type="password" value={draft.value} onChange={event => onChange({ value: event.target.value, clear: false })} placeholder={stored && !draft.clear ? 'Saved. Paste a new key to replace it.' : 'Paste API key'} aria-label={`${provider.label} API key`} autoComplete="off" spellCheck={false} disabled={disabled}/>
+      {stored && <button type="button" className={`text-button ${draft.clear ? 'is-active' : ''}`} disabled={disabled} onClick={() => onChange({ value: '', clear: !draft.clear })} aria-label={`${draft.clear ? 'Keep' : 'Remove'} saved ${provider.label} API key`}>{draft.clear ? 'Undo' : 'Remove'}</button>}
     </div>
   </>
 }
@@ -518,31 +527,31 @@ function ConnectionDialog({ login, providerLabel, onSubmit, onCancel, onClose, o
     try {
       await onSubmit(value)
     } catch {
-      setSubmitError('The code was not accepted.')
+      setSubmitError("That code didn't work.")
     } finally {
       setSubmitting(false)
     }
   }
 
   const message = login.message || {
-    starting: 'Starting the sign-in…',
-    pending: 'Finish signing in in your browser. This window updates on its own.',
-    input: 'Paste the code shown in your browser to finish connecting.',
-    success: `${providerLabel} is connected. Virgil can use it once it is the active provider.`,
-    error: 'The sign-in did not complete.',
-    cancelled: 'The sign-in was cancelled.',
+    starting: 'Opening sign-in…',
+    pending: 'Continue in your browser.',
+    input: 'Paste the code from your browser.',
+    success: `${providerLabel} is connected.`,
+    error: "Sign-in didn't finish.",
+    cancelled: 'Sign-in cancelled.',
   }[login.status]
 
   return <dialog ref={dialogRef} className="connection-dialog" tabIndex={-1} aria-labelledby="connection-dialog-title" aria-describedby="connection-dialog-status" onCancel={event => { event.preventDefault(); if (terminal) onClose(); else onCancel() }}>
     <form onSubmit={event => void submit(event)}>
-      <header><span className="eyebrow">VIRGIL CONNECTION</span><h2 id="connection-dialog-title">{login.status === 'success' ? `${providerLabel} connected` : `Connect ${providerLabel}`}</h2></header>
+      <header><h2 id="connection-dialog-title">{login.status === 'success' ? `${providerLabel} connected` : `Connect ${providerLabel}`}</h2></header>
       <div id="connection-dialog-status" className={`connection-dialog__status is-${login.status}`} role="status">
         {login.status === 'success' ? <Icon name="check" size={16}/> : login.status === 'error' ? <Icon name="error" size={16}/> : login.status === 'cancelled' ? <Icon name="warning" size={16}/> : login.status === 'input' ? <Icon name="edit" size={16}/> : <Spinner small/>}
         <span>{message}</span>
       </div>
-      {login.status === 'input' && <label className="settings-field"><span>{login.inputLabel || 'Authorization code'}</span><input ref={inputRef} value={code} onChange={event => setCode(event.target.value)} autoComplete="off" spellCheck={false} readOnly={submitting} aria-invalid={submitError ? true : undefined} aria-describedby={submitError ? 'connection-dialog-error' : undefined}/>{submitError && <small id="connection-dialog-error" className="connection-dialog__error" role="alert">{submitError}</small>}</label>}
+      {login.status === 'input' && <label className="settings-field"><span>{login.inputLabel || 'Code'}</span><input ref={inputRef} value={code} onChange={event => setCode(event.target.value)} autoComplete="off" spellCheck={false} readOnly={submitting} aria-invalid={submitError ? true : undefined} aria-describedby={submitError ? 'connection-dialog-error' : undefined}/>{submitError && <small id="connection-dialog-error" className="connection-dialog__error" role="alert">{submitError}</small>}</label>}
       <footer className="connection-dialog__actions">
-        {login.url && !terminal && <Button type="button" tone="quiet" icon="link" onClick={() => onOpenURL(login.url)}>Open sign-in page</Button>}
+        {login.url && !terminal && <Button type="button" tone="quiet" icon="link" onClick={() => onOpenURL(login.url)}>Reopen sign-in page</Button>}
         {terminal
           ? <>{login.status !== 'success' && <Button type="button" icon="refresh" onClick={onRetry}>Try again</Button>}<Button type="button" tone="primary" onClick={onClose}>{login.status === 'success' ? 'Done' : 'Close'}</Button></>
           : <><Button type="button" onClick={onCancel}>Cancel</Button>{login.status === 'input' && <Button type="submit" tone="primary" disabled={!code.trim() || submitting}>{submitting ? 'Submitting' : 'Submit code'}</Button>}</>}
@@ -566,7 +575,6 @@ export function settingsUpdate(settings: AppSettings, overrides: Partial<Setting
     autoFormatDelayMs: settings.autoFormatDelayMs,
     emphasisColor: settings.emphasisColor,
     activeTabColor: settings.activeTabColor,
-    subsectionTitleColor: settings.subsectionTitleColor,
     darkSurfaceColor: settings.darkSurfaceColor,
     darkBorderColor: settings.darkBorderColor,
     darkTextColor: settings.darkTextColor,
@@ -606,10 +614,10 @@ function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone
 
   const handleChange = async (mode: DeploymentMode) => {
     const result = await cap.setMode(mode)
-    if (result) onNotify('Deployment mode updated. It takes effect on the next launch.', 'success')
+    if (result) onNotify('Saved. Applies next time you press Play.', 'success')
   }
 
-  return <div className="settings-row">
+  return <div className="settings-deployment">
     <DeploymentModeSelector
       mode={cap.mode}
       capabilities={cap.capabilities}
@@ -620,6 +628,7 @@ function SettingsDeploymentMode({ onNotify }: { onNotify: (message: string, tone
       onChange={mode => void handleChange(mode)}
       onRefresh={cap.refresh}
     />
+    <p className="settings-note">Saves as soon as you choose.</p>
   </div>
 }
 
@@ -628,7 +637,7 @@ function SettingsStorageReview({ onNotify, onRefreshLibrary }: { onNotify: (mess
 
   return <>
     <div className="settings-row">
-      <label>Review storage<span>Audit archive deployment, identify redundant copies, and clean up safely.</span></label>
+      <label>Disk space<span>Find duplicate mod copies and free up space.</span></label>
       <Button onClick={() => setOpen(true)}>Review storage</Button>
     </div>
     {open && <StorageReview onClose={() => setOpen(false)} onNotify={onNotify} onRefreshLibrary={onRefreshLibrary}/>}

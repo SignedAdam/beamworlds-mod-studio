@@ -26,33 +26,32 @@ const (
 )
 
 type AppSettings struct {
-	Theme                string `json:"theme"`
-	InterfaceSize        string `json:"interfaceSize"`
-	TextSize             string `json:"textSize"`
-	DefaultAuthor        string `json:"defaultAuthor"`
-	AgentProfile         string `json:"agentProfile"`
-	AgentModel           string `json:"agentModel"`
-	ContextMode          string `json:"contextMode"`
-	ShowAIUsage          bool   `json:"showAIUsage"`
-	ShowFileSizes        bool   `json:"showFileSizes"`
-	AutoFormatDelayMs    int    `json:"autoFormatDelayMs"`
-	EmphasisColor        string `json:"emphasisColor"`
-	ActiveTabColor       string `json:"activeTabColor"`
-	SubsectionTitleColor string `json:"subsectionTitleColor"`
-	DarkSurfaceColor     string `json:"darkSurfaceColor"`
-	DarkBorderColor      string `json:"darkBorderColor"`
-	DarkTextColor        string `json:"darkTextColor"`
-	LightSurfaceColor    string `json:"lightSurfaceColor"`
-	LightBorderColor     string `json:"lightBorderColor"`
-	LightTextColor       string `json:"lightTextColor"`
-	ScrollbarColor       string `json:"scrollbarColor"`
-	PreScanModel         string `json:"preScanModel"`
-	PreScanReasoning     string `json:"preScanReasoning"`
-	FullScanModel        string `json:"fullScanModel"`
-	FullScanReasoning    string `json:"fullScanReasoning"`
-	HasOpenRouterAPIKey  bool   `json:"hasOpenRouterApiKey"`
-	HasOpenAIAPIKey      bool   `json:"hasOpenAIApiKey"`
-	HasAnthropicAPIKey   bool   `json:"hasAnthropicApiKey"`
+	Theme               string `json:"theme"`
+	InterfaceSize       string `json:"interfaceSize"`
+	TextSize            string `json:"textSize"`
+	DefaultAuthor       string `json:"defaultAuthor"`
+	AgentProfile        string `json:"agentProfile"`
+	AgentModel          string `json:"agentModel"`
+	ContextMode         string `json:"contextMode"`
+	ShowAIUsage         bool   `json:"showAIUsage"`
+	ShowFileSizes       bool   `json:"showFileSizes"`
+	AutoFormatDelayMs   int    `json:"autoFormatDelayMs"`
+	EmphasisColor       string `json:"emphasisColor"`
+	ActiveTabColor      string `json:"activeTabColor"`
+	DarkSurfaceColor    string `json:"darkSurfaceColor"`
+	DarkBorderColor     string `json:"darkBorderColor"`
+	DarkTextColor       string `json:"darkTextColor"`
+	LightSurfaceColor   string `json:"lightSurfaceColor"`
+	LightBorderColor    string `json:"lightBorderColor"`
+	LightTextColor      string `json:"lightTextColor"`
+	ScrollbarColor      string `json:"scrollbarColor"`
+	PreScanModel        string `json:"preScanModel"`
+	PreScanReasoning    string `json:"preScanReasoning"`
+	FullScanModel       string `json:"fullScanModel"`
+	FullScanReasoning   string `json:"fullScanReasoning"`
+	HasOpenRouterAPIKey bool   `json:"hasOpenRouterApiKey"`
+	HasOpenAIAPIKey     bool   `json:"hasOpenAIApiKey"`
+	HasAnthropicAPIKey  bool   `json:"hasAnthropicApiKey"`
 }
 
 type SettingsUpdate struct {
@@ -68,7 +67,6 @@ type SettingsUpdate struct {
 	AutoFormatDelayMs     int    `json:"autoFormatDelayMs"`
 	EmphasisColor         string `json:"emphasisColor"`
 	ActiveTabColor        string `json:"activeTabColor"`
-	SubsectionTitleColor  string `json:"subsectionTitleColor"`
 	DarkSurfaceColor      string `json:"darkSurfaceColor"`
 	DarkBorderColor       string `json:"darkBorderColor"`
 	DarkTextColor         string `json:"darkTextColor"`
@@ -126,28 +124,27 @@ type agentLaunchSettings struct {
 
 func defaultAppSettings() AppSettings {
 	return AppSettings{
-		Theme:                "dark",
-		InterfaceSize:        "default",
-		TextSize:             "default",
-		AgentProfile:         "chatgpt",
-		ContextMode:          "balanced",
-		ShowAIUsage:          true,
-		ShowFileSizes:        true,
-		EmphasisColor:        "#f26522",
-		ActiveTabColor:       "#e8e4d8",
-		SubsectionTitleColor: "#3f93c5",
-		DarkSurfaceColor:     "#090909",
-		DarkBorderColor:      "#343434",
-		DarkTextColor:        "#f2f0ea",
-		LightSurfaceColor:    "#f4f2ed",
-		LightBorderColor:     "#aaa69d",
-		LightTextColor:       "#171614",
-		ScrollbarColor:       "#f26522",
-		PreScanModel:         "",
-		PreScanReasoning:     "medium",
-		FullScanModel:        "",
-		FullScanReasoning:    "xhigh",
-		AutoFormatDelayMs:    autoFormatDelayDefaultMs,
+		Theme:             "dark",
+		InterfaceSize:     "default",
+		TextSize:          "default",
+		AgentProfile:      "chatgpt",
+		ContextMode:       "balanced",
+		ShowAIUsage:       true,
+		ShowFileSizes:     true,
+		EmphasisColor:     "#f26522",
+		ActiveTabColor:    "#e8e4d8",
+		DarkSurfaceColor:  "#090909",
+		DarkBorderColor:   "#343434",
+		DarkTextColor:     "#f2f0ea",
+		LightSurfaceColor: "#f4f2ed",
+		LightBorderColor:  "#aaa69d",
+		LightTextColor:    "#171614",
+		ScrollbarColor:    "#f26522",
+		PreScanModel:      "",
+		PreScanReasoning:  "medium",
+		FullScanModel:     "",
+		FullScanReasoning: "xhigh",
+		AutoFormatDelayMs: autoFormatDelayDefaultMs,
 	}
 }
 
@@ -162,30 +159,29 @@ func validateSettings(update SettingsUpdate) (AppSettings, error) {
 		return AppSettings{}, err
 	}
 	settings := AppSettings{
-		Theme:                strings.ToLower(strings.TrimSpace(update.Theme)),
-		InterfaceSize:        interfaceSize,
-		TextSize:             textSize,
-		DefaultAuthor:        strings.TrimSpace(update.DefaultAuthor),
-		AgentProfile:         strings.ToLower(strings.TrimSpace(update.AgentProfile)),
-		AgentModel:           strings.TrimSpace(update.AgentModel),
-		ContextMode:          strings.ToLower(strings.TrimSpace(update.ContextMode)),
-		ShowAIUsage:          update.ShowAIUsage,
-		ShowFileSizes:        update.ShowFileSizes,
-		AutoFormatDelayMs:    clampAutoFormatDelay(update.AutoFormatDelayMs),
-		EmphasisColor:        colorOrDefault(update.EmphasisColor, defaults.EmphasisColor),
-		ActiveTabColor:       colorOrDefault(update.ActiveTabColor, defaults.ActiveTabColor),
-		SubsectionTitleColor: colorOrDefault(update.SubsectionTitleColor, defaults.SubsectionTitleColor),
-		DarkSurfaceColor:     colorOrDefault(update.DarkSurfaceColor, defaults.DarkSurfaceColor),
-		DarkBorderColor:      colorOrDefault(update.DarkBorderColor, defaults.DarkBorderColor),
-		DarkTextColor:        colorOrDefault(update.DarkTextColor, defaults.DarkTextColor),
-		LightSurfaceColor:    colorOrDefault(update.LightSurfaceColor, defaults.LightSurfaceColor),
-		LightBorderColor:     colorOrDefault(update.LightBorderColor, defaults.LightBorderColor),
-		LightTextColor:       colorOrDefault(update.LightTextColor, defaults.LightTextColor),
-		ScrollbarColor:       colorOrDefault(update.ScrollbarColor, defaults.ScrollbarColor),
-		PreScanModel:         firstValue(update.PreScanModel, defaults.PreScanModel),
-		PreScanReasoning:     firstValue(strings.ToLower(update.PreScanReasoning), defaults.PreScanReasoning),
-		FullScanModel:        firstValue(update.FullScanModel, defaults.FullScanModel),
-		FullScanReasoning:    firstValue(strings.ToLower(update.FullScanReasoning), defaults.FullScanReasoning),
+		Theme:             strings.ToLower(strings.TrimSpace(update.Theme)),
+		InterfaceSize:     interfaceSize,
+		TextSize:          textSize,
+		DefaultAuthor:     strings.TrimSpace(update.DefaultAuthor),
+		AgentProfile:      strings.ToLower(strings.TrimSpace(update.AgentProfile)),
+		AgentModel:        strings.TrimSpace(update.AgentModel),
+		ContextMode:       strings.ToLower(strings.TrimSpace(update.ContextMode)),
+		ShowAIUsage:       update.ShowAIUsage,
+		ShowFileSizes:     update.ShowFileSizes,
+		AutoFormatDelayMs: clampAutoFormatDelay(update.AutoFormatDelayMs),
+		EmphasisColor:     colorOrDefault(update.EmphasisColor, defaults.EmphasisColor),
+		ActiveTabColor:    colorOrDefault(update.ActiveTabColor, defaults.ActiveTabColor),
+		DarkSurfaceColor:  colorOrDefault(update.DarkSurfaceColor, defaults.DarkSurfaceColor),
+		DarkBorderColor:   colorOrDefault(update.DarkBorderColor, defaults.DarkBorderColor),
+		DarkTextColor:     colorOrDefault(update.DarkTextColor, defaults.DarkTextColor),
+		LightSurfaceColor: colorOrDefault(update.LightSurfaceColor, defaults.LightSurfaceColor),
+		LightBorderColor:  colorOrDefault(update.LightBorderColor, defaults.LightBorderColor),
+		LightTextColor:    colorOrDefault(update.LightTextColor, defaults.LightTextColor),
+		ScrollbarColor:    colorOrDefault(update.ScrollbarColor, defaults.ScrollbarColor),
+		PreScanModel:      firstValue(update.PreScanModel, defaults.PreScanModel),
+		PreScanReasoning:  firstValue(strings.ToLower(update.PreScanReasoning), defaults.PreScanReasoning),
+		FullScanModel:     firstValue(update.FullScanModel, defaults.FullScanModel),
+		FullScanReasoning: firstValue(strings.ToLower(update.FullScanReasoning), defaults.FullScanReasoning),
 	}
 	if settings.Theme != "dark" && settings.Theme != "light" {
 		return AppSettings{}, errors.New("theme must be dark or light")
@@ -298,7 +294,6 @@ func (s *Store) loadAppSettings(ctx context.Context) (AppSettings, error) {
 	}
 	settings.InterfaceSize = sizingOrDefault(settings.InterfaceSize, defaults.InterfaceSize, "interface size", "compact", "default", "comfortable", "large")
 	settings.TextSize = sizingOrDefault(settings.TextSize, defaults.TextSize, "text size", "small", "default", "large", "extra-large")
-	settings.SubsectionTitleColor = colorOrDefault(settings.SubsectionTitleColor, defaults.SubsectionTitleColor)
 	settings.ScrollbarColor = colorOrDefault(settings.ScrollbarColor, defaults.ScrollbarColor)
 	if strings.EqualFold(settings.ScrollbarColor, legacyScrollbarColor) {
 		// Scrollbars shipped with the retired blue accent. Adopt the emphasis orange exactly

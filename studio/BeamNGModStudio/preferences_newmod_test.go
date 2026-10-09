@@ -119,27 +119,26 @@ func TestSettingsRoundTripProtectsProviderAPIKeys(t *testing.T) {
 	)
 	baseUpdate := func(profile string) SettingsUpdate {
 		return SettingsUpdate{
-			Theme:                "light",
-			DefaultAuthor:        "Ada Lovelace",
-			AgentProfile:         profile,
-			AgentModel:           "model-test",
-			ContextMode:          "deep",
-			ShowAIUsage:          false,
-			ShowFileSizes:        true,
-			EmphasisColor:        "#ff6a2a",
-			ActiveTabColor:       "#f1eee4",
-			SubsectionTitleColor: "#4f9fca",
-			DarkSurfaceColor:     "#080808",
-			DarkBorderColor:      "#393939",
-			DarkTextColor:        "#f7f5ef",
-			LightSurfaceColor:    "#f8f6f0",
-			LightBorderColor:     "#9e9b93",
-			LightTextColor:       "#131210",
-			ScrollbarColor:       "#789abc",
-			PreScanModel:         "vendor/pre-model",
-			PreScanReasoning:     "medium",
-			FullScanModel:        "vendor/full-model",
-			FullScanReasoning:    "xhigh",
+			Theme:             "light",
+			DefaultAuthor:     "Ada Lovelace",
+			AgentProfile:      profile,
+			AgentModel:        "model-test",
+			ContextMode:       "deep",
+			ShowAIUsage:       false,
+			ShowFileSizes:     true,
+			EmphasisColor:     "#ff6a2a",
+			ActiveTabColor:    "#f1eee4",
+			DarkSurfaceColor:  "#080808",
+			DarkBorderColor:   "#393939",
+			DarkTextColor:     "#f7f5ef",
+			LightSurfaceColor: "#f8f6f0",
+			LightBorderColor:  "#9e9b93",
+			LightTextColor:    "#131210",
+			ScrollbarColor:    "#789abc",
+			PreScanModel:      "vendor/pre-model",
+			PreScanReasoning:  "medium",
+			FullScanModel:     "vendor/full-model",
+			FullScanReasoning: "xhigh",
 		}
 	}
 	update := baseUpdate("anthropic")
@@ -165,7 +164,7 @@ func TestSettingsRoundTripProtectsProviderAPIKeys(t *testing.T) {
 			t.Fatalf("settings response exposed provider credential %q", secret)
 		}
 	}
-	if saved.EmphasisColor != "#ff6a2a" || saved.ActiveTabColor != "#f1eee4" || saved.SubsectionTitleColor != "#4f9fca" || saved.DarkSurfaceColor != "#080808" || saved.DarkBorderColor != "#393939" || saved.DarkTextColor != "#f7f5ef" || saved.LightSurfaceColor != "#f8f6f0" || saved.LightBorderColor != "#9e9b93" || saved.LightTextColor != "#131210" || saved.ScrollbarColor != "#789abc" {
+	if saved.EmphasisColor != "#ff6a2a" || saved.ActiveTabColor != "#f1eee4" || saved.DarkSurfaceColor != "#080808" || saved.DarkBorderColor != "#393939" || saved.DarkTextColor != "#f7f5ef" || saved.LightSurfaceColor != "#f8f6f0" || saved.LightBorderColor != "#9e9b93" || saved.LightTextColor != "#131210" || saved.ScrollbarColor != "#789abc" {
 		t.Fatalf("appearance settings did not round-trip: %#v", saved)
 	}
 	if saved.PreScanModel != "vendor/pre-model" || saved.PreScanReasoning != "medium" || saved.FullScanModel != "vendor/full-model" || saved.FullScanReasoning != "xhigh" {

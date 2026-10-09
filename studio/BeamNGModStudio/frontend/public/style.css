@@ -514,11 +514,9 @@ html[data-theme="light"] .app-sidebar,html[data-theme="light"] .app-statusbar{ba
 .color-group__title{margin-bottom:2px;color:var(--text-3);font-size:var(--font-caption);font-weight:700}
 .settings-subsection{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .settings-stack{display:flex;flex-direction:column;gap:var(--space-3)}
-.settings-note{margin-top:6px;color:var(--text-3);font-size:var(--font-caption)}
 .color-setting{height:34px;display:grid;grid-template-columns:minmax(0,1fr) 34px 70px;align-items:center;gap:7px;color:var(--text-2)}
 .color-setting input{width:34px;height:25px;padding:2px;border-radius:3px}
 .color-setting code{font-size:var(--font-caption);color:var(--text-3)}
-.settings-explainer{margin-bottom:10px;color:var(--text-2);line-height:1.45}
 .toggle-row input{width:16px;height:16px;accent-color:var(--emphasis)}
 .settings-body .provider-group{margin:0 0 14px;padding:0;border:0;border-radius:0;background:none}
 .settings-body .provider-group>legend{margin-bottom:6px;padding:0;color:var(--text-2);font-size:11px;font-weight:700;letter-spacing:0;text-transform:none}
@@ -995,7 +993,7 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
 .settings-body fieldset{padding:var(--space-3) var(--space-4) var(--space-4)}
 .settings-body legend{font-size:var(--font-caption)}
 .settings-row{gap:var(--space-3)}
-.settings-row>label span,.settings-field small,.settings-explainer{font-size:var(--font-caption)}
+.settings-row>label span,.settings-field small{font-size:var(--font-caption)}
 .settings-field>span,.toggle-row span,.provider-row__choice strong{font-size:var(--font-control)}
 .settings-field input,.settings-field select{height:var(--control-height-small);min-height:var(--control-height-small);font-size:var(--font-control)}
 .settings-body .sizing-group{min-width:0;margin:0;padding:var(--space-2) var(--space-3) var(--space-3);border:1px solid var(--line);border-radius:4px;background:var(--surface)}
@@ -1010,7 +1008,6 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="color"]),select,text
 .sizing-option input:focus-visible{outline:2px solid var(--active-tab);outline-offset:2px}
 .sizing-option span{min-width:0;overflow:hidden;font-size:var(--font-control);font-weight:650;text-overflow:ellipsis;white-space:nowrap}
 .sizing-option small{color:var(--text-3);font-size:var(--font-caption);font-variant-numeric:tabular-nums;white-space:nowrap}
-.sizing-group__help{display:block;margin-top:var(--space-2);color:var(--text-3);font-size:var(--font-caption);line-height:1.4}
 .sizing-actions{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-3)}
 .sizing-actions .text-button{min-height:var(--control-height-small);padding-inline:var(--space-2);font-size:var(--font-control)}
 

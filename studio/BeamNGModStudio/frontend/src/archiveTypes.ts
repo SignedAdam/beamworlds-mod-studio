@@ -9,10 +9,9 @@ export const DEPLOYMENT_MODE_LABELS: Record<DeploymentMode, string> = {
   copy: "Always copy",
 };
 
-export const DEPLOYMENT_MODE_DETAILS: Record<DeploymentMode, string> = {
-  auto: "Links mods when possible and copies the rest.",
-  "hardlink-only": "Never copies. Play won't start if a mod can't be linked.",
-  copy: "Copies every mod. Uses more disk space.",
+export const DEPLOYMENT_MODE_DETAILS: Partial<Record<DeploymentMode, string>> = {
+  "hardlink-only": "Play won't start if a mod can't be linked.",
+  copy: "Uses more disk space.",
 };
 
 export const DEPLOYMENT_MODES: readonly DeploymentMode[] = [
@@ -68,15 +67,15 @@ export function capabilitySummary(
     return {
       hardlinks: true,
       mixed: false,
-      label: "All folders support links. No extra disk space used.",
+      label: "All folders support links.",
     };
   }
   if (noneLink) {
-    return { hardlinks: false, mixed: false, label: "Links aren't available, so mods will be copied." };
+    return { hardlinks: false, mixed: false, label: "Mods will be copied." };
   }
   return {
     hardlinks: true,
     mixed: true,
-    label: "Some folders can't use links. Mods from those folders will be copied.",
+    label: "Mods in some folders will be copied.",
   };
 }

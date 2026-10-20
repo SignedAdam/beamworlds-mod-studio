@@ -162,6 +162,59 @@ func TestPlayProfileHasJunctionsForRealDirectories(t *testing.T) {
 	}
 }
 
+func TestPlayProfileExistingSettingsDirectory(t *testing.T) {
+	for _, conflict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("conflict=%t", conflict), func(t *testing.T) {
+			service, beamNGRoot := setupPlayProfileDirs(t)
+			playRoot, err := playUserPath(service.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			profileSettings := filepath.Join(playRoot, "current", "settings")
+			if err := os.MkdirAll(profileSettings, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]string{"profile.json": "profile settings"}
+			if conflict {
+				files["test.json"] = "conflicting profile settings"
+			}
+			for name, content := range files {
+				if err := os.WriteFile(filepath.Join(profileSettings, name), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, collectionID := scanAndCreateCollection(t, service, "ExistingSettings", 1, 9000)
+			for range 2 {
+				request := resolveAndFingerprint(t, service, collectionID)
+				activateAndCheck(t, service, request)
+				realSettings := filepath.Join(beamNGRoot, "current", "settings")
+				for name, want := range map[string]string{
+					"test.json":    `{"sentinel":true}`,
+					"profile.json": "profile settings",
+				} {
+					got, err := os.ReadFile(filepath.Join(realSettings, name))
+					if err != nil || string(got) != want {
+						t.Fatalf("real settings %s = %q, %v; want %q", name, got, err, want)
+					}
+				}
+				if conflict {
+					if isDirectoryJunction(profileSettings) {
+						t.Fatal("conflicting profile settings replaced by a junction")
+					}
+					got, err := os.ReadFile(filepath.Join(profileSettings, "test.json"))
+					if err != nil || string(got) != files["test.json"] {
+						t.Fatalf("conflicting profile settings lost: %q, %v", got, err)
+					}
+				} else if !isDirectoryJunction(profileSettings) ||
+					!samePath(junctionTarget(profileSettings), realSettings) {
+					t.Fatal("migrated settings were not junctioned to real settings")
+				}
+			}
+		})
+	}
+}
+
 func TestPlayProfileSessionDownloadMovedToRealMods(t *testing.T) {
 	service, _ := setupPlayProfileDirs(t)
 	playRoot, err := playUserPath(service.config)

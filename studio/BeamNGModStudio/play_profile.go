@@ -82,6 +82,13 @@ func (service *AppService) syncPlayProfile(ctx context.Context) error {
 		}
 		realDir := filepath.Join(realCurrent, name)
 		linkPath := filepath.Join(playCurrent, name)
+		// Existing real profile directories must be merged below before they
+		// can become junctions. Conflicting files stay there across syncs.
+		if !isDirectoryJunction(linkPath) {
+			if info, err := os.Lstat(linkPath); err == nil && info.IsDir() {
+				continue
+			}
+		}
 		if err := ensureJunction(linkPath, realDir); err != nil {
 			return fmt.Errorf("ensure junction %s → %s: %w", linkPath, realDir, err)
 		}

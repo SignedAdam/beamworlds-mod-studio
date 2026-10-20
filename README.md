@@ -139,6 +139,8 @@ The [release workflow](.github/workflows/release.yml) builds an existing tag and
 
 Scanning reads library mods in place. Saving in ModMaker rebuilds a ZIP mod's file, or writes only the changed files of an unpacked mod; Studio first keeps the original (for unpacked mods, just the files it changes) in its data folder, along with every saved version, until you delete the ModMaker project. Play applies the selected mod set and links unpacked mods rather than copying them; removing a link never touches the mod's own files. Profiles themselves don't change mod files.
 
+Play keeps its mods in an isolated user folder and shares settings and other user directories with BeamNG through directory junctions. If a real directory already exists in the Play profile, Studio migrates files missing from the main user folder before creating its junction. Conflicting files are kept in both locations without overwriting either version; that directory stays local to the Play profile until the conflicts are resolved.
+
 If a scan can't read a library folder (an unplugged drive, an offline share, denied access), the mods in it keep their place in the library and in collections, and the status bar names the folder until a scan reaches it again.
 
 </details>
